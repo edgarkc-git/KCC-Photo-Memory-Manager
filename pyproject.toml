@@ -1,0 +1,94 @@
+# Dependency manifest for the photo-manager engine.
+#
+# Two things about this file are deliberate and easy to "fix" wrongly:
+#
+# 1. `dependencies` is EMPTY, and that is not an oversight. Every third-party
+#    import in scripts/ is made INSIDE the function that needs it, never at
+#    module top level. The scan / plan / execute / format-check pipeline runs
+#    on the standard library alone; numpy is reached only when a memory or
+#    recurrence path actually runs, and torch only when a vision stage does.
+#    Hoisting these into `dependencies` would turn a ~5 MB install into a
+#    ~2.5 GB one for a user who only wants to sort files by date.
+#
+# 2. The heavy stages are EXTRAS, and they are split by what each one loads
+#    rather than lumped into one `vision` bucket: the identity stage pulls
+#    torchvision (a detector) and the embed stage pulls open_clip, and a user
+#    who wants one does not need the other's weights.
+#
+# Version floors, not pins: `~=` where the project reads a library's own
+# metadata or array semantics, `>=` where any reasonably current release
+# works. Exact `==` pins are avoided on purpose — they make the package
+# uninstallable alongside anything else in a shared environment.
+#
+# NOT installable by pip, and required at runtime regardless of extras:
+#   * exiftool  — every capture-date and metadata read goes through it. The
+#                 pipeline cannot run without it.
+#   * file(1)   — the MIME cross-check that catches HEIC-named QuickTime
+#                 movies, which exiftool alone misreports.
+#   * ffmpeg    — one frame per video for the vision stages. A system ffmpeg
+#                 on PATH is used first; otherwise the binary the
+#                 `imageio-ffmpeg` extra ships (below) — so pip alone is
+#                 enough. With neither, each video FAILS with the cause
+#                 `no_ffmpeg` and the stage exits 3; nothing is skipped.
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kcc-photo-manager"
+version = "2.0.0"
+description = "Screen, classify and organise a photo library into dated Trip / Event / Other folders, copy-only."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+keywords = ["photos", "exif", "organiser", "deduplication"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: System :: Archiving",
+]
+dependencies = []
+
+[project.optional-dependencies]
+# Subject memory, recurrence and clustering: array maths only.
+memory = ["numpy~=2.5"]
+
+# The CLIP scene/similarity stage (photo_embed.py, photo_see.py).
+embed = [
+    "numpy~=2.5",
+    "pillow>=11",
+    "pillow-heif>=1.1",
+    "imageio-ffmpeg>=0.6",
+    "torch>=2.6",
+    "open_clip_torch~=3.3",
+]
+
+# The subject-identity stage (photo_identity.py): an animal detector plus a
+# DINOv2 instance-retrieval embedding. Optional — with it absent the engine
+# falls back to the CLIP space by design, it does not fail.
+identity = [
+    "numpy~=2.5",
+    "pillow>=11",
+    "pillow-heif>=1.1",
+    "imageio-ffmpeg>=0.6",
+    "torch>=2.6",
+    "torchvision>=0.21",
+]
+
+all = [
+    "numpy~=2.5",
+    "pillow>=11",
+    "pillow-heif>=1.1",
+    "imageio-ffmpeg>=0.6",
+    "torch>=2.6",
+    "torchvision>=0.21",
+    "open_clip_torch~=3.3",
+]
+
+[tool.setuptools]
+# The engine is a set of CLI scripts, not an importable package.
+py-modules = []

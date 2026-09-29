@@ -1,0 +1,1015 @@
+<meta charset="utf-8">
+<!-- Without this the browser guesses the encoding, decodes UTF-8 as
+     latin-1, and every non-ASCII name on the page renders as mojibake.
+     It is what an owner sees as "the font is scrambled". The published
+     artifact gets a charset from its wrapper; a page opened from disk
+     or served by anything plain does NOT, so the page carries its own. -->
+<title>Select and Name the Subject</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;500;600&display=swap">
+
+<style>
+:root{
+  --ground:#F2F1EE; --surface:#FFFFFF; --sunk:#E9E7E2;
+  --ink:#1B1D21; --muted:#6B6E75; --hair:#D8D5CE;
+  --accent:#A96B15; --accent-soft:#F0E2CC; --on-accent:#FFFFFF;
+  --warn:#8C3A1E; --warn-soft:#F6E0D8;
+  --ok:#2F6B4F; --ok-soft:#DCEDE3;
+  --g1:#4C6B8A; --g2:#7A5C86; --g3:#3F7A63; --g4:#A15A4E;
+  --g5:#6E7440; --g6:#87553B; --g7:#4A6E77; --g8:#8A5570;
+  --g9:#5B6478; --g10:#77683A; --g11:#3E6A55; --g12:#8E5A2B;
+  --shadow:0 1px 2px rgba(27,29,33,.06), 0 4px 14px rgba(27,29,33,.05);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#16181B; --surface:#1E2126; --sunk:#121417;
+    --ink:#E8E6E1; --muted:#9A9CA3; --hair:#2E3239;
+    --accent:#E0A54A; --accent-soft:#3A2E1B; --on-accent:#16181B;
+    --warn:#E08A6A; --warn-soft:#3B241C;
+    --ok:#7FBF9C; --ok-soft:#1E3129;
+    --g1:#8FB0D0; --g2:#BFA0C8; --g3:#7FC0A4; --g4:#E0968A;
+    --g5:#B4BB7C; --g6:#C9926E; --g7:#8CB6BE; --g8:#CE94AE;
+    --g9:#A2AABE; --g10:#BCAA72; --g11:#7FB39A; --g12:#D19A66;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#16181B; --surface:#1E2126; --sunk:#121417;
+  --ink:#E8E6E1; --muted:#9A9CA3; --hair:#2E3239;
+  --accent:#E0A54A; --accent-soft:#3A2E1B; --on-accent:#16181B;
+  --warn:#E08A6A; --warn-soft:#3B241C;
+  --ok:#7FBF9C; --ok-soft:#1E3129;
+  --g1:#8FB0D0; --g2:#BFA0C8; --g3:#7FC0A4; --g4:#E0968A;
+  --g5:#B4BB7C; --g6:#C9926E; --g7:#8CB6BE; --g8:#CE94AE;
+  --g9:#A2AABE; --g10:#BCAA72; --g11:#7FB39A; --g12:#D19A66;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
+}
+
+*{box-sizing:border-box;}
+body{margin:0;background:var(--ground);color:var(--ink);
+  font-family:"Public Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;}
+h1,h2{font-family:"Fraunces","Iowan Old Style",Georgia,serif;font-weight:600;text-wrap:balance;margin:0;}
+.wrap{max-width:1400px;margin:0 auto;padding:32px 24px 96px;}
+header{border-bottom:1px solid var(--hair);padding-bottom:20px;margin-bottom:24px;}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:10px;}
+h1{font-size:clamp(28px,4vw,40px);line-height:1.1;letter-spacing:-.01em;}
+[hidden]{display:none!important;}
+.sub{color:var(--muted);margin-top:10px;max-width:64ch;}
+.facts{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:16px;font-size:13px;color:var(--muted);}
+.facts b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;}
+.steps{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:18px;padding:12px 14px;background:var(--accent-soft);border-radius:9px;font-size:13px;}
+.steps span{display:flex;gap:7px;align-items:baseline;}
+.steps i{font-style:normal;font-family:"IBM Plex Mono",monospace;font-weight:500;color:var(--accent);font-size:12px;}
+.cols{display:grid;grid-template-columns:1fr 390px;gap:26px;align-items:start;}
+@media (max-width:1080px){.cols{grid-template-columns:1fr;}}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--surface);
+  border:1px solid var(--hair);border-radius:10px;padding:12px 14px;margin-bottom:18px;
+  box-shadow:var(--shadow);position:sticky;top:0;z-index:20;}
+.selpill{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;background:var(--sunk);border-radius:20px;padding:4px 12px;}
+.selpill.hot{background:var(--accent);color:var(--on-accent);}
+button{font-family:inherit;font-size:13px;font-weight:500;color:var(--ink);background:var(--surface);
+  border:1px solid var(--hair);border-radius:7px;padding:7px 12px;cursor:pointer;transition:background .12s,border-color .12s;}
+button:hover:not(:disabled){background:var(--sunk);border-color:var(--muted);}
+button:disabled{opacity:.38;cursor:not-allowed;}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
+button.primary:hover:not(:disabled){background:var(--accent);border-color:var(--accent);
+  color:var(--on-accent);filter:brightness(1.08);}
+/* The three properties before the filter are not decoration. The generic
+   `button:hover:not(:disabled)` rule above outranks `button.primary` on
+   specificity, so without them the primary button takes the muted
+   background while keeping its light-on-accent text: dark on dark, and
+   the one button the whole page exists to reach looks disabled at the
+   moment the owner points at it. */
+button.danger{color:var(--warn);border-color:var(--warn);}
+button.big{font-size:14px;padding:10px 16px;width:100%;}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;}
+.frame{background:var(--surface);border:1px solid var(--hair);border-radius:10px;overflow:hidden;
+  position:relative;box-shadow:var(--shadow);border-left:5px solid var(--hair);transition:box-shadow .12s;}
+.frame.sel{box-shadow:0 0 0 3px var(--accent),var(--shadow);}
+.frame .shot{display:block;width:100%;border:0;padding:0;background:none;cursor:pointer;border-radius:0;}
+.frame .shot:hover{background:none;}
+.frame img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block;background:var(--sunk);}
+.gtag{position:absolute;top:9px;left:9px;min-width:26px;height:26px;padding:0 9px;border-radius:14px;
+  display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:#fff;
+  background:var(--muted);font-variant-numeric:tabular-nums;box-shadow:0 1px 4px rgba(0,0,0,.3);}
+.gtag.none{background:var(--sunk);color:var(--muted);border:1px dashed var(--hair);box-shadow:none;}
+.gtag.skip{background:var(--warn);}
+.fmeta{padding:9px 10px 11px;display:flex;flex-direction:column;gap:6px;}
+.frow{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.fnum{font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;}
+.prov{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;color:var(--muted);}
+.fwhere{font-size:12px;line-height:1.35;}
+.fnamed{font-size:12px;line-height:1.35;font-weight:600;color:var(--warn,#9a5b00);}
+.gname{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.frame select{width:100%;}
+.frame.skipped img{filter:grayscale(1);opacity:.55;}
+.panel{position:sticky;top:78px;display:flex;flex-direction:column;gap:16px;}
+.card{background:var(--surface);border:1px solid var(--hair);border-radius:10px;padding:16px;box-shadow:var(--shadow);}
+.card h2{font-size:17px;margin-bottom:4px;}
+.card .hint{font-size:12.5px;color:var(--muted);margin-bottom:12px;}
+.groups{display:flex;flex-direction:column;gap:10px;max-height:40vh;overflow-y:auto;}
+.grp{border:1px solid var(--hair);border-left-width:5px;border-radius:8px;padding:10px;background:var(--ground);}
+.grp-head{display:flex;align-items:center;gap:9px;margin-bottom:9px;}
+.grp-no{min-width:24px;height:24px;border-radius:12px;color:#fff;font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums;padding:0 8px;}
+.grp-frames{font-size:12.5px;flex:1;font-variant-numeric:tabular-nums;}
+.grp-blast{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;}
+.fields{display:grid;grid-template-columns:46px 1fr;gap:6px;align-items:center;}
+.fields label{font-size:12.5px;color:var(--muted);}
+select,input[type=text]{font-family:inherit;font-size:13px;color:var(--ink);background:var(--surface);
+  border:1px solid var(--hair);border-radius:6px;padding:5px 7px;width:100%;}
+.tablewrap{overflow-x:auto;margin-top:8px;}
+table{border-collapse:collapse;width:100%;font-size:13px;}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--hair);}
+th{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600;white-space:nowrap;}
+td.num{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;font-size:12px;}
+td .swatch{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:baseline;}
+tr.unnamed td{color:var(--muted);}
+.check{display:flex;align-items:flex-start;gap:9px;border-radius:8px;padding:10px 12px;font-size:12.5px;margin-top:12px;}
+.check.ok{background:var(--ok-soft);border:1px solid var(--ok);}
+.check.bad{background:var(--warn-soft);border:1px solid var(--warn);}
+.check b{font-weight:600;}
+.out{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;line-height:1.75;background:var(--sunk);
+  border:1px solid var(--hair);border-radius:8px;padding:12px;white-space:pre-wrap;word-break:break-word;max-height:26vh;overflow:auto;}
+.note{font-size:12.5px;color:var(--muted);margin-top:10px;}
+.note strong{color:var(--ink);}
+.banner{border-radius:9px;padding:12px 14px;font-size:13px;margin-bottom:18px;}
+.banner.ok{background:var(--ok-soft);border:1px solid var(--ok);}
+footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--hair);font-size:12.5px;color:var(--muted);max-width:82ch;}
+footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;}
+.rcheck{border:1px solid var(--hair);border-radius:9px;padding:12px;margin-bottom:12px;
+  display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;background:var(--ground);}
+.rcheck .shots{display:flex;gap:6px;}
+.rcheck .fig{width:78px;}
+.rcheck .fig .fwhere{font-size:10.5px;color:var(--muted);margin-top:3px;}
+.rcheck img{width:78px;height:104px;object-fit:cover;border-radius:6px;display:block;background:var(--sunk);}
+.rcheck h3{margin:0 0 3px;font-size:14px;font-family:inherit;font-weight:600;}
+.rcheck .why{font-size:12px;color:var(--muted);margin:0 0 9px;}
+.rcheck input{width:100%;}
+.rcheck .verbs{font-size:11.5px;color:var(--muted);margin-top:6px;}
+.rcheck .verbs code{font-family:"IBM Plex Mono",ui-monospace,monospace;}
+.dup{margin-top:8px;padding:9px 10px;border-radius:7px;background:var(--warn-soft);
+  border:1px solid var(--warn);font-size:12px;}
+.dup p{margin:0 0 7px;}
+.dup label{display:flex;gap:7px;align-items:baseline;margin-bottom:3px;cursor:pointer;}
+.role{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--warn);}
+.frame.evidence .shot{cursor:default;}
+.frame.evidence img{opacity:.82;}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--ground);
+  padding:9px 16px;border-radius:7px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:60;}
+.toast.on{opacity:1;}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow" id="eyebrow"></div>
+    <h1 id="headline"></h1>
+    <p class="sub" id="howmany">The engine looked at <span id="h-frames"></span> photographs and will not guess how many <span class="kindw"></span>s they show — a wrong merge mislabels both subjects silently and forever, a wrong split costs one extra question. So it asks you.</p>
+    <p class="sub" id="pets" hidden></p>
+    <div class="facts">
+      <span id="f-files"><b id="h-files"></b> files affected</span>
+      <span id="f-batches"><b id="h-batches"></b> batches</span>
+      <span id="h-span"></span>
+      <span>pack <b id="h-pack"></b></span>
+    </div>
+    <div class="steps" id="steps">
+      <span><i>1</i> Click the photos of one subject</span>
+      <span><i>2</i> Press <b>New group</b> — it takes the next number</span>
+      <span><i>3</i> Name it in <b>The Subjects</b></span>
+      <span><i>4</i> Repeat, then <b>Confirm</b></span>
+    </div>
+  </header>
+
+  <div id="submitted-banner"></div>
+  <div class="banner" id="draft-notice" hidden></div>
+
+  <div class="cols">
+    <main>
+      <div class="toolbar" id="toolbar">
+        <span class="selpill" id="selpill">0 selected</span>
+        <button class="primary" id="btn-new" disabled>New group</button>
+        <select id="addto" style="width:auto;min-width:140px" disabled></select>
+        <button id="btn-loose" disabled>Undecided</button>
+        <button class="danger" id="btn-skip" disabled>Not a subject</button>
+        <span style="flex:1"></span>
+        <button id="btn-clear" disabled>Clear selection</button>
+        <button id="btn-reset">Start over</button>
+      </div>
+      <div class="banner" id="no-round" hidden></div>
+      <div class="grid" id="grid"></div>
+
+      <div class="card" id="recheck-card" hidden style="margin-top:22px">
+        <h2 id="recheck-h">Remembered already</h2>
+        <p class="hint">Nothing here has to be answered &mdash; a blank row means
+          &ldquo;still right&rdquo; and writes nothing. Each photo below is the one
+          that matches its own memory <em>least</em> well: the frame that looks
+          right would prove nothing.</p>
+        <div id="recheck-list"></div>
+      </div>
+
+      <div class="card" id="place-card" hidden style="margin-top:22px">
+        <h2>A place you visit often</h2>
+        <p class="hint">Name it the way you call it. Say whether it is a home. Leave the name blank to skip it.</p>
+        <div id="place-list"></div>
+      </div>
+
+      <div class="card" id="answer-card" style="margin-top:22px">
+        <h2>Answer table</h2>
+        <p class="hint">One row per group. This is what gets written to the memory pack.</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Group</th><th>Photos</th><th>Who</th><th>Name</th><th>Files</th></tr></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <div id="validity"></div>
+      </div>
+    </main>
+
+    <aside class="panel">
+      <div class="card" id="subjects-card">
+        <h2>The Subjects</h2>
+        <p class="hint">Each group is one individual. Name it the way you actually call it — a group with no name stays unanswered.</p>
+        <div class="groups" id="groups"></div>
+      </div>
+
+      <div class="card">
+        <h2>Send it back</h2>
+        <p class="hint">Confirm writes your answer into this page and hands it to the agent. Nothing is copied or renamed on your drive.</p>
+        <button class="primary big" id="btn-confirm">Confirm — send to agent</button>
+        <div id="sendstate" class="note"></div>
+        <details style="margin-top:12px">
+          <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">Or copy the lines yourself</summary>
+          <div class="out" id="out" style="margin-top:8px"></div>
+          <button id="btn-copy" style="margin-top:8px">Copy</button>
+        </details>
+        <div style="margin-top:12px"><button id="btn-theme">Flip theme</button></div>
+      </div>
+    </aside>
+  </div>
+
+  <footer id="pet-notes">
+    <strong>Nothing starts grouped.</strong> The engine's own clustering is printed under each photo as <code>engine cluster N</code> — what it guessed, shown so you can disagree with it. It is not applied.<br><br>
+    <strong>Group numbers are stable.</strong> Once a group has a number it keeps it; deleting a group leaves a gap rather than renumbering the others under you. The numbers are display only — the answer is written in <em>photo</em> numbers, which is what the storage keys on.<br><br>
+    <strong>What happens after.</strong> Each named subject is remembered: next time a photo of it appears it is recognised, not asked about. Only the photos you actually picked are promoted as examples — never a whole cluster. <span id="later-note">Photos left undecided cost nothing and return at a later checkpoint.</span> <strong>Not a subject</strong> is the only irreversible choice, which is why it writes the word <code>confirm</code>.
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script id="round-data" type="application/json">__DATA__</script>
+<script id="page-template" type="text/plain">__TEMPLATE_B64__</script>
+<script>
+(function(){
+  "use strict";
+  var MARK_D = "__" + "DATA" + "__", MARK_T = "__" + "TEMPLATE_B64" + "__";
+
+  /* base64 -> text, decoded as UTF-8.
+
+     ⛔ NOT atob() on its own. atob returns a BINARY string — one character
+     per byte, i.e. latin-1 — so every multi-byte UTF-8 character comes back
+     double-encoded: a middot comes back as a capital-A-circumflex plus
+     the middot, an em dash as a three-character run. Spelled out rather
+     than pasted on purpose -- a literal example in this file is
+     indistinguishable from the real bug when anyone greps for it, and
+     trips the round-trip suite that guards this.
+     perfect when it is first rendered and corrupts itself the moment the
+     owner presses Confirm, because that is when the template is rebuilt
+     from this block. Reported from a live page, 20260901. */
+  function b64utf8(b64){
+    var bin = atob(b64), bytes = new Uint8Array(bin.length);
+    for(var i = 0; i < bin.length; i++){ bytes[i] = bin.charCodeAt(i); }
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+
+  var D = JSON.parse(document.getElementById("round-data").textContent);
+  var frames = D.frames, tiles = D.tiles;
+  var KIND = D.kind || "subject";
+  var PAGE = D.page || "";
+  // draft:begin
+  // FIX6 (U6-32) — a draft is scoped to the DUMP and the page name, and it
+  // remembers which photo each number meant. On `file://` every local page
+  // shares one origin, so a page-name-only key let a second dump's C1 open
+  // with the first dump's answers on different photos.
+  function draftKey(D){
+    return "sns-round-" + (D.unit || "") + "|" + (D.page || D.checkpoint || "C1") + "-v5";
+  }
+  function framesDigest(D){
+    var f = D.frames || {};
+    return Object.keys(f).map(Number).sort(function(a,b){ return a-b; })
+      .map(function(n){ return n + "=" + (f[n].key || f[n].file || ""); })
+      .concat((D.places || []).map(function(p){ return "place" + p.n + "=" + (p.title || ""); }))
+      .join(",");
+  }
+  // -> {state, discarded}: a saved draft only while every number still means
+  // the same photo; otherwise it is dropped and the page says so.
+  function restoreDraft(raw, digest){
+    var p = null;
+    try{ p = raw ? JSON.parse(raw) : null; }catch(e){ p = null; }
+    if(!p || !p.assign || !p.next) return {state:null, discarded:false};
+    if(p.digest !== digest) return {state:null, discarded:true};
+    return {state:p, discarded:false};
+  }
+  // draft:end
+  var KEY = draftKey(D), DIGEST = framesDigest(D), DISCARDED = false;
+  var KNOWN = (D.known_names || []).slice();
+  function collides(name){
+    var t = (name||"").trim().toLowerCase();
+    if(!t) return null;
+    for(var i=0;i<KNOWN.length;i++){
+      if(String(KNOWN[i].name).trim().toLowerCase() === t) return KNOWN[i];
+    }
+    return null;
+  }
+  // The NAME the parser will store: the owner's typing with the answer
+  // suffixes (` same subj-NNNN`, ` same`, ` distinct`) taken off, using the
+  // parser's own patterns (`D.name_suffixes`), so display and parse cannot
+  // drift. DISPLAY ONLY — `lines()` still emits what was typed, byte for byte.
+  // bareName:begin
+  var SUFFIXES = (D.name_suffixes || []).map(function(p){ return new RegExp(p, "i"); });
+  // In the parser's order: `same subj-NNNN` once, then ` same` / ` distinct`
+  // repeatedly, each needing a space before it, exactly as photo_memory reads them.
+  function bareName(name){
+    var t = (name || "").trim(), rest = SUFFIXES.slice(1), again = true;
+    if(t && SUFFIXES.length && SUFFIXES[0].test(t)) t = t.replace(SUFFIXES[0], "").trim();
+    while(t && again){
+      again = false;
+      for(var i = 0; i < rest.length && !again; i++){
+        if(rest[i].test(t)){ t = t.replace(rest[i], "").trim(); again = true; }
+      }
+    }
+    return t;
+  }
+  // bareName:end
+
+  // furniture:begin
+  var RE = D.recheck || [];
+  // G6-6c — the place question of a batch page.
+  var PLACES = D.places || [];
+  var reFrames = {};
+  RE.forEach(function(r){ (r.frames||[]).forEach(function(n){ reFrames[n] = true; }); });
+  var nums = Object.keys(frames).map(Number).sort(function(a,b){return a-b;})
+    .filter(function(n){ return !reFrames[n]; });
+  // SNS-1: a frame the owner cannot pick is worse than one that is not shown,
+  // so an evidence-only frame is rendered, labelled, and left unselectable
+  // rather than quietly dropped. Only `exemplar` frames may be memorized.
+  function isEvidence(n){ return frames[n] && frames[n].role === "evidence"; }
+  function pickable(){ return nums.filter(function(n){ return !isEvidence(n); }); }
+  var engineCluster = {};
+  tiles.forEach(function(t){ t.frames.forEach(function(n){ engineCluster[n] = t.tile; }); });
+
+  // G8 — a batch page that asks only about a place hides the animal
+  // furniture, and the tab names the page it is.
+  function furniture(){
+    var placeOnly = !!PAGE && !nums.length && !RE.length && PLACES.length > 0;
+    return {
+      placeOnly: placeOnly,
+      title: PAGE ? "Photo page " + PAGE
+                  : "Memory review · Checkpoint " + (D.checkpoint || "C1"),
+      hide: placeOnly ? ["howmany", "pets", "f-files", "f-batches", "steps", "toolbar",
+                         "answer-card", "subjects-card", "pet-notes"] : [],
+      noRound: placeOnly ? "" : (D.no_round || (PAGE ? "" : "No draft crossed the threshold."))
+    };
+  }
+  // furniture:end
+  var FURNITURE = furniture();
+  document.title = FURNITURE.title;
+
+  // G6-6 — a batch page is named for itself, never "Checkpoint C1".
+  document.getElementById("eyebrow").textContent = PAGE
+    ? "Photo page " + PAGE + " · batch " + D.batch + " · " + (D.unit || "")
+    : "Memory review · Checkpoint " + (D.checkpoint || "C1") + " · " + (D.unit || "");
+  if(PAGE && KNOWN.length && !FURNITURE.placeOnly){
+    var pets = document.getElementById("pets");
+    pets.hidden = false;
+    pets.textContent = "Your animals: " + KNOWN.map(function(k){ return k.name; }).join(", ") +
+      ". Give a group one of these names with its button, or type a new name for an animal that is not on your list.";
+  }
+  if(PAGE){
+    document.getElementById("later-note").textContent =
+      "Photos left undecided cost nothing; the last page, after the copy, may ask about them again.";
+  }
+  document.getElementById("headline").textContent = "How many " + KIND + "s is this?";
+  Array.prototype.forEach.call(document.querySelectorAll(".kindw"), function(el){
+    el.textContent = KIND;
+  });
+  document.getElementById("h-frames").textContent = nums.length;
+  document.getElementById("h-files").textContent = D.files;
+  document.getElementById("h-batches").textContent = D.batches;
+  document.getElementById("h-span").textContent = D.span;
+  document.getElementById("h-pack").textContent = D.pack.replace("sha256:","").slice(0,8);
+  document.getElementById("btn-skip").textContent = "Not a " + KIND;
+  if(!nums.length){
+    document.getElementById("headline").textContent =
+      PLACES.length ? "Name a place you visit often"
+      : RE.length ? "Check what is already remembered" : "Nothing to answer";
+    var nr = document.getElementById("no-round");
+    nr.hidden = false; nr.className = "banner ok";
+    nr.innerHTML = (PAGE ? "<b>No animal question on this page.</b> "
+                         : "<b>No question at this checkpoint.</b> ") +
+      esc(FURNITURE.noRound) +
+      (RE.length ? " The names below are here so one you gave once is never out of reach."
+                 : "");
+    document.querySelector(".toolbar").hidden = true;
+  }
+  FURNITURE.hide.forEach(function(id){ document.getElementById(id).hidden = true; });
+
+  function pad(n){ return "Group" + (n < 10 ? "0" + n : "" + n); }
+  function esc(t){ var d = document.createElement("div"); d.textContent = t; return d.innerHTML; }
+
+  var state, sel = {};
+  function fresh(){ return {assign:{}, meta:{}, next:1, submitted:null, digest:DIGEST}; }
+  function load(){
+    var got = {state:null, discarded:false};
+    try{ got = restoreDraft(localStorage.getItem(KEY), DIGEST); }catch(e){}
+    if(got.discarded){
+      DISCARDED = true;
+      try{ localStorage.removeItem(KEY); }catch(e){}
+    }
+    return got.state || fresh();
+  }
+  function save(){ state.digest = DIGEST; try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
+  state = load();
+  if(D.submitted && !state.submitted) state.submitted = D.submitted;
+
+  // G6-6d — a photo with 2+ animals may be in one group per animal: its
+  // first group is `assign`, the others `extra`. Every other photo is in one.
+  function animalsIn(n){ return (frames[n] && frames[n].animals) || 1; }
+  function groupsOf(n){
+    var g = state.assign[n], out = typeof g === "number" ? [g] : [];
+    ((state.extra || {})[n] || []).forEach(function(x){ if(out.indexOf(x) < 0) out.push(x); });
+    return out;
+  }
+  function groupNos(){
+    var out = [];
+    nums.forEach(function(n){
+      groupsOf(n).forEach(function(g){ if(out.indexOf(g) < 0) out.push(g); });
+    });
+    return out.sort(function(a,b){ return a-b; });
+  }
+  function framesOf(g){ return nums.filter(function(n){ return groupsOf(n).indexOf(g) >= 0; }); }
+  function colorOf(g){ return "var(--g" + (((g-1) % 12) + 1) + ")"; }
+  function blastOf(g){
+    var seen = [], total = 0;
+    framesOf(g).forEach(function(n){
+      var sid = frames[n].subject_id;
+      if(seen.indexOf(sid) < 0){
+        seen.push(sid);
+        var t = tiles.filter(function(x){ return x.subject_id === sid; })[0];
+        if(t) total += t.files;
+      }
+    });
+    return total;
+  }
+  function meta(g){
+    if(!state.meta[g]) state.meta[g] = {who:"pet", name:"", dup:""};
+    if(state.meta[g].dup === undefined) state.meta[g].dup = "";
+    return state.meta[g];
+  }
+  function selected(){ return nums.filter(function(n){ return sel[n]; }); }
+  function assignTo(list, value){
+    if(!state.extra) state.extra = {};
+    list.forEach(function(n){
+      var cur = state.assign[n], extra = state.extra[n] || [];
+      if(typeof value === "number" && typeof cur === "number" && cur !== value
+         && animalsIn(n) > 1 && extra.indexOf(value) < 0
+         && 1 + extra.length < animalsIn(n)){
+        extra.push(value); state.extra[n] = extra;      // one more animal named
+        return;
+      }
+      delete state.extra[n];
+      if(value === null) delete state.assign[n]; else state.assign[n] = value;
+    });
+    sel = {}; save(); render();
+  }
+
+  // ---- the integrity check. A photo is in at most as many groups as the
+  // animals the engine counted in it (one for almost every photo). This proves
+  // it rather than assuming it.
+  function integrity(){
+    var seen = {}, dupes = [];
+    groupNos().forEach(function(g){
+      framesOf(g).forEach(function(n){
+        seen[n] = (seen[n] || []).concat([g]);
+        if(seen[n].length > animalsIn(n)) dupes.push({photo:n, groups:seen[n].slice(-2)});
+      });
+    });
+    return dupes;
+  }
+
+  function render(){
+    var grid = document.getElementById("grid");
+    grid.textContent = "";
+    var gnos = groupNos();
+
+    nums.forEach(function(n){
+      var f = frames[n], g = state.assign[n], isG = typeof g === "number";
+      var card = document.createElement("div");
+      card.className = "frame" + (sel[n] ? " sel" : "") + (g === "skip" ? " skipped" : "")
+        + (isEvidence(n) ? " evidence" : "");
+      card.style.borderLeftColor = isG ? colorOf(g) : (g === "skip" ? "var(--warn)" : "var(--hair)");
+
+      var shot = document.createElement("button");
+      shot.className = "shot";
+      shot.setAttribute("aria-pressed", sel[n] ? "true" : "false");
+      shot.setAttribute("aria-label", "Photo " + n + (isG ? ", in " + pad(g)
+        : g === "skip" ? ", marked not a " + KIND : ", undecided") + ". Click to select.");
+      var img = document.createElement("img");
+      img.src = f.data; img.alt = "Photo " + n + ", from batch " + f.batch + (f.where ? ", " + f.where : ""); img.loading = "lazy";
+      shot.appendChild(img);
+      var tag = document.createElement("span");
+      tag.className = "gtag" + (isG ? "" : g === "skip" ? " skip" : " none");
+      tag.textContent = isG ? pad(g).replace("Group","") : (g === "skip" ? "✕" : "–");
+      if(isG) tag.style.background = colorOf(g);
+      shot.appendChild(tag);
+      shot.addEventListener("click", function(){
+        if(isEvidence(n)){ say("Photo " + n + " is here as evidence — it holds more than one "
+          + KIND + ", so it cannot become an example"); return; }
+        sel[n] = !sel[n]; render(); });
+      card.appendChild(shot);
+
+      var m = document.createElement("div"); m.className = "fmeta";
+      var row = document.createElement("div"); row.className = "frow";
+      var fn = document.createElement("span"); fn.className = "fnum"; fn.textContent = "Photo " + n;
+      var pv = document.createElement("span");
+      if(isEvidence(n)){ pv.className = "role"; pv.textContent = "evidence only"; }
+      else { pv.className = "prov"; pv.textContent = "engine cluster " + engineCluster[n]; }
+      row.appendChild(fn); row.appendChild(pv); m.appendChild(row);
+      // F10: printed verbatim from the markdown, never re-worded here.
+      if(f.where){ var wh = document.createElement("div"); wh.className = "fwhere";
+        wh.textContent = f.where; m.appendChild(wh); }
+      // B4 — the name this photo carries now: a new name given here replaces it.
+      if(f.named){ var nm = document.createElement("div"); nm.className = "fnamed";
+        nm.textContent = "Already named " + f.named + " — a new name here replaces it";
+        m.appendChild(nm); }
+
+      var nm = document.createElement("div"); nm.className = "gname";
+      nm.textContent = isG ? groupsOf(n).map(function(x){
+                               return pad(x) + (bareName(meta(x).name) ? " · " + bareName(meta(x).name) : " · unnamed"); }).join(" + ")
+                           : (g === "skip" ? ("not a " + KIND) : "undecided");
+      if(animalsIn(n) > 1){
+        var ab = document.createElement("div"); ab.className = "fwhere";
+        ab.textContent = animalsIn(n) + " animals in this photo: add it to one group per animal. It names them, and is never kept as an example of either.";
+        m.appendChild(ab);
+        // Q8-c — one tick per crop: a picture in a frame or a reflection is
+        // not a real animal. It stops counting; nothing is rejected.
+        (f.crops || []).forEach(function(c){
+          var key = n + "." + c.animal;
+          var lab = document.createElement("label"); lab.className = "fwhere";
+          if(c.data){ var ci = document.createElement("img"); ci.src = c.data;
+            ci.alt = "animal " + key; ci.style.height = "48px"; ci.style.verticalAlign = "middle";
+            lab.appendChild(ci); }
+          var cb = document.createElement("input"); cb.type = "checkbox";
+          if(!state.notAnimal) state.notAnimal = {};
+          cb.checked = !!state.notAnimal[key];
+          cb.addEventListener("change", function(){
+            state.notAnimal[key] = cb.checked; save(); paint(); });
+          lab.appendChild(cb);
+          lab.appendChild(document.createTextNode(" animal " + key + " is not a real animal (a picture, a reflection)"));
+          m.appendChild(lab);
+        });
+      }
+      m.appendChild(nm);
+
+      var sl = document.createElement("select");
+      sl.setAttribute("aria-label", "Group for photo " + n);
+      sl.disabled = isEvidence(n);
+      function opt(v,t,on){ var o=document.createElement("option");
+        o.value=v; o.textContent=t; if(on) o.selected=true; sl.appendChild(o); }
+      opt("", "– undecided", !isG && g !== "skip");
+      gnos.forEach(function(x){ opt(String(x), pad(x) + (bareName(meta(x).name) ? " · " + bareName(meta(x).name) : ""), isG && g === x); });
+      opt("new", "+ new group");
+      opt("skip", "✕ not a " + KIND, g === "skip");
+      sl.addEventListener("change", function(){
+        var v = sl.value;
+        if(v === "new") assignTo([n], state.next++);
+        else if(v === "skip") assignTo([n], "skip");
+        else if(v === "") assignTo([n], null);
+        else assignTo([n], parseInt(v,10));
+      });
+      m.appendChild(sl); card.appendChild(m); grid.appendChild(card);
+    });
+
+    var gs = document.getElementById("groups"); gs.textContent = "";
+    if(!gnos.length){
+      var p = document.createElement("p"); p.className = "hint";
+      p.textContent = "No subjects yet. Select the photos of one and press New group.";
+      gs.appendChild(p);
+    }
+    gnos.forEach(function(g){
+      var box = document.createElement("div"); box.className = "grp";
+      box.style.borderLeftColor = colorOf(g);
+      var head = document.createElement("div"); head.className = "grp-head";
+      var no = document.createElement("span"); no.className = "grp-no";
+      no.style.background = colorOf(g); no.textContent = pad(g);
+      head.appendChild(no);
+      var fr = document.createElement("span"); fr.className = "grp-frames";
+      fr.textContent = "photo " + framesOf(g).join(", ");
+      head.appendChild(fr);
+      var bl = document.createElement("span"); bl.className = "grp-blast";
+      bl.textContent = blastOf(g) + " files"; head.appendChild(bl);
+      box.appendChild(head);
+
+      var fl = document.createElement("div"); fl.className = "fields";
+      var lw = document.createElement("label"); lw.textContent = "who"; lw.setAttribute("for","who-"+g);
+      var sw = document.createElement("select"); sw.id = "who-"+g;
+      // A batch page asks about animals only (NF-3).
+      (PAGE ? ["pet"] : ["pet","family","friend","self","colleague"]).forEach(function(o){
+        var op=document.createElement("option"); op.value=o; op.textContent=o;
+        if(meta(g).who===o) op.selected=true; sw.appendChild(op); });
+      sw.addEventListener("change", function(){ meta(g).who = sw.value; save(); paint(); });
+      fl.appendChild(lw); fl.appendChild(sw);
+      var ln = document.createElement("label"); ln.textContent = "name"; ln.setAttribute("for","name-"+g);
+      var inp = document.createElement("input"); inp.type="text"; inp.id="name-"+g;
+      inp.value = meta(g).name; inp.placeholder = "what you call this " + KIND;
+      var wasDup = !!collides(meta(g).name);
+      inp.addEventListener("input", function(){
+        meta(g).name = inp.value; save();
+        // The collision question has to appear the moment the name collides,
+        // not on blur: paint() writes the warning but only render() draws the
+        // two answers to it, and a warning with no answer beside it is where
+        // an owner stops. Focus and caret are restored, so a full re-render is
+        // invisible mid-typing.
+        var isDup = !!collides(inp.value);
+        if(isDup !== wasDup){
+          wasDup = isDup; render();
+          var again = document.getElementById("name-"+g);
+          if(again){ again.focus();
+            try{ again.setSelectionRange(again.value.length, again.value.length); }catch(e){} }
+        } else paint();
+      });
+      inp.addEventListener("change", function(){ render(); });
+      fl.appendChild(ln); fl.appendChild(inp);
+      box.appendChild(fl);
+      if(PAGE && KNOWN.length){
+        // G6-6 — the owner's own names as one-click answers: the name, and
+        // "the same one — join them" already chosen.
+        var chips = document.createElement("div"); chips.className = "verbs";
+        KNOWN.forEach(function(k){
+          var b = document.createElement("button"); b.type = "button";
+          b.textContent = k.name;
+          b.addEventListener("click", function(){
+            meta(g).name = k.name; meta(g).dup = "same"; save(); render(); });
+          chips.appendChild(b);
+        });
+        box.appendChild(chips);
+      }
+
+      // A typed name the pack already remembers is a QUESTION, never a merge
+      // the page performs on its own: `same` folds two subjects into one and
+      // there is no un-fold verb, so it has to be the owner's word.
+      var hit = collides(meta(g).name);
+      if(hit){
+        var dp = document.createElement("div"); dp.className = "dup";
+        var q = document.createElement("p");
+        q.innerHTML = "This pack already remembers a <b>" + esc(hit.name) +
+          "</b>" + (hit.files ? " (" + hit.files + " file(s))" : "") + ". Which do you mean?";
+        dp.appendChild(q);
+        [["same", "The same one — join them"],
+         ["distinct", "A different one that happens to share the name"]
+        ].forEach(function(o){
+          var lab = document.createElement("label");
+          var rb = document.createElement("input");
+          rb.type = "radio"; rb.name = "dup-" + g; rb.value = o[0];
+          if(meta(g).dup === o[0]) rb.checked = true;
+          rb.addEventListener("change", function(){ meta(g).dup = o[0]; save(); paint(); });
+          lab.appendChild(rb);
+          lab.appendChild(document.createTextNode(o[1]));
+          dp.appendChild(lab);
+        });
+        box.appendChild(dp);
+      } else if(meta(g).dup){ meta(g).dup = ""; }
+
+      gs.appendChild(box);
+    });
+
+    var s = selected(), any = s.length > 0;
+    var pill = document.getElementById("selpill");
+    pill.textContent = s.length + " selected";
+    pill.className = "selpill" + (any ? " hot" : "");
+    ["btn-new","btn-loose","btn-skip","btn-clear"].forEach(function(id){
+      document.getElementById(id).disabled = !any; });
+    var add = document.getElementById("addto");
+    add.disabled = !any || !gnos.length; add.textContent = "";
+    var o0 = document.createElement("option");
+    o0.value=""; o0.textContent = gnos.length ? "Add to group…" : "no groups yet";
+    add.appendChild(o0);
+    gnos.forEach(function(x){ var o=document.createElement("option");
+      o.value=String(x); o.textContent="Add to "+pad(x)+(bareName(meta(x).name)?" · "+bareName(meta(x).name):"");
+      add.appendChild(o); });
+    renderRecheck();
+    renderPlaces();
+    paint();
+  }
+
+  function placeState(n){
+    if(!state.places) state.places = {};
+    if(!state.places[n]) state.places[n] = {name:"", home:""};
+    return state.places[n];
+  }
+
+  function renderPlaces(){
+    var card = document.getElementById("place-card");
+    if(!PLACES.length){ card.hidden = true; return; }
+    card.hidden = false;
+    var box = document.getElementById("place-list"); box.textContent = "";
+    PLACES.forEach(function(pl){
+      var row = document.createElement("div"); row.className = "rcheck";
+      var shots = document.createElement("div"); shots.className = "shots";
+      (pl.photos || []).forEach(function(src, i){
+        var im = document.createElement("img"); im.src = src; im.loading = "lazy";
+        im.alt = "Place " + pl.n + ", photo " + (i + 1);
+        var fig = document.createElement("div"); fig.className = "fig";
+        fig.appendChild(im); shots.appendChild(fig);
+      });
+      row.appendChild(shots);
+      var body = document.createElement("div");
+      var h = document.createElement("h3");
+      h.textContent = pl.days + " day(s) over " + pl.months + " month(s)";
+      body.appendChild(h);
+      // The page's own sentences, printed verbatim: the question, a held
+      // photo, and that batches already cut are not cut again.
+      (pl.notes || []).forEach(function(t){
+        var p = document.createElement("p"); p.className = "why"; p.textContent = t;
+        body.appendChild(p); });
+      var st = placeState(pl.n);
+      var inp = document.createElement("input"); inp.type = "text";
+      inp.id = "place-" + pl.n; inp.value = st.name;
+      inp.placeholder = "what you call this place";
+      inp.setAttribute("aria-label", "Name of place " + pl.n);
+      inp.addEventListener("input", function(){ st.name = inp.value; save(); paint(); });
+      body.appendChild(inp);
+      var hs = document.createElement("select"); hs.id = "home-" + pl.n;
+      hs.setAttribute("aria-label", "Is place " + pl.n + " a home?");
+      [["", "not a home"], ["live", "a home — I live here"],
+       ["visit", "a home I stay at when I travel"]].forEach(function(o){
+        var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1];
+        if(st.home === o[0]) op.selected = true; hs.appendChild(op); });
+      hs.addEventListener("change", function(){ st.home = hs.value; save(); paint(); });
+      body.appendChild(hs);
+      row.appendChild(body); box.appendChild(row);
+    });
+  }
+
+  function placeRows(){
+    return PLACES.map(function(pl){
+      var st = placeState(pl.n);
+      return {n:pl.n, name:(st.name || "").trim(), home:st.home || ""};
+    }).filter(function(r){ return r.name; });
+  }
+
+  function recheckState(sid){
+    if(!state.recheck) state.recheck = {};
+    if(state.recheck[sid] === undefined) state.recheck[sid] = "";
+    return state.recheck[sid];
+  }
+
+  function renderRecheck(){
+    var card = document.getElementById("recheck-card");
+    if(!RE.length){ card.hidden = true; return; }
+    card.hidden = false;
+    document.getElementById("recheck-h").textContent =
+      "Remembered already — check these are still right (" + RE.length + ")";
+    var box = document.getElementById("recheck-list");
+    box.textContent = "";
+    RE.forEach(function(r){
+      var row = document.createElement("div"); row.className = "rcheck";
+      var shots = document.createElement("div"); shots.className = "shots";
+      (r.frames||[]).forEach(function(n){
+        var f = frames[n]; if(!f) return;
+        var fig = document.createElement("div"); fig.className = "fig";
+        var im = document.createElement("img");
+        im.src = f.data; im.loading = "lazy";
+        im.alt = r.name + ", photo " + n + ", from batch " + f.batch + (f.where ? ", " + f.where : "");
+        fig.appendChild(im);
+        if(f.where){ var wh = document.createElement("div"); wh.className = "fwhere";
+          wh.textContent = f.where; fig.appendChild(wh); }
+        shots.appendChild(fig);
+      });
+      row.appendChild(shots);
+
+      var body = document.createElement("div");
+      var h = document.createElement("h3");
+      h.textContent = r.name + (r.files ? "  ·  " + r.files + " file(s)" : "");
+      body.appendChild(h);
+      var why = document.createElement("p"); why.className = "why";
+      why.textContent = r.why || "";
+      body.appendChild(why);
+
+      var inp = document.createElement("input");
+      inp.type = "text"; inp.id = "rc-" + r.subject_id;
+      inp.value = recheckState(r.subject_id);
+      inp.placeholder = "leave blank if it is still right";
+      inp.setAttribute("aria-label", "Recheck " + r.name);
+      inp.addEventListener("input", function(){
+        state.recheck[r.subject_id] = inp.value; save(); paint(); });
+      body.appendChild(inp);
+
+      var v = document.createElement("div"); v.className = "verbs";
+      v.innerHTML = "<code>withdraw</code> takes the name back and asks again  ·  " +
+        "<code>revive</code> takes a rejection back  ·  " +
+        "or type a new name to correct this one";
+      body.appendChild(v);
+      row.appendChild(body);
+      box.appendChild(row);
+    });
+  }
+
+  function recheckRows(){
+    return RE.map(function(r){
+      return {subject_id:r.subject_id, name:r.name,
+              value:(state.recheck && state.recheck[r.subject_id] || "").trim()};
+    }).filter(function(r){ return r.value; });
+  }
+
+  function answerRows(){
+    return groupNos().map(function(g){
+      return {group:pad(g), n:g, photos:framesOf(g), who:meta(g).who,
+              name:(meta(g).name||"").trim(), dup:meta(g).dup || "",
+              files:blastOf(g)};
+    }).filter(function(r){ return r.photos.length; });
+  }
+  function skipped(){ return nums.filter(function(n){ return state.assign[n] === "skip"; }); }
+  function lines(){
+    // G6-6 (G4) — a batch page's answer names its page, so `apply` lands it on
+    // that page and nowhere else.
+    var head = PAGE ? ["- page: " + PAGE] : [];
+    var out = answerRows().map(function(r){
+      // SNS-7 / SNS-14: the collision answer is a suffix on the NAME, which is
+      // where the parser reads it from. An unanswered collision emits nothing
+      // rather than guessing — `paint()` refuses to confirm while one is open.
+      var nm = r.name || "______";
+      if(r.name && r.dup) nm = nm + " " + r.dup;
+      return "- pick: " + r.photos.join(",") + "   who: " + r.who + "   name: " + nm;
+    });
+    var sk = skipped();
+    // Q8-c — crops that are not a real animal ride on the same `skip:` row,
+    // as `<photo>.<animal>` with `not-a-subject`.
+    var na = Object.keys(state.notAnimal || {}).filter(function(k){
+      return state.notAnimal[k]; }).sort();
+    var parts = [];
+    if(sk.length) parts.push(sk.join(",") + " confirm");
+    if(na.length) parts.push(na.join(",") + " not-a-subject");
+    if(parts.length) out.push("- skip: " + parts.join(", "));
+    recheckRows().forEach(function(r){
+      out.push("- recheck: " + r.subject_id + " " + r.value);
+    });
+    placeRows().forEach(function(r){
+      out.push("- place: " + r.n + "   name: " + r.name + "   home: " + r.home);
+    });
+    return out.length ? head.concat(out) : out;
+  }
+
+  function paint(){
+    var rows = answerRows();
+    var tb = document.getElementById("tbody"); tb.textContent = "";
+    if(!rows.length){
+      var tr = document.createElement("tr"); var td = document.createElement("td");
+      td.colSpan = 5; td.textContent = "No groups yet."; td.style.color = "var(--muted)";
+      tr.appendChild(td); tb.appendChild(tr);
+    }
+    rows.forEach(function(r){
+      var tr = document.createElement("tr");
+      if(!r.name) tr.className = "unnamed";
+      var c1 = document.createElement("td");
+      var sw = document.createElement("span"); sw.className = "swatch";
+      sw.style.background = colorOf(r.n); c1.appendChild(sw);
+      c1.appendChild(document.createTextNode(r.group));
+      var c2 = document.createElement("td"); c2.className = "num"; c2.textContent = r.photos.join(", ");
+      var c3 = document.createElement("td"); c3.textContent = r.who;
+      var c4 = document.createElement("td"); c4.textContent = bareName(r.name) || "— not named yet";
+      var c5 = document.createElement("td"); c5.className = "num"; c5.textContent = r.files;
+      [c1,c2,c3,c4,c5].forEach(function(c){ tr.appendChild(c); });
+      tb.appendChild(tr);
+    });
+    var sk = skipped();
+    if(sk.length){
+      var tr2 = document.createElement("tr");
+      var a = document.createElement("td"); a.textContent = "— not a " + KIND;
+      a.style.color = "var(--warn)";
+      var b = document.createElement("td"); b.className="num"; b.textContent = sk.join(", ");
+      var c = document.createElement("td"); c.colSpan = 3;
+      c.textContent = "irreversible — never asked again";
+      c.style.color = "var(--warn)";
+      [a,b,c].forEach(function(x){ tr2.appendChild(x); });
+      tb.appendChild(tr2);
+    }
+
+    var dupes = integrity(), undec = nums.filter(function(n){
+      return state.assign[n] === undefined || state.assign[n] === null; });
+    var v = document.getElementById("validity");
+    if(dupes.length){
+      v.className = "check bad";
+      v.innerHTML = "<div><b>A photo is in two groups.</b> " + dupes.map(function(d){
+        return "Photo " + d.photo + " is in " + pad(d.groups[0]) + " and " + pad(d.groups[1]);
+      }).join("; ") + ". A photo is in one group per animal it shows — fix this before confirming.</div>";
+    } else {
+      var unnamed = answerRows().filter(function(r){ return !r.name; }).length;
+      v.className = "check ok";
+      v.innerHTML = "<div><b>No photo is in more groups than the animals it shows.</b> " +
+        answerRows().length + " group(s)" +
+        (unnamed ? ", <b>" + unnamed + "</b> still unnamed" : "") +
+        (undec.length ? ", " + undec.length + " photo(s) left undecided — free" + (PAGE ? "" : ", they come back later") : "") +
+        ".</div>";
+    }
+    var openDup = answerRows().filter(function(r){ return r.name && collides(r.name) && !r.dup; });
+    if(openDup.length && !dupes.length){
+      v.className = "check bad";
+      v.innerHTML = "<div><b>A name needs an answer.</b> " +
+        openDup.map(function(r){ return r.group + " is called " + esc(r.name); }).join("; ") +
+        ", and this pack already remembers that name. Say whether it is the same one or a " +
+        "different one before confirming.</div>";
+    }
+    document.getElementById("out").textContent = lines().join("\n") || "Nothing answered yet.";
+    document.getElementById("btn-confirm").disabled =
+      dupes.length > 0 || openDup.length > 0 ||
+      !(answerRows().filter(function(r){ return r.name; }).length || recheckRows().length
+        || placeRows().length);
+    banner();
+  }
+
+  function banner(){
+    var el = document.getElementById("submitted-banner");
+    if(state.submitted){
+      el.innerHTML = '<div class="banner ok"><b>Sent to the agent.</b> ' +
+        (state.submitted.rows||[]).length + ' subject(s) confirmed' +
+        ((state.submitted.recheck||[]).length
+          ? ', ' + state.submitted.recheck.length + ' name(s) rechecked' : '') +
+        ' at ' + state.submitted.at +
+        '. Change anything above and press Confirm again to send a correction.</div>';
+    } else el.textContent = "";
+  }
+
+  document.getElementById("btn-new").addEventListener("click", function(){
+    var s = selected(); if(!s.length) return;
+    var id = state.next++; assignTo(s, id);
+    say(pad(id) + " — " + s.length + " photo" + (s.length===1?"":"s"));
+    var el = document.getElementById("name-"+id); if(el) el.focus();
+  });
+  document.getElementById("addto").addEventListener("change", function(){
+    var v=this.value; if(!v) return; var s=selected(); if(!s.length) return;
+    assignTo(s, parseInt(v,10)); say("added to " + pad(parseInt(v,10)));
+  });
+  document.getElementById("btn-loose").addEventListener("click", function(){
+    var s=selected(); if(s.length){ assignTo(s,null); say("left undecided"); } });
+  document.getElementById("btn-skip").addEventListener("click", function(){
+    var s=selected(); if(s.length){ assignTo(s,"skip"); say("marked not a "+KIND); } });
+  document.getElementById("btn-clear").addEventListener("click", function(){ sel={}; render(); });
+  document.getElementById("btn-reset").addEventListener("click", function(){
+    var keep = state.submitted; state = fresh(); state.submitted = keep;
+    sel={}; save(); render(); say("cleared"); });
+  document.getElementById("btn-copy").addEventListener("click", function(){
+    navigator.clipboard.writeText(lines().join("\n")).then(
+      function(){ say("Copied"); }, function(){ say("Select and copy manually"); }); });
+  document.getElementById("btn-theme").addEventListener("click", function(){
+    var r=document.documentElement, cur=r.getAttribute("data-theme");
+    var dark = cur ? cur==="dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    r.setAttribute("data-theme", dark ? "light" : "dark"); });
+
+  document.getElementById("btn-confirm").addEventListener("click", async function(){
+    var btn = this, st = document.getElementById("sendstate");
+    var payload = {at:new Date().toISOString().slice(0,16).replace("T"," "),
+                   rows:answerRows(), skip:skipped(), recheck:recheckRows(), places:placeRows(),
+                   lines:lines(), checkpoint:PAGE || D.checkpoint || "C1", unit:D.unit || ""};
+    btn.disabled = true; st.textContent = "Sending…";
+    var api = null;
+    try{ api = await window.claude.use("artifact"); }catch(e){ api = null; }
+    if(!api){
+      st.innerHTML = "<b>Could not reach the agent from this page.</b> Open the copy block below and paste the lines into the chat instead.";
+      btn.disabled = false; return;
+    }
+    try{
+      var next = JSON.parse(JSON.stringify(D));
+      next.submitted = payload;
+      var tpl = b64utf8(document.getElementById("page-template").textContent.trim());
+      var html = "<!doctype html>\n" + tpl
+        .replace(MARK_T, document.getElementById("page-template").textContent.trim())
+        .replace(MARK_D, JSON.stringify(next).replace(/<\//g, "<\\/"));
+      state.submitted = payload; save();
+      await api.publish(html);
+    }catch(err){
+      var code = (err && err.code) || "upstream_error";
+      st.innerHTML = code === "conflict"
+        ? "Someone else published first — this page is reloading; press Confirm again."
+        : "<b>Send failed (" + code + ").</b> Open the copy block below and paste the lines into the chat instead.";
+      btn.disabled = false;
+    }
+  });
+
+  var tmr;
+  function say(m){ var t=document.getElementById("toast"); t.textContent=m; t.classList.add("on");
+    clearTimeout(tmr); tmr=setTimeout(function(){ t.classList.remove("on"); },1700); }
+
+  if(DISCARDED){
+    var dn = document.getElementById("draft-notice");
+    dn.hidden = false;
+    dn.textContent = "A draft saved earlier under this page's name was for different photos, so it was not loaded. This page starts empty.";
+  }
+  render();
+})();
+</script>

@@ -1,0 +1,32 @@
+#!/bin/sh
+# OA-21 step 2 — the owner-fact scan cannot be skipped by forgetting to run it.
+#
+# Enabled per clone (hooks are not cloned):
+#     git config core.hooksPath .githooks
+#
+# Kept to ONE check on purpose. The full thirteen suites take minutes and
+# belong in the pre-push / release path; a pre-commit hook that costs minutes
+# gets bypassed with --no-verify, and a guard that is routinely bypassed is
+# not a guard. This one runs in ~0.1s.
+#
+# ⛔ The owner half of the scan SKIPS when tests/.owner-terms.json is absent
+# (it is gitignored, so a fresh clone has none) — by design, so a public
+# contributor's commit is never failed by a list they cannot see. On the owner's
+# machine the file is present and the half runs. Do not "fix" that skip.
+set -e
+
+repo=$(git rev-parse --show-toplevel)
+if [ -x "$repo/.venv/bin/python3" ]; then
+    py="$repo/.venv/bin/python3"
+else
+    py=python3
+fi
+
+if ! "$py" "$repo/tests/no_owner_facts.py"; then
+    echo ""
+    echo "pre-commit: the owner-fact guard refused this commit."
+    echo "Fix the hit, or add a waiver in tests/no_owner_facts.py that says WHY"
+    echo "the fact belongs in a shipped file. --no-verify skips this check and"
+    echo "is the wrong answer to a real hit."
+    exit 1
+fi

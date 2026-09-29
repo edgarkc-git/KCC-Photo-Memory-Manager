@@ -1,0 +1,20 @@
+{
+  "_comment": [
+    "Copy this file to tests/.owner-terms.json and replace the terms with the",
+    "strings that must never appear in this repo: your own name and handles,",
+    "the names of people, pets and places in your photos, your drive and",
+    "vault paths, anything else that identifies you. That file is gitignored;",
+    "this example is committed and must stay fake.",
+    "",
+    "tests/no_owner_facts.py loads it, matches case-insensitively, and reports",
+    "only WHERE a term was found — never which term, and never the line."
+  ],
+  "terms": [
+    "zzowner",
+    "zzOwnerFamilyName",
+    "Fluffernutter the Cat",
+    "Nowhereville",
+    "/Volumes/EXAMPLE-DRIVE-NAME",
+    "MyNotesVaultName"
+  ]
+}

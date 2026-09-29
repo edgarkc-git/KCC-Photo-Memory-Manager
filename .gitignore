@@ -1,0 +1,40 @@
+__pycache__/
+*.pyc
+# `pip install -e .` (docs/INSTALL.md step 4) writes this beside pyproject.toml
+*.egg-info/
+.DS_Store
+.venv
+
+# embed/ output dirs are per-workdir generated state, same class as manifest.csv
+embed/
+.photo-embed-index/
+
+# the golden fixtures are one owner's real data, a GPS movement log among them.
+# They reach the suites only through $PHOTO_GOLDEN_FIXTURES and never live in
+# this repo. Anchored and without a trailing slash, so a SYMLINK named
+# tests/golden is ignored too; a slash would match directories only.
+/tests/golden
+
+# the private term list tests/no_owner_facts.py checks against. It holds the
+# very strings that must not ship, so it can never be committed; the shape is
+# documented by the committed tests/.owner-terms.example.json.
+tests/.owner-terms.json
+
+# never in the engine repo: a photo owner's memory pack, wherever it is placed
+photo-memory/
+photo-profile.json
+photo-entities.json
+
+# ...except the pack templates: they are empty by definition. The blanket rule
+# above still covers every real pack, including any placed inside this repo by
+# accident.
+!templates/photo-memory/
+!templates/photo-memory/**
+
+# ...but the un-ignore above also re-admits Finder state inside those trees,
+# and photo_pack_init copytree()s the template into every new owner's pack.
+.DS_Store
+
+# Claude Code session state, incl. the worktrees it creates inside the repo.
+# Without this, `git add -A` on main stages an entire nested worktree.
+.claude/

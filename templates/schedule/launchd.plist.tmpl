@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{{LABEL}}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>{{RUNNER}}</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <array>
+{{CALENDAR}}
+    </array>
+    <key>StandardOutPath</key>
+    <string>{{STDOUT}}</string>
+    <key>StandardErrorPath</key>
+    <string>{{STDERR}}</string>
+    <!-- Deliberately false. A run that fires the moment the machine wakes is
+         not an off-hours run, and the window is the whole promise. -->
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

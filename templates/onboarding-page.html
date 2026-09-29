@@ -1,0 +1,1069 @@
+<meta charset="utf-8">
+<!-- Same reason as review-page.html: a page opened from disk gets no charset
+     from any wrapper, and every non-ASCII folder word renders as mojibake.
+     The owner reads that as "the font is broken". -->
+<title>Confirm What the Photos Say</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;500;600&display=swap">
+
+<style>
+/* Tokens are review-page.html's, unchanged. This is the same product and the
+   owner meets both surfaces in one sitting; a second palette would read as a
+   second application. */
+:root{
+  --ground:#F2F1EE; --surface:#FFFFFF; --sunk:#E9E7E2;
+  --ink:#1B1D21; --muted:#6B6E75; --hair:#D8D5CE;
+  --accent:#A96B15; --accent-soft:#F0E2CC; --on-accent:#FFFFFF;
+  --warn:#8C3A1E; --warn-soft:#F6E0D8;
+  --ok:#2F6B4F; --ok-soft:#DCEDE3;
+  --shadow:0 1px 2px rgba(27,29,33,.06), 0 4px 14px rgba(27,29,33,.05);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#16181B; --surface:#1E2126; --sunk:#121417;
+    --ink:#E8E6E1; --muted:#9A9CA3; --hair:#2E3239;
+    --accent:#E0A54A; --accent-soft:#3A2E1B; --on-accent:#16181B;
+    --warn:#E08A6A; --warn-soft:#3B241C;
+    --ok:#7FBF9C; --ok-soft:#1E3129;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#16181B; --surface:#1E2126; --sunk:#121417;
+  --ink:#E8E6E1; --muted:#9A9CA3; --hair:#2E3239;
+  --accent:#E0A54A; --accent-soft:#3A2E1B; --on-accent:#16181B;
+  --warn:#E08A6A; --warn-soft:#3B241C;
+  --ok:#7FBF9C; --ok-soft:#1E3129;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
+}
+
+*{box-sizing:border-box;}
+body{margin:0;background:var(--ground);color:var(--ink);
+  font-family:"Public Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;}
+h1,h2,h3{font-family:"Fraunces","Iowan Old Style",Georgia,serif;font-weight:600;
+  text-wrap:balance;margin:0;}
+.wrap{max-width:1400px;margin:0 auto;padding:32px 24px 96px;}
+header{border-bottom:1px solid var(--hair);padding-bottom:20px;margin-bottom:26px;}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);font-weight:600;margin-bottom:10px;}
+h1{font-size:clamp(28px,4vw,40px);line-height:1.1;letter-spacing:-.01em;}
+.sub{color:var(--muted);margin-top:10px;max-width:66ch;}
+.facts{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:16px;font-size:13px;
+  color:var(--muted);}
+.facts b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;}
+
+.cols{display:grid;grid-template-columns:1fr 370px;gap:26px;align-items:start;}
+@media (max-width:1080px){.cols{grid-template-columns:1fr;}}
+
+/* A step is a real sequence position, not decoration: the four facts are
+   asked in the order the engine needs them, and two of them move files. */
+.step{background:var(--surface);border:1px solid var(--hair);border-radius:11px;
+  box-shadow:var(--shadow);margin-bottom:22px;overflow:hidden;}
+.step-head{display:grid;grid-template-columns:auto 1fr auto;gap:14px;
+  align-items:start;padding:18px 20px;border-bottom:1px solid var(--hair);}
+.step-no{width:30px;height:30px;border-radius:15px;background:var(--sunk);
+  color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:13px;
+  font-weight:500;display:flex;align-items:center;justify-content:center;
+  font-variant-numeric:tabular-nums;}
+.step.done .step-no{background:var(--ok);color:var(--surface);}
+.step h2{font-size:19px;}
+.step .why{font-size:13px;color:var(--muted);margin:5px 0 0;max-width:70ch;}
+.step .key{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
+  color:var(--muted);white-space:nowrap;padding-top:6px;}
+.step-body{padding:18px 20px 20px;display:flex;flex-direction:column;gap:14px;}
+
+.moves{display:inline-flex;align-items:center;gap:6px;font-size:11px;
+  font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--warn);
+  background:var(--warn-soft);border:1px solid var(--warn);border-radius:5px;
+  padding:2px 8px;margin-top:7px;align-self:flex-start;}
+
+/* The evidence strip. This is the page: every proposal below is a row of the
+   actual photographs, because on two of these questions the counts rank the
+   wrong answer first and only the pictures separate them. */
+.opt{border:1px solid var(--hair);border-radius:9px;background:var(--ground);
+  padding:12px 13px;display:flex;flex-direction:column;gap:10px;
+  transition:border-color .12s,box-shadow .12s;}
+.opt.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);}
+.opt.off{opacity:.62;}
+.opt-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px 12px;}
+.opt-title{font-size:14.5px;font-weight:600;}
+.opt-title code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px;}
+.opt-count{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums;}
+.opt-flag{font-size:11.5px;color:var(--warn);}
+.strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;}
+.strip img{width:97px;height:129px;object-fit:cover;border-radius:6px;
+  display:block;background:var(--sunk);flex:none;}
+.strip.wide img{width:129px;height:97px;}
+.strip .none{font-size:12.5px;color:var(--muted);font-style:italic;padding:6px 0;}
+.choice{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.choice .grow{flex:1;min-width:150px;}
+.consequence{font-size:12.5px;color:var(--muted);}
+.carried{font-size:12px;color:var(--accent);background:var(--accent-soft);
+  border-radius:6px;padding:7px 10px;}
+.consequence b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;}
+
+button{font-family:inherit;font-size:13px;font-weight:500;color:var(--ink);
+  background:var(--surface);border:1px solid var(--hair);border-radius:7px;
+  padding:7px 12px;cursor:pointer;transition:background .12s,border-color .12s;}
+button:hover:not(:disabled){background:var(--sunk);border-color:var(--muted);}
+button:disabled{opacity:.38;cursor:not-allowed;}
+button.primary{background:var(--accent);border-color:var(--accent);
+  color:var(--on-accent);}
+/* The three restated properties are load-bearing, exactly as in
+   review-page.html: the generic hover rule above outranks .primary on
+   specificity, and without them the one button the page exists to reach goes
+   dark-on-dark the moment the owner points at it. */
+button.primary:hover:not(:disabled){background:var(--accent);
+  border-color:var(--accent);color:var(--on-accent);filter:brightness(1.08);}
+button.big{font-size:14px;padding:10px 16px;width:100%;}
+button.pick[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);
+  color:var(--on-accent);}
+button.pick[aria-pressed="true"]:hover{background:var(--accent);
+  border-color:var(--accent);color:var(--on-accent);filter:brightness(1.08);}
+button.pick.no[aria-pressed="true"]{background:var(--warn);border-color:var(--warn);
+  color:var(--surface);}
+button.pick.no[aria-pressed="true"]:hover{background:var(--warn);
+  border-color:var(--warn);color:var(--surface);filter:brightness(1.08);}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+select,input[type=text],input[type=number]{font-family:inherit;font-size:13px;
+  color:var(--ink);background:var(--surface);border:1px solid var(--hair);
+  border-radius:6px;padding:6px 8px;}
+label.inline{font-size:12.5px;color:var(--muted);}
+
+.panel{position:sticky;top:22px;display:flex;flex-direction:column;gap:16px;}
+.card{background:var(--surface);border:1px solid var(--hair);border-radius:10px;
+  padding:16px;box-shadow:var(--shadow);}
+.card h2{font-size:17px;margin-bottom:4px;}
+.card .hint{font-size:12.5px;color:var(--muted);margin-bottom:12px;}
+.out{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;
+  line-height:1.75;background:var(--sunk);border:1px solid var(--hair);
+  border-radius:8px;padding:12px;white-space:pre-wrap;word-break:break-word;
+  max-height:34vh;overflow:auto;}
+.todo{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;font-size:12.5px;}
+.todo span{display:flex;gap:8px;align-items:baseline;color:var(--muted);}
+.todo span.ok{color:var(--ok);}
+/* The optional third state: visible, never a blocker.
+   ⛔ NOT `.opt` — that is the home option CARD (line 85), which sets
+   flex-direction:column plus a border and padding. `.todo span` sets
+   display:flex and no direction, so the card's column WON on specificity it
+   did not even need, and each marker rendered on its own line above its text.
+   A checklist row and a card are different things and may not share a name. */
+.todo span.optional{color:var(--muted);opacity:.85;}
+.todo i{font-style:normal;font-family:"IBM Plex Mono",monospace;font-size:11px;}
+.check{display:flex;align-items:flex-start;gap:9px;border-radius:8px;
+  padding:10px 12px;font-size:12.5px;}
+.check.ok{background:var(--ok-soft);border:1px solid var(--ok);}
+.check.bad{background:var(--warn-soft);border:1px solid var(--warn);}
+/* Sent, but something was left blank. Deliberately the ACCENT tokens and
+   not --warn: the send succeeded, and a red panel there reads as a failed
+   send — which is the one thing this message must not say. */
+.check.warn{background:var(--accent-soft);border:1px solid var(--accent);}
+.banner{border-radius:9px;padding:12px 14px;font-size:13px;margin-bottom:20px;}
+.banner.ok{background:var(--ok-soft);border:1px solid var(--ok);}
+footer{margin-top:38px;padding-top:18px;border-top:1px solid var(--hair);
+  font-size:12.5px;color:var(--muted);max-width:84ch;}
+footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;}
+.after{margin-top:34px;max-width:84ch;}
+.after h2{font-size:15px;margin:22px 0 8px;}
+.after p,.after li{font-size:13.5px;line-height:1.55;}
+.after ol,.after ul{padding-left:22px;margin:0;}
+.after li{margin-bottom:8px;}
+.after li b{display:block;}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);
+  background:var(--ink);color:var(--ground);padding:9px 16px;border-radius:7px;
+  font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:60;}
+.toast.on{opacity:1;}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow" id="eyebrow">Onboarding · confirm before anything is written</div>
+    <h1>What the photos say about you</h1>
+    <p class="sub">The engine read <b id="h-files"></b> files and worked out four things it
+      cannot know on its own. Every row below is a <strong>proposal</strong>, and none of
+      them is picked for you — two of these four questions move files, and on both of them
+      the most common answer is not the right one. Look at the pictures, not the counts.</p>
+    <div class="facts">
+      <span><b id="h-units"></b> folders read</span>
+      <span><b id="h-devices"></b> devices</span>
+      <span><b id="h-homes"></b> possible home areas</span>
+      <span>pack <b id="h-owner"></b></span>
+    </div>
+  </header>
+
+  <div id="submitted-banner"></div>
+
+  <div class="cols">
+    <main id="steps"></main>
+
+    <aside class="panel">
+      <div class="card">
+        <h2>The pack so far</h2>
+        <p class="hint">Exactly what gets written when you confirm. Nothing is saved
+          until you press the button.</p>
+        <div class="todo" id="todo"></div>
+        <div class="out" id="lines"></div>
+        <div id="device-notes"></div>
+        <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+          <button class="primary big" id="btn-confirm">Confirm these answers</button>
+          <div class="check" id="sendstate" hidden></div>
+          <details>
+            <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">Or copy the lines yourself</summary>
+            <button id="btn-copy" style="margin-top:8px">Copy</button>
+          </details>
+          <button id="btn-theme">Switch theme</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <section class="after" id="after"></section>
+
+  <footer>
+    <p><strong>Why nothing is pre-selected.</strong> The engine ranks what it found by how
+      many files carry it. Measured on a real collection, that ranking put a phone's true
+      screen size <em>sixth</em>, under three sizes that turned out to be forwarded images —
+      and it proposed a hotel as a home, because a two-week trip is also "many separate days,
+      including after dark". Both times the rule worked and the top row was still wrong. A
+      page that pre-ticked the top row would have written both mistakes into your pack while
+      you nodded along.</p>
+    <p id="coord-note"></p>
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script id="onboard-data" type="application/json">__DATA__</script>
+<script id="page-template" type="text/plain">__TEMPLATE_B64__</script>
+
+<script>
+(function(){
+  "use strict";
+  var MARK_D = "__" + "DATA" + "__", MARK_T = "__" + "TEMPLATE_B64" + "__";
+
+  /* base64 -> text, decoded as UTF-8.
+
+     ⛔ NOT atob() on its own. atob returns a BINARY string — one character
+     per byte, i.e. latin-1 — so every multi-byte UTF-8 character comes back
+     double-encoded: a middot comes back as a capital-A-circumflex plus
+     the middot, an em dash as a three-character run. Spelled out rather
+     than pasted on purpose -- a literal example in this file is
+     indistinguishable from the real bug when anyone greps for it, and
+     trips the round-trip suite that guards this.
+     perfect when it is first rendered and corrupts itself the moment the
+     owner presses Confirm, because that is when the template is rebuilt
+     from this block. Reported from a live page, 20260901. */
+  function b64utf8(b64){
+    var bin = atob(b64), bytes = new Uint8Array(bin.length);
+    for(var i = 0; i < bin.length; i++){ bytes[i] = bin.charCodeAt(i); }
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+
+  var D = JSON.parse(document.getElementById("onboard-data").textContent);
+
+  /* Answer keys are deliberately literal ASCII and are never translated. The
+     page's prose can be localised; `makes:` / `screen:` / `home:` cannot,
+     because the same string is the storage key the engine parses back. A
+     translated key renders a page that reads perfectly and writes an answer
+     nothing can read. */
+  var KEY = {makes:"makes", screen:"screen", home:"home", language:"language",
+             types:"types", away:"away_km", pets:"pets"};
+
+  var LS = "photo-onboard/" + (D.owner || "-") + "/" + (D.units || []).join("+");
+  function fresh(){
+    return {makes:{}, screens:{}, homes:{}, language:"", types:"",
+            away:"", pets:"", submitted:null};
+  }
+  var state;
+  try{ state = JSON.parse(localStorage.getItem(LS)) || fresh(); }
+  catch(e){ state = fresh(); }
+  if(D.submitted) state.submitted = D.submitted;
+
+  /* Answers carried in from somewhere the owner already said them — an
+     interview, a written reply — rather than chosen here.
+
+     ⛔ Only EMPTY fields are seeded, and every seeded field is MARKED on the
+     page. This page's whole argument is that nothing is pre-selected, because
+     on two of these questions the obvious guess is measurably wrong; a
+     pre-fill that looked like the owner's own answer would build exactly the
+     default the page exists to prevent. Marked, it is a quote the owner can
+     see and correct. Unmarked, it is a guess wearing their signature.
+     ⛔ Never seed `screens` or `homes` — those are the two that MOVE FILES
+     and the two that need the photographs. The renderer refuses them. */
+  var CARRIED = {};
+  (function(){
+    var pre = D.prefill || {};
+    ["language", "types", "away"].forEach(function(k){
+      if(pre[k] !== undefined && pre[k] !== "" && !state[k]){
+        state[k] = pre[k];
+        CARRIED[k] = true;
+      }
+    });
+  })();
+  /* A state object saved before `pets` existed has no such key, and every
+     reader below calls .trim() on it. Fill it rather than guard each one. */
+  if(typeof state.pets !== "string") state.pets = "";
+  function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
+
+  function el(tag, cls, txt){
+    var n = document.createElement(tag);
+    if(cls) n.className = cls;
+    if(txt !== undefined && txt !== null) n.textContent = txt;
+    return n;
+  }
+  function strip(thumbs, wide, emptyMsg, unreadable, withheld){
+    /* A short strip has THREE causes that look identical here. If files could
+       not be read, the strip SAYS so — otherwise "few pictures" is what the
+       owner sees, and they answer a question about evidence that was never
+       rendered. And if frames were left out because they look like a document
+       (U3-06), it says that too: a hole nobody explains reads as absence.
+       ⛔ It names the KIND, never what the frame showed — a sentence saying
+       what was on the ticket would put it back on the page. The sheet keeps
+       its own copy of this sentence in `sheet_text()`; say the same there. */
+    var box = el("div");
+    var s = el("div", "strip" + (wide ? " wide" : ""));
+    box.appendChild(s);
+    if(!thumbs || !thumbs.length){
+      s.appendChild(el("div","none", unreadable
+        ? "Could not open " + unreadable + " file" + (unreadable===1?"":"s")
+          + " here — this is not a picture of how many there are."
+        : (withheld ? "Nothing shown here." : emptyMsg)));
+    } else {
+      thumbs.forEach(function(src){
+        var i = document.createElement("img");
+        i.src = src; i.alt = ""; i.loading = "lazy";
+        s.appendChild(i);
+      });
+    }
+    if(withheld){
+      box.appendChild(el("div","consequence", (withheld === 1
+        ? "1 photograph here looks like a document"
+        : withheld + " photographs here look like a document")
+        + " — a ticket, a receipt, a form, an ID card — and "
+        + (withheld === 1 ? "is" : "are") + " left out, because this page may "
+        + "be passed on. For privacy concern, please open the folder itself if you "
+        + "need to see "
+        + (withheld === 1 ? "it." : "them.")));
+    }
+    return box;
+  }
+  function toggle(labelYes, labelNo, value, onPick){
+    /* Three states, and "undecided" is the one it starts in. A two-state
+       control would make silence look like an answer. */
+    var box = el("div","choice");
+    [[true,labelYes,""],[false,labelNo,"no"]].forEach(function(pair){
+      var b = el("button","pick " + pair[2], pair[1]);
+      b.setAttribute("aria-pressed", value === pair[0] ? "true" : "false");
+      b.addEventListener("click", function(){
+        onPick(value === pair[0] ? null : pair[0]);
+      });
+      box.appendChild(b);
+    });
+    return box;
+  }
+
+  function stepShell(no, title, why, key, moves){
+    var s = el("section","step"); s.dataset.no = no;
+    var h = el("div","step-head");
+    h.appendChild(el("div","step-no", no));
+    var mid = el("div");
+    mid.appendChild(el("h2", null, title));
+    var w = el("p","why"); w.innerHTML = why; mid.appendChild(w);
+    if(moves) mid.appendChild(el("span","moves", moves));
+    h.appendChild(mid);
+    h.appendChild(el("div","key", key));
+    s.appendChild(h);
+    var b = el("div","step-body"); s.appendChild(b);
+    return {section:s, body:b};
+  }
+
+  // ------------------------------------------------------------- 1 cameras
+  function stepCameras(){
+    var st = stepShell(1, "Which of these cameras are yours?",
+      "A photo taken on a camera you do not claim is filed as <strong>somebody else's</strong>. " +
+      "A device with only a handful of files is where a second phone and a friend's camera " +
+      "look identical in the numbers — so here are the photographs each one actually took.",
+      "own_camera_makes");
+    D.cameras.devices.forEach(function(dev, i){
+      var id = dev.make + " " + dev.model;
+      var o = el("div","opt");
+      var head = el("div","opt-head");
+      head.appendChild(el("div","opt-title", id));
+      head.appendChild(el("div","opt-count",
+        dev.files + " file" + (dev.files===1?"":"s") + " · " + dev.share + "% of this collection"));
+      o.appendChild(head);
+      o.appendChild(strip(dev.thumbs, false, "no file for this device", dev.unreadable, dev.withheld));
+      var v = state.makes[id];
+      if(v === true) o.classList.add("on"); else if(v === false) o.classList.add("off");
+      o.appendChild(toggle("Mine", "Someone else's", v === undefined ? null : v,
+        function(next){
+          if(next === null) delete state.makes[id]; else state.makes[id] = next;
+          save(); render();
+        }));
+      st.body.appendChild(o);
+    });
+    return st.section;
+  }
+
+  // ------------------------------------------------------------- 2 screens
+  function stepScreens(){
+    var st = stepShell(2, "Which of these are screenshots?",
+      "You don't need to know your phone's screen size: the sizes below come from your " +
+      "own screenshots. " +
+      ((D.device_specs || []).length ? "The session also looked your phone up; once you " +
+        "say a camera is yours, “The pack so far” shows how its screen compares. " : "") +
+      "A picture with no camera in it, at exactly a phone's screen size, is a screenshot — " +
+      "and screenshots go to their own folder. Sizes are listed <strong>most files first</strong>, " +
+      "which is the engine's order and not a recommendation: on a real collection the " +
+      "correct size sat sixth.",
+      "screen_dims", "accepting a size moves those files");
+    var models = D.cameras.devices.map(function(d){ return d.make + " " + d.model; });
+    D.screens.candidates.forEach(function(c){
+      var dims = c.dims[0] + "x" + c.dims[1];
+      var o = el("div","opt");
+      var head = el("div","opt-head");
+      var t = el("div","opt-title"); t.innerHTML = "<code>" + dims + "</code>";
+      head.appendChild(t);
+      head.appendChild(el("div","opt-count", c.files + " file" + (c.files===1?"":"s")));
+      if(c.warning) head.appendChild(el("div","opt-flag", "⚠ " + c.warning));
+      o.appendChild(head);
+      /* F6 — the engine's own check, the census's sentence verbatim: the
+         sheet prints the same string, so neither copy can drift. */
+      if(c.check) o.appendChild(el("div","consequence", c.check));
+      o.appendChild(strip(c.thumbs, c.dims[0] > c.dims[1], "no file at this size", c.unreadable, c.withheld));
+      var cur = state.screens[dims];
+      if(cur) o.classList.add("on"); else if(cur === false) o.classList.add("off");
+      var row = toggle("A phone screen", "Not a screen",
+        cur === undefined ? null : (cur ? true : false), function(next){
+          if(next === null) delete state.screens[dims];
+          else if(next === false) state.screens[dims] = false;
+          else state.screens[dims] = models[0] || "";
+          save(); render();
+        });
+      if(cur){
+        var sel = document.createElement("select");
+        sel.className = "grow";
+        models.concat(["(unpaired)"]).forEach(function(m){
+          var op = document.createElement("option");
+          op.value = (m === "(unpaired)" ? "" : m); op.textContent = m;
+          if(op.value === cur) op.selected = true;
+          sel.appendChild(op);
+        });
+        sel.addEventListener("change", function(){
+          state.screens[dims] = this.value; save(); render();
+        });
+        var lab = el("label","inline","on device"); lab.appendChild(sel);
+        row.appendChild(lab);
+      }
+      o.appendChild(row);
+      var cq = el("div","consequence");
+      cq.innerHTML = cur ? "Accepting this files <b>" + c.files + "</b> photo" +
+        (c.files===1?"":"s") + " as screenshots." : "&nbsp;";
+      if(c.unreadable && c.thumbs.length){
+        cq.innerHTML += " " + c.unreadable + " file(s) here could not be opened, "
+          + "so what you see is not all of them.";
+      }
+      o.appendChild(cq);
+      st.body.appendChild(o);
+    });
+    if(D.screens.by_filename){
+      st.body.appendChild(el("div","consequence",
+        D.screens.by_filename + " more file(s) are already recognised as screenshots by " +
+        "their filename, whatever you answer here."));
+    }
+    return st.section;
+  }
+
+  // --------------------------------------------------------------- 3 homes
+  /* One place row. `withheld` rows are the ones the engine did NOT propose,
+     and they are rendered by this same function on purpose: the question is
+     identical, and the second-order cost of leaving them off the page was
+     never the missing row — it was that the row was never asked "day to day,
+     or somewhere you travel to?". Only the heading above them differs. */
+  function homeOpt(h, withheld){
+    var o = el("div","opt");
+    var head = el("div","opt-head");
+    head.appendChild(el("div","opt-title", "Area " + h.id));
+    head.appendChild(el("div","opt-count",
+      h.days + " separate day" + (h.days===1?"":"s") + " · " + h.night_days +
+      " with a photo after dark · " + h.files + " files"));
+    head.appendChild(el("div","opt-count", "seen in " + h.units.join(", ")));
+    o.appendChild(head);
+    /* ⛔ Evidence about the PLACE, never a verdict on the question. "Not
+       proposed, because it …" answers "is this a home?", which is the
+       question naming-first replaced — and a row that reads as already
+       settled is a row the owner skips. This page keeps its own copy of this
+       sentence; `sheet_blocks()` in photo_onboard_page.py is the sheet's, and
+       the two must say the same thing. */
+    if(withheld && h.missed_why && h.missed_why.length){
+      o.appendChild(el("div","consequence",
+        "The engine did not propose this as somewhere you live: it " +
+        h.missed_why.join(" and ") + ". That is what the photographs show " +
+        "about the place, not an answer to this question — it still wants a " +
+        "name."));
+    }
+    o.appendChild(strip(h.thumbs, false, "no file at this place", h.unreadable, h.withheld));
+    var cur = state.homes[h.id] || {};
+    if(cur.kind === "live" || cur.kind === "visit" || cur.kind === "place")
+      o.classList.add("on");
+    else if(cur.kind === "drop") o.classList.add("off");
+
+    var row = el("div","choice");
+    /* ⭐ Naming FIRST (owner decision, 20260910). "Not a home" used to be
+       the only way to say no, and it discarded the name with the row. The
+       LABELS are the owner's own words (W1C-2, 20260911); the WIRE words the
+       Copy button writes are unchanged, because they must stay in step with
+       DROP_WORDS and HOME_KINDS in photo_onboard_page.py — this page prints
+       the grammar that file parses. A label is never the wire. */
+    [["live","I live here"],["visit","I stay here sometimes"],
+     ["place","Visit often, name this place"],
+     ["drop","Don't add to my profile"]].forEach(function(pair){
+      var b = el("button","pick" + (pair[0]==="drop" ? " no" : ""), pair[1]);
+      b.setAttribute("aria-pressed", cur.kind === pair[0] ? "true" : "false");
+      b.addEventListener("click", function(){
+        if(cur.kind === pair[0]) delete state.homes[h.id];
+        else state.homes[h.id] = {kind: pair[0], label: cur.label || ""};
+        save(); render();
+      });
+      row.appendChild(b);
+    });
+    if(cur.kind === "live" || cur.kind === "visit" || cur.kind === "place"){
+      var inp = document.createElement("input");
+      inp.type = "text"; inp.className = "grow";
+      inp.placeholder = "what you call this place";
+      inp.value = cur.label || "";
+      inp.addEventListener("input", function(){
+        state.homes[h.id].label = this.value; save(); paintPanel();
+      });
+      row.appendChild(inp);
+    }
+    o.appendChild(row);
+    /* W1C-6 — "drop" leaves the area out of the owner's profile; the map
+       service naming its batch anyway is intended. The note is the owner's
+       own sentence, built in Python (DROP_NOTE) and echoed by the sheet's
+       hint. ⛔ Never add "your home address is out of folder names anyway":
+       for a dropped row the only guard is is_address(), which is CJK-only. */
+    if(cur.kind === "drop"){
+      o.appendChild(el("div","consequence", D.drop_note));
+    }
+    if(h.map){
+      var a = document.createElement("a");
+      a.href = h.map; a.target = "_blank"; a.rel = "noopener noreferrer";
+      a.textContent = "Open this place on a map";
+      a.style.fontSize = "12.5px";
+      o.appendChild(a);
+    }
+    if(cur.kind === "visit"){
+      /* ⛔ It used to say "still never named", and that is FALSE. Measured
+         against the shipped engine: photo_cluster.py:702 passes the
+         UNFILTERED home list to home_label(), so a home_range:false
+         residence DOES lend its name to a folder — deliberately, per D-F4
+         and home_label()'s own docstring, because the flag that says "not
+         my everyday life" must not also suppress the replacement word.
+         What IS withheld is the COORDINATE and the everyday-life filing. */
+      o.appendChild(el("div","consequence",
+        "Recorded as a residence you travel to. Your name for it CAN name a folder — " +
+        "what is never used is the address itself. Days there are not filed as your " +
+        "everyday life, so they still read as a trip."));
+    }
+    if(cur.kind === "place"){
+      o.appendChild(el("div","consequence",
+        "Kept as a place you have named. Not a residence, so nothing is withheld — " +
+        "your word for it is what names the folder, instead of whatever the map calls it."));
+    }
+    return o;
+  }
+
+  function stepHomes(){
+    var st = stepShell(3, "What do you call these places?",
+      "Name them in your own words — that name is what the engine puts on the folder, " +
+      "instead of whatever the map service calls it. Then say whether you live there. " +
+      "Where you live is <strong>never</strong> used as a place name or a folder name — that " +
+      "is the one privacy rule the engine keeps for you, and it cannot keep it until you " +
+      "answer this. A place photographed on many separate days, including after dark, is " +
+      "usually home. It is also what a hotel looks like on a long trip.",
+      "home_locations");
+    var near = D.homes.near_misses || [];
+    var overCap = D.homes.near_misses_over_cap || 0;
+    var oneDay = D.homes.near_misses_one_day_only || 0;
+
+    if(!D.homes.rows.length){
+      st.body.appendChild(el("div","consequence", near.length
+        ? "Nothing here cleared both home tests — but places were withheld, and they are "
+          + "below. Read those before you tell the session there is no home in this folder."
+        : "Nothing here looks like a residence — that is ordinary on a first folder. Tell "
+          + "the session the city you live in instead, and it goes in the pack by name."));
+    }
+    D.homes.rows.forEach(function(h){ st.body.appendChild(homeOpt(h, false)); });
+
+    /* The withheld half. A report that prints only what it proposes cannot be
+       told apart from a report that found nothing — and an owner who
+       photographed the place they LIVE like a visitor lands here, not above.
+       Shown as a disclosure, answerable, and never counted as unfinished:
+       the engine did not propose these and must not press as though it had. */
+    if(near.length || overCap || oneDay){
+      var h3 = el("div","opt-title", "Places you were that were NOT proposed as homes");
+      h3.style.marginTop = "18px";
+      st.body.appendChild(h3);
+      st.body.appendChild(el("div","consequence",
+        "Silence here is not evidence of absence. These missed one of the two tests above — "
+        + "few separate days, or few evenings — which is also what your own home looks like "
+        + "when you were moving in, or moving out, or spent the evenings elsewhere. "
+        + "Answering one registers it exactly like a row above. Leaving them all alone is a "
+        + "complete answer."));
+      near.forEach(function(h){ st.body.appendChild(homeOpt(h, true)); });
+      if(overCap || oneDay){
+        var cut = [];
+        if(overCap) cut.push(overCap + " more that missed a test "
+                             + (overCap===1?"is":"are") + " not listed");
+        if(oneDay) cut.push(oneDay + " place" + (oneDay===1?"":"s")
+                            + " seen on a single daytime visit " + (oneDay===1?"is":"are")
+                            + " not listed");
+        st.body.appendChild(el("div","consequence",
+          cut.join("; ") + ". If the place you live is not on this page at all, tell the "
+          + "session — the coordinates are on the machine that built this, and "
+          + "photo_census.py --all-places prints every place that was left out."));
+      }
+    }
+    return st.section;
+  }
+
+  // --------------------------------------------------------------- 4 words
+  function stepWords(){
+    var st = stepShell(4, "What should the folders be called?",
+      "Three separate things. <strong>The language</strong> names the folders the engine "
+      + "always makes. <strong>The kinds</strong> are the words you sort by — a kind that "
+      + "is not on the list is refused at sorting time. <strong>The home distance</strong> "
+      + "decides which photos count as taken at home.",
+      "language · naming_spec.types · away_km");
+    var box = el("div","opt");
+    if(Object.keys(CARRIED).length){
+      var cw = el("div","carried");
+      cw.textContent = "Filled in from what you already told the session — "
+        + "check each one, they are quotes, not choices.";
+      box.appendChild(cw);
+    }
+    var lrow = el("div","choice");
+    var lsel = document.createElement("select");
+    /* The list comes from the engine's own bucket tables, never from this
+       file. A language offered here that the engine has no table for falls
+       back to English silently — the owner would pick it, get the wrong
+       folder names, and be told nothing. */
+    var opts = [{code:"", sample:null}].concat(D.languages || []);
+    opts.forEach(function(p){
+      var op = document.createElement("option");
+      op.value = p.code;
+      op.textContent = p.code
+        ? p.code + " — " + p.sample.join(" · ")
+        : "— pick a language —";
+      if(p.code === state.language) op.selected = true;
+      lsel.appendChild(op);
+    });
+    lsel.addEventListener("change", function(){
+      state.language = this.value; save(); render();
+    });
+    var l1 = el("label","inline",
+      "Folder language — each choice shows the folders it makes"
+      + (CARRIED.language ? "  ·  carried in" : ""));
+    l1.appendChild(lsel);
+    lrow.appendChild(l1);
+    box.appendChild(lrow);
+    /* W1C-3 — built in Python (language_note()), so the sheet prints the same
+       sentence and this page never glues a list of rows into prose. */
+    box.appendChild(el("div","consequence", D.language_note));
+
+    var trow = el("div","choice");
+    var tin = document.createElement("input");
+    tin.type = "text"; tin.className = "grow";
+    /* W1C-7 — the engine's own words (D.type_defaults, read off
+       photo_profile.TYPE_VOCAB), never a list typed here: the old
+       placeholder offered "dinner", "trip abroad" and "day out", none of
+       which this engine accepts (the U3-01 defect the sheet already fixed). */
+    var tcode = state.language || "en";
+    var tdef = (D.type_defaults || []).filter(function(r){ return r.code === tcode; })[0];
+    tin.placeholder = tdef ? tdef.words.join(", ") : "";
+    tin.value = state.types;
+    tin.addEventListener("input", function(){ state.types = this.value; save(); paintPanel(); });
+    var l2 = el("label","inline","Kinds of folder, comma separated"
+      + (CARRIED.types ? "  ·  carried in" : ""));
+    l2.style.flex = "1"; l2.appendChild(tin);
+    trow.appendChild(l2);
+    box.appendChild(trow);
+    if(tdef){
+      box.appendChild(el("div","consequence",
+        "Left blank, this run uses the " + tcode + " set: " + tdef.words.join(", ")
+        + (state.language ? "." : " (the English set, until you pick a language above).")
+        + " Whatever you write here replaces the whole set."));
+    }
+
+    var prow = el("div","choice");
+    var pin = document.createElement("input");
+    pin.type = "text"; pin.className = "grow";
+    pin.placeholder = "the names you call them";
+    pin.value = state.pets;
+    pin.addEventListener("input", function(){ state.pets = this.value; save(); paintPanel(); });
+    var l4 = el("label","inline","Pets that live with you, comma separated");
+    l4.style.flex = "1"; l4.appendChild(pin);
+    prow.appendChild(l4);
+    box.appendChild(prow);
+    box.appendChild(el("div","consequence",
+      "Each name becomes a record photographs can be attached to later. Nothing is " +
+      "attached now and no pet is ever matched to a name for you \u2014 declaring them " +
+      "is what lets the engine say \u201Cyou said three, I have found two\u201D instead of " +
+      "leaving the third one\u2019s absence invisible. Left blank, nothing is created and " +
+      "nothing is lost. Pets are animals only — " +
+      "people are not recognised by this engine at all."));
+
+    var arow = el("div","choice");
+    var ain = document.createElement("input");
+    ain.type = "number"; ain.step = "0.1"; ain.min = "0"; ain.style.width = "110px";
+    ain.placeholder = String(D.away_km_default);
+    ain.value = state.away;
+    ain.addEventListener("input", function(){ state.away = this.value; save(); paintPanel(); });
+    var l3 = el("label","inline",
+      "How far from home is still \u201Chome\u201D (km)"
+      + (CARRIED.away ? "  ·  carried in" : ""));
+    l3.appendChild(ain);
+    arow.appendChild(l3);
+    box.appendChild(arow);
+    box.appendChild(el("div","consequence",
+      "GPS wanders by a few hundred metres even when you have not moved, so this is "
+      + "the wobble the engine forgives before it calls a photo \u201Cnot at home\u201D. "
+      + "It starts at "
+      + D.away_km_default + " km: past that, somewhere counts as a different place and "
+      + "gets named in the folder. Make it smaller if your everyday range is smaller, "
+      + "larger if the next town still feels like home."));
+    st.body.appendChild(box);
+    return st.section;
+  }
+
+  // ---------------------------------------------------------------- output
+  function lines(){
+    var out = [];
+    var mine = Object.keys(state.makes).filter(function(k){ return state.makes[k]; });
+    var makes = [];
+    mine.forEach(function(id){
+      var make = id.split(" ")[0];
+      if(makes.indexOf(make) < 0) makes.push(make);
+    });
+    if(makes.length) out.push(KEY.makes + ": " + makes.join(", "));
+    Object.keys(state.screens).forEach(function(dims){
+      var v = state.screens[dims];
+      /* ⛔ `= no` is WRITTEN, never skipped. "Not a screen" is an answer, and
+         the only one of the two that is safe to lose is the acceptance — a
+         dropped refusal leaves the size unanswered, so the next run asks
+         again and an accepted size MOVES FILES. This returned early on
+         `false` until M12: the refusal never reached the pasted lines,
+         `declined_screen_dims` stayed empty (UAT02-01), and the checklist
+         ticked "Every size answered" green all the while, because `false` is
+         a defined value. The page confirmed the answer and threw it away.
+         ⛔ `lines()` is the SINGLE reader — the payload also carries the raw
+         `screens` object, but `photo_onboard_page.py` parses these lines and
+         ignores it ("the write path has one reader, not two"), so anything
+         omitted here is lost. The home half below has always written its
+         refusal; screens were the odd one out. */
+      out.push(KEY.screen + ": " + dims +
+               (v === false ? " = no" : (v ? " = " + v : "")));
+    });
+    Object.keys(state.homes).forEach(function(id){
+      var h = state.homes[id];
+      /* ⛔ `not a place`, never `not a home` — the parser REFUSES the old
+         wording rather than guessing, because under naming-first it describes
+         the kept row. A bare label is the whole answer for kind "place". */
+      if(h.kind === "drop") out.push(KEY.home + ": " + id + " = not a place");
+      /* An unnamed "place" is not an answer at all — the name IS the
+         answer here — so it is not written. todo() below agrees. */
+      else if(h.kind === "place"){
+        if(h.label && h.label.trim())
+          out.push(KEY.home + ": " + id + " = " + h.label.trim());
+      }
+      else out.push(KEY.home + ": " + id + " = " + (h.label || "(unnamed)") +
+                    " " + h.kind);
+    });
+    if(state.language) out.push(KEY.language + ": " + state.language);
+    if(state.types.trim()) out.push(KEY.types + ": " + state.types.trim());
+    if(String(state.away).trim()) out.push(KEY.away + ": " + String(state.away).trim());
+    if(state.pets.trim()) out.push(KEY.pets + ": " + state.pets.trim());
+    return out;
+  }
+
+  function todo(){
+    /* ⛔ `D.homes.rows` ONLY — the withheld rows in `D.homes.near_misses` are
+       rendered as answerable questions but are deliberately never counted as
+       unfinished (see the comment above `near.forEach`): the engine did not
+       propose them and must not press as though it had.
+       ⛔ SO THE LABEL BELOW MUST SAY "proposed". It read "Every area answered"
+       until naming-first, which was arguably true of what it checks; "Every
+       area named or rejected" was NOT — on a real dump, 2 proposed rows and 5
+       withheld, it ticked green with five areas holding no name and no
+       rejection. A checklist may never claim more than its predicate checks.
+       Whether a withheld row SHOULD count is a policy question and is the
+       owner's, not this function's — widening the label is not how it gets
+       answered. */
+    var homesAnswered = !D.homes.rows.length ||
+      D.homes.rows.every(function(h){
+        var a = state.homes[h.id];
+        /* Kept for its name, with no name typed yet, is still unfinished. */
+        if(a && a.kind === "place") return !!(a.label && a.label.trim());
+        return !!a; });
+    return [
+      ["Every camera answered",
+       D.cameras.devices.every(function(d){
+         return state.makes[d.make + " " + d.model] !== undefined; })],
+      ["Every size answered",
+       D.screens.candidates.every(function(c){
+         return state.screens[c.dims[0] + "x" + c.dims[1]] !== undefined; })],
+      ["Every proposed area named or rejected", homesAnswered],
+      ["Language picked", !!state.language],
+      ["Folder kinds given", !!state.types.trim()],
+      ["Trip distance given", !!String(state.away).trim()]
+    ];
+  }
+
+  /* ⛔ SEPARATE FROM todo(), AND NOTHING GATES ON IT. Owner ruling,
+     20260910: "ask, but never block" — the withheld rows are shown as an
+     OPTIONAL third state so the owner can see the opportunity, and silence
+     stays a complete answer. Confirm must never wait on these.
+     ⛔ It is a separate function rather than extra rows in todo() for a
+     mechanical reason as well as a semantic one: render() indexes todo()
+     POSITIONALLY (flags[0]..flags[5]) to mark each step done, so inserting a
+     row there would silently mis-mark the steps.
+     ⛔ It also carries E7 — a row the owner STARTED naming and left nameless
+     was acknowledged nowhere on the page. An unnamed home shows as
+     "(unnamed)" in the lines panel; an unnamed place appeared nowhere at all,
+     so a click produced silence and read as not having registered. */
+  function optional(){
+    var near = D.homes.near_misses || [];
+    var started = [], unanswered = 0, named = 0;
+    near.forEach(function(h){
+      var a = state.homes[h.id];
+      if(!a){ unanswered++; return; }
+      if(a.kind === "drop") return;               /* rejecting IS an answer */
+      /* live/visit with no label is a COMPLETE answer — such a home registers
+         by coordinate and is suppressed by it. Only a place kept for its name
+         is incomplete without one, because there the name is the whole answer. */
+      if(a.kind !== "place") return;
+      if(a.label && a.label.trim()) named++; else started.push(h.id);
+    });
+    var out = [];
+    started.forEach(function(id){
+      out.push(["Area " + id + " — you started naming this; nothing is " +
+                "recorded until you type the name", "start"]);
+    });
+    if(unanswered) out.push([unanswered + " place" + (unanswered===1?"":"s") +
+                             " not proposed as homes, not yet named — optional",
+                             "opt"]);
+    if(named) out.push([named + " place" + (named===1?"":"s") +
+                        " named that the engine did not propose", "ok"]);
+    return out;
+  }
+
+  function paintPanel(){
+    var t = document.getElementById("todo"); t.innerHTML = "";
+    todo().forEach(function(row){
+      var s = el("span", row[1] ? "ok" : "");
+      s.appendChild(el("i", null, row[1] ? "✓" : "·"));
+      s.appendChild(el("span", null, row[0]));
+      t.appendChild(s);
+    });
+    optional().forEach(function(row){
+      /* The CSS class, not the row's state word — `opt` is taken. */
+      var s = el("span", row[1] === "ok" ? "ok" : "optional");
+      s.appendChild(el("i", null, row[1] === "ok" ? "✓"
+                                : row[1] === "start" ? "!" : "○"));
+      s.appendChild(el("span", null, row[0]));
+      t.appendChild(s);
+    });
+    var l = lines();
+    document.getElementById("lines").textContent = l.length ? l.join("\n")
+      : "Nothing answered yet. Every line here is something you chose.";
+    /* W1C-1 — a looked-up screen, shown once the owner says the camera is
+       theirs. The sentences are built in Python (device_check()) and the
+       sheet prints the same ones. No spec passed in: nothing is shown. */
+    var dn = document.getElementById("device-notes"); dn.innerHTML = "";
+    (D.device_specs || []).forEach(function(sp){
+      if(state.makes[sp.device] !== true) return;
+      dn.appendChild(el("div","consequence", sp.label));
+      D.screens.candidates.forEach(function(c){
+        (c.device_checks || []).forEach(function(k){
+          if(k.device === sp.device)
+            dn.appendChild(el("div","consequence",
+              c.dims[0] + "x" + c.dims[1] + ": " + k.text));
+        });
+      });
+    });
+  }
+
+  function render(){
+    document.getElementById("h-files").textContent = D.files;
+    document.getElementById("h-units").textContent = (D.units || []).length;
+    document.getElementById("h-devices").textContent = D.cameras.devices.length;
+    /* Rows AND the withheld ones: this counter names what is on the page, and
+       an owner told "2 possible home areas" over a page showing three stops
+       looking for the third. */
+    document.getElementById("h-homes").textContent =
+      D.homes.rows.length + (D.homes.near_misses || []).length;
+    document.getElementById("h-owner").textContent = D.owner || "—";
+    /* W1C-5 — the closing blocks, in the owner's order. The text is built in
+       Python (disclaimer(), NEXT_STEPS) and the sheet prints it verbatim. */
+    var after = document.getElementById("after");
+    after.innerHTML = "";
+    after.appendChild(el("h2", null, "Disclaimer"));
+    var dl = document.createElement("ul");
+    (D.disclaimer || []).forEach(function(line){ dl.appendChild(el("li", null, line)); });
+    after.appendChild(dl);
+    after.appendChild(el("h2", null, "Next steps"));
+    after.appendChild(el("p", null, D.next_intro || ""));
+    var ol = document.createElement("ol");
+    (D.next_steps || []).forEach(function(step){
+      var li = document.createElement("li");
+      li.appendChild(el("b", null, step[0]));
+      li.appendChild(document.createTextNode(step[1]));
+      ol.appendChild(li);
+    });
+    after.appendChild(ol);
+
+    /* U3-06 — say what is withheld and what is NOT. "No coordinates" was
+       true and read as a stronger promise than it is: the photographs are
+       still here, and a photograph can show an address without a number. */
+    document.getElementById("coord-note").textContent = (D.homes.coords_withheld
+      ? "This page carries no coordinates: each area is a letter, its evidence and its "
+        + "photographs, and the coordinates stayed on the machine that built the page. "
+        + "That withholds the numbers only — a photograph can still show where a place is: "
+        + "a street sign, the view from a window, a letter on a table. "
+      : "")
+      + (D.evidence_filtered === false
+        ? "The photographs on this page were NOT checked for documents "
+          + "(--unfiltered-evidence), so a ticket, a receipt or an ID card can be among them."
+        : "Photographs that look like a document — a ticket, a receipt, a form, an ID card "
+          + "— are left out; nothing else is.")
+      + (function(){
+          /* F-ff / F-nn — what the pack already holds is said, not asked. */
+          var listed = (D.homes.already_listed || []).map(function(h){ return "home " + h; })
+            .concat(((D.screens || {}).already_listed || []).map(function(d){ return "screen size " + d; }));
+          return listed.length ? " Already in your pack, not asked again: " + listed.join("; ") + "." : "";
+        })();
+
+    var host = document.getElementById("steps");
+    host.innerHTML = "";
+    [stepCameras(), stepScreens(), stepHomes(), stepWords()].forEach(function(s){
+      host.appendChild(s);
+    });
+    var flags = todo();
+    Array.prototype.forEach.call(host.children, function(sec, i){
+      var done = i === 0 ? flags[0][1] : i === 1 ? flags[1][1] : i === 2 ? flags[2][1]
+               : (flags[3][1] && flags[4][1] && flags[5][1]);
+      sec.classList.toggle("done", !!done);
+    });
+
+    var banner = document.getElementById("submitted-banner");
+    banner.innerHTML = "";
+    if(state.submitted){
+      var b = el("div","banner ok");
+      b.innerHTML = "<strong>Sent " + state.submitted.at + ".</strong> The session has "
+        + "these answers. Change anything and press Confirm again to replace them.";
+      banner.appendChild(b);
+    }
+    paintPanel();
+  }
+
+  function unfinished(){
+    /* -> the labels of the REQUIRED rows todo() has not ticked.
+
+       ⛔ WARN ONLY — no block, no second press. The owner's standing rule for
+       these rows is "ask, but never block", so this names what is missing and
+       the send proceeds regardless. A second press would be a soft block, and
+       inventing one here would be the engine making an owner rule it was not
+       given.
+       ⛔ A REFUSAL IS AN ANSWER, the same as on the engine side: todo() reads
+       `!== undefined`, so a size answered "Not a screen" is finished and must
+       never be listed here.
+       ⛔ Reads todo() rather than re-deriving the predicates — two copies of
+       "what counts as answered" is how the checklist and the warning would
+       come to disagree about the same page. */
+    return todo().filter(function(row){ return !row[1]; })
+                 .map(function(row){ return row[0]; });
+  }
+
+  document.getElementById("btn-copy").addEventListener("click", function(){
+    navigator.clipboard.writeText(lines().join("\n")).then(
+      function(){ say("Copied"); }, function(){ say("Select and copy manually"); });
+  });
+  document.getElementById("btn-theme").addEventListener("click", function(){
+    var r = document.documentElement, cur = r.getAttribute("data-theme");
+    var dark = cur ? cur === "dark"
+                   : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    r.setAttribute("data-theme", dark ? "light" : "dark");
+  });
+
+  document.getElementById("btn-confirm").addEventListener("click", async function(){
+    var btn = this, st = document.getElementById("sendstate");
+    /* The M12 leftover: this sent whatever was answered and said NOTHING
+       about what was not. A blank screen size and a blank trip distance both
+       went through in silence on a real run, and the engine could not warn
+       either — an unanswered question is simply ABSENT from lines(), so the
+       parser's `blank` list is empty on this path and its warning can never
+       fire. ⛔ Warn only: the send is not gated on it. */
+    var missing = unfinished();
+    st.hidden = false; st.className = "check"; st.textContent = "Sending…";
+    btn.disabled = true;
+    var payload = {at: new Date().toISOString().slice(0,16).replace("T"," "),
+                   lines: lines(), makes: state.makes, screens: state.screens,
+                   homes: state.homes, language: state.language,
+                   types: state.types, away_km: state.away, pets: state.pets,
+                   units: D.units || []};
+    var api = null;
+    try{ api = await window.claude.use("artifact"); }catch(e){ api = null; }
+    if(!api){
+      st.className = "check bad";
+      st.innerHTML = "<span><b>This page cannot reach the session.</b> Open "
+        + "<em>Or copy the lines yourself</em> and paste them into the chat.</span>";
+      btn.disabled = false; return;
+    }
+    try{
+      var next = JSON.parse(JSON.stringify(D));
+      next.submitted = payload;
+      var tplB64 = document.getElementById("page-template").textContent.trim();
+      var html = "<!doctype html>\n" + b64utf8(tplB64)
+        .replace(MARK_T, tplB64)
+        .replace(MARK_D, JSON.stringify(next).replace(/<\//g, "<\\/"));
+      state.submitted = payload; save();
+      await api.publish(html);
+      if(missing.length){
+        /* ⛔ AFTER the send, never before it: the answers are already away,
+           so this cannot read as a condition of sending. It says what was
+           left blank and that blank is not a "no" — the same sentence the
+           engine prints at `apply`, because the page can be bypassed and
+           `apply` cannot, so both surfaces have to say it. */
+        st.className = "check warn";
+        st.innerHTML = "<span><b>Sent — but " + missing.length + " question"
+          + (missing.length === 1 ? "" : "s") + " had no answer:</b> "
+          + missing.join(", ") + ". Blank is not a no — the engine's own "
+          + "default applies to each of them in silence. Answer them here and "
+          + "press Confirm again to replace what was sent.</span>";
+      }
+    }catch(err){
+      var code = (err && err.code) || "upstream_error";
+      st.className = "check bad";
+      st.innerHTML = code === "conflict"
+        ? "<span>Someone published first — this page is reloading; press Confirm again.</span>"
+        : "<span><b>Send failed (" + code + ").</b> Open <em>Or copy the lines "
+          + "yourself</em> and paste them into the chat.</span>";
+      btn.disabled = false;
+    }
+  });
+
+  var tmr;
+  function say(m){
+    var t = document.getElementById("toast");
+    t.textContent = m; t.classList.add("on");
+    clearTimeout(tmr); tmr = setTimeout(function(){ t.classList.remove("on"); }, 1700);
+  }
+
+  render();
+})();
+</script>

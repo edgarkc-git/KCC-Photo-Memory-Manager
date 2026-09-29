@@ -1,0 +1,124 @@
+#!/bin/zsh
+# Unattended photo-manager run — rendered by photo_schedule.py, do not hand-edit.
+# Re-render with `photo_schedule.py install --go` after changing any setting.
+#
+# Fired by launchd inside the owner's off-hours window {{WINDOW}}.
+#
+# ⛔ THE HIL-STOP RULE IS THIS FILE'S WHOLE JOB.
+# The run sorts, groups, looks and PLANS. It never copies. The owner reads the
+# plan in the morning and runs the copy themselves, so a folder name nobody
+# checked is never created on the drive.
+#
+# It is enforced twice, deliberately, because prose alone is not enforcement:
+#   1. there is no `--go` anywhere in this file or the prompt it fires, and a
+#      test asserts that;
+#   2. the tool allowlist below does not contain photo_execute.py — the only
+#      script that writes to the drive — so the run cannot reach it even if
+#      the prompt were misread. Anything unlisted is refused, not asked, so
+#      nothing waits for a click at 3am.
+#
+# ⛔ The classify model is PINNED, never inherited (Operational Rule 5, after
+# the 2026-07-20 fabrication incident). An unattended run that silently drops
+# to a weaker model is exactly how that incident comes back, and nothing
+# downstream would show it.
+#
+# ⛔ EVERY call is time-boxed, and that is not defensive padding. MEASURED
+# 20260901: a launchd agent reading a file under a macOS-protected folder
+# (Documents / Desktop / Downloads) blocks in open(2) INDEFINITELY rather than
+# failing — the system wants a consent decision and nobody is awake to give
+# one. The same command ran in under a second from /private/tmp and was still
+# blocked three hours later from ~/Documents. Without these timeouts a
+# scheduled run does nothing, says nothing, and leaves a stuck process behind.
+# ⚠️ Best-effort only: if the log directory itself is protected, even the log
+# line below cannot be written. `photo_schedule.py install` warns about that
+# while the owner is awake, which is the real fix.
+set -uo pipefail
+
+LABEL="{{LABEL}}"
+COLLECTION="{{COLLECTION}}"
+SCRIPTS="{{SCRIPTS}}"
+PROMPT="{{PROMPT}}"
+LOG_DIR="{{LOGDIR}}"
+CLAUDE="{{CLAUDE}}"
+PYTHON="{{PYTHON}}"
+MODEL="{{MODEL}}"
+STAMP=$(date '+%Y%m%d_%H%M')
+STARTED=$(date '+%Y-%m-%dT%H:%M:%S')
+PROBE_TIMEOUT=30
+
+mkdir -p "$LOG_DIR" 2>/dev/null
+
+# Pure shell, no interpreter to start: this is the one record that survives
+# when the engine itself cannot be read.
+note() { echo "$(date '+%Y-%m-%d %H:%M') — $1" >> "$LOG_DIR/schedule-log.txt" 2>/dev/null; }
+
+# zsh has no `timeout`; macOS ships no coreutils. Run it, watch it, kill it.
+with_timeout() {
+  local secs=$1; shift
+  "$@" &
+  local pid=$!
+  local waited=0
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$waited" -ge "$secs" ]; then
+      kill -9 "$pid" 2>/dev/null
+      return 124
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$pid"
+}
+
+finish() {
+  # The shell log FIRST. The Python call below is the thing most likely to be
+  # blocked, so a record that depended on it would be missing exactly when it
+  # matters most.
+  note "$2 (exit $1)"
+  with_timeout "$PROBE_TIMEOUT" "$PYTHON" "$SCRIPTS/photo_schedule.py" record \
+    --label "$LABEL" --collection "$COLLECTION" \
+    --started "$STARTED" --rc "$1" --outcome "$2" \
+    --log "$LOG_DIR/run_${STAMP}.out" >/dev/null 2>&1
+  exit 0
+}
+
+# Can this job read the engine at all? Answered before anything slow starts,
+# because "permission was never granted" and "the run found nothing to do"
+# look identical in the morning otherwise.
+#
+# ⛔ Probed with $PYTHON, not with `cat`, and that is the whole point.
+# MEASURED 20260901: macOS grants these permissions PER EXECUTABLE. /bin/zsh
+# and its `cat` read the engine fine while the Homebrew python binary was
+# blocked on the same file in the same job — so a `cat` probe returns a
+# confident yes and the run then hangs anyway. The probe has to be the
+# interpreter that will do the work. `--help` exercises exactly the failing
+# path: interpreter start, script open, imports.
+with_timeout "$PROBE_TIMEOUT" "$PYTHON" "$SCRIPTS/photo_schedule.py" --help >/dev/null 2>&1
+if [ $? -ne 0 ]; then
+  note "could not read the engine at $SCRIPTS — macOS may be withholding permission from scheduled jobs; run photo_schedule.py status"
+  exit 0
+fi
+
+# The drive the photos live on may simply be unplugged. That is a normal
+# night, not a failure: say so and exit 0, so launchd never throttles the job.
+for required in {{GUARDS}}; do
+  if [ ! -d "$required" ]; then
+    finish 0 "skipped — not mounted: $required"
+  fi
+done
+
+if [ ! -x "$CLAUDE" ]; then
+  finish 1 "could not run — claude not found at $CLAUDE"
+fi
+
+cd "$COLLECTION" || finish 1 "could not enter $COLLECTION"
+
+# Unattended runs are text-mode by definition — an artifact cannot run at 3am
+# (B-2) — and local-only (D12): this is the subscription CLI on this machine,
+# never a cloud agent, because the drive mounts here and nowhere else.
+"$CLAUDE" -p "$(cat "$PROMPT")" \
+  --model "$MODEL" \
+  --allowedTools {{ALLOWED_TOOLS}} \
+  > "$LOG_DIR/run_${STAMP}.out" 2>&1
+RC=$?
+
+finish $RC "ran"

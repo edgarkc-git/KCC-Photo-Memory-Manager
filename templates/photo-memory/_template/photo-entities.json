@@ -1,0 +1,13 @@
+{
+  "_comment": "Structured twin of photo-owner-<slug>.md, so scripts can gate deterministically on the same facts a human reads in prose. Populated in Phase C; every entry carries provenance and is promoted only at a memory checkpoint.",
+  "_subject_id_comment": "Every people/pets record carries a subject_id (subj-NNNN). It is the SAME id photo-subjects/subjects.json keys its exemplars on — one subject model, not two — and it is the stable identity a recurring-subject folder is keyed on (naming SPEC N-10a), so renaming a subject never forks its folder. See docs/photo-memory-pack.md.",
+  "owner": {"slug": "{{SLUG}}", "display": "{{DISPLAY}}"},
+  "people": [],
+  "pets": [],
+  "residences": [],
+  "_frequent_places_comment": "A place the owner named that is not a residence: {id, label, lat, lon}. The id (fsl-0001, ...) is written by `apply --write-pack` or `backfill-ids`, never by hand, and frequent_places_next_id keeps a deleted place's id from being issued again.",
+  "frequent_places": [],
+  "scenes": [],
+  "interests": [],
+  "not_important": []
+}

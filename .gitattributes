@@ -1,0 +1,14 @@
+# text=auto eol=lf normalizes future commits to LF; nothing here changes
+# today (repo is already all-LF outside tests/golden).
+* text=auto eol=lf
+
+# Frozen fixture bytes. golden_replay.py's check_pack() sha256-hashes the
+# pack files here (photo-profile.json, owner .md) via Pack.snapshot(), so any
+# line-ending conversion breaks the pin — that is the real bug this guards:
+# a Windows clone with the default core.autocrlf=true converted those LF pack
+# files to CRLF on checkout and reported drift on 4 of 8 dumps while every
+# data row still matched. The CSVs' CRLF is separate and legitimate:
+# csv.DictWriter's default \r\n terminator, written with newline="". -text
+# means git never converts either direction, on any platform, regardless of
+# what core.autocrlf is set to locally.
+tests/golden/** -text

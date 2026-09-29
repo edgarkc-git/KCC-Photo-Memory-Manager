@@ -1,0 +1,13 @@
+{
+  "_comment": "VS-3 subject registry — the exemplar embeddings that recognise this owner's recurring subjects. Keyed by the SAME subject_id as photo-entities.json people/pets, so subjects and entities are one model: the JSON twin holds the facts, this file holds the vectors. Ships empty and stays empty until a vision-confirmed pick is memorized (V2-6 blank sheet). Shape and rules: docs/photo-memory-pack.md.",
+  "version": 1,
+  "embedding_identity": null,
+  "defaults": {
+    "accept": 0.82,
+    "gray_low": 0.7,
+    "timeline_tolerance_days": 45,
+    "exemplar_cap": 24
+  },
+  "_defaults_comment": "Pack-supplied STARTING values, not calibrated ones. accept/gray_low are the Visual-Sorting DESIGN's numbers pending a benchmark replay; the tolerance and the cap are the engine's own starting values. Edit them here rather than in the engine — the engine holds no owner thresholds.",
+  "subjects": []
+}

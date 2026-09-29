@@ -1,0 +1,42 @@
+{
+  "_comment": "Machine config for one photo owner. The engine reads ONLY this file in Phase A; the rest of the pack is Phase C/D. Copy this template, do not edit it in place.",
+  "owner": {"slug": "{{SLUG}}", "display": "{{DISPLAY}}"},
+
+  "_language_comment": "Names the buckets the engine generates (screenshots / to-be-checked / others / AI-images). Confirm it with the owner — photo_census.py reports what the filenames suggest, but a script is not a locale.",
+  "language": "en",
+
+  "_own_camera_makes_comment": "EXIF Make values for the OWNER's own devices, from photo_census.py on the first scanned dump. A make left off this list gets its photos described as somebody else's.",
+  "own_camera_makes": [],
+
+  "_screen_dims_comment": "The owner's own screen size(s), each PAIRED with the device it belongs to (G-1): [{\"model\": \"samsung SM-N9750\", \"dims\": [1080, 2280]}]. A no-camera still at exactly that size is a screenshot, in either orientation. The older unpaired shape [[1080, 2280]] is still read, so no existing pack has to be migrated — but an unpaired size cannot be audited (\"whose phone was that?\") or re-proposed per device. LEAVE THE KEY OUT to keep the engine's built-in iPhone fallback; an empty list turns size-based detection off. Take values from photo_census.py and never from a phone-spec table: 1080x1920 is also the commonest video resolution there is, and accepting it once would have moved 326 ordinary videos.",
+
+  "_declined_screen_dims_comment": "Sizes the owner answered `no` to at onboarding ([[1054, 1080]]), written by `photo_onboard_page.py apply --write-pack`. A declined size is never offered as a screen size again and never sends a file to the to-be-checked bucket. Remove a row to be asked again.",
+  "declined_screen_dims": [],
+
+  "_home_locations_comment": "Each home carries a fixed id (home-01, home-02, ...) that an index uses instead of the coordinate or the label. It is written by `photo_onboard_page.py apply --write-pack`, or by `photo_onboard_page.py backfill-ids <pack>` for a row typed by hand — never invent one. home_locations_next_id (written with the first id, never by this template) is the next number to issue, so a deleted home's id is never given to another. Suppression reads the coordinate alone and never the id.",
+  "home_locations": [],
+
+  "pets": [],
+
+  "_name_budget_comment": "N-2's folder-name budget is DELIBERATELY ABSENT here, and adding it to this template would be wrong twice. The SPEC's 20 hard / 12 soft are what photo_profile.name_budget() returns with no key present, so restating them in every new pack makes two copies of one number -- and a benchmark pack must be a blank sheet, which pack_state.assert_blank_sheet checks by finding `naming_spec` empty. To use different numbers, add \"name_budget\": {\"hard\": 24, \"soft\": 14} inside naming_spec below. It counts [who]+[what] only; [period] and [where] are fixed cost. Full-width script counts per character, narrow script per word.",
+  "naming_spec": {
+    "types": []
+  },
+
+  "_away_km_comment": "away_km is how far from a registered home is still 'home'. It ships at the engine's own 3 km, which is a value and not a guess: measured on a 990-file dump, 60 km typed 11 days spent 1.4-57 km away as everyday life and collapsed 27 natural batches into 17. ⛔ Because this key is WRITTEN here, its presence can no longer show that anybody chose it -- so when the owner answers the onboarding question, write their number AND set away_km_answered to true. Leave the flag false and the run says out loud that its home range was never examined.",
+
+  "cluster_defaults": {
+    "away_km": 3,
+    "away_km_answered": false,
+    "jump_km": 30,
+    "gap_days": 30,
+    "max_batch": 300
+  },
+
+  "sampling": {
+    "gps_pct": 0.10,
+    "no_gps_pct": 0.05,
+    "min_samples": 10,
+    "max_samples": 40
+  }
+}

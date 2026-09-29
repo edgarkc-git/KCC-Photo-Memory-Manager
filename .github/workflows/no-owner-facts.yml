@@ -1,0 +1,27 @@
+name: no owner facts
+
+# OA-21 step 2, the half a local hook cannot provide: a hook lives on one
+# machine and answers to --no-verify, CI does not.
+#
+# ⛔ SCOPE, stated so a green tick is not read as more than it is. The owner
+# half of the scan needs tests/.owner-terms.json, which is gitignored and
+# therefore ABSENT here — so CI enforces the CJK half, the guard's own
+# hygiene, the gitignore check and the stale-waiver check, and SKIPS the
+# owner-term half with a message. The owner half runs on the owner's machine,
+# through .githooks/pre-commit. Neither half alone is the guard.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # No install step: the guard is stdlib-only, deliberately, so it can run
+      # anywhere the repo lands.
+      - run: python3 tests/no_owner_facts.py
