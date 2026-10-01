@@ -826,6 +826,9 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
         });
         if(f.where){ var wh = document.createElement("div"); wh.className = "fwhere";
           wh.textContent = f.where; fig.appendChild(wh); }
+        // Q3 — a photo shown whole says so, printed verbatim from the page.
+        if(f.whole){ var wn = document.createElement("div"); wn.className = "fwhere";
+          wn.textContent = f.whole; fig.appendChild(wn); }
         // HIL-5 — the photo's own "not this pet" tick: no number to type.
         var st = recheckState(r.subject_id);
         var tl = document.createElement("label"); tl.className = "fwhere";

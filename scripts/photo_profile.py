@@ -1661,6 +1661,11 @@ REVIEW_VOCAB = {
                                    "photo that is NOT this one (e.g. not 3) "
                                    "to take just that photo out of its memory "
                                    "and keep the name",
+        # Q3 (Lead 20261001) — a re-presented photo no animal index covers
+        # is shown whole, and the page says so: never a silent fallback.
+        "review_frame_whole_note": "Photo {n} is the whole photo: no animal "
+                                   "index for the dump it came from is on "
+                                   "this computer, so no crop could be cut.",
         # HIL-5 — the row filled in, with THIS pet's id and a photo number
         # printed above it: an owner who only reads the hints did not know
         # what to type. Visible, never inside the row's comment.

@@ -1197,6 +1197,8 @@ def subject_looks(subject):
 
 
 CROP_DIR = "review-crops"
+# Q3 — marks the end page's "shown whole" line for photo_review_page.
+WHOLE_MARK = "<!-- whole -->"
 
 
 class FrameCrops:
@@ -1221,15 +1223,19 @@ class FrameCrops:
     by a rotation is worse than no crop, because it looks like an answer.
 
     ⚠️ Bounded to looks whose file is in THIS work dir's identity index. A
-    confirmed subject's sightings span dumps (F14), and an earlier dump's
-    index is not open here; those frames render exactly as they did before,
-    whole and unmarked. That is a real gap and it is silent by necessity —
-    "no crop" and "no animal" must never render the same, so an unknown frame
-    simply carries no claim at all.
+    confirmed subject's sightings span dumps (F14); the end page opens one
+    of these per earlier dump (`crop_root` = the page's own dir, Q3). A look
+    no index covers carries no claim at all — "no crop" and "no animal" must
+    never render the same — and the end page says it is shown whole.
     """
 
-    def __init__(self, workdir, pack=None):
+    def __init__(self, workdir, pack=None, crop_root=None):
         self.workdir = Path(workdir) if workdir else None
+        # Q3 — an earlier dump's crops are cut into the page's OWN work dir,
+        # so a relative link resolves from where the page sits and nothing
+        # is written into the other dump.
+        self.crop_root = Path(crop_root) if crop_root else self.workdir
+        self.pack = pack
         self.detections = {}
         self.kinds = {}
         self.filetypes = {}
@@ -1301,7 +1307,7 @@ class FrameCrops:
         from PIL import Image, ImageOps
 
         ref = look.get("vec_ref") or Path(path).stem
-        out_dir = self.workdir / CROP_DIR
+        out_dir = self.crop_root / CROP_DIR
         wanted = [(r, f"{ref}_d{r.get('det_index') or 0}.jpg")
                   for r, _i in identified]
         missing = [(r, n) for r, n in wanted if not (out_dir / n).exists()]
@@ -2163,6 +2169,19 @@ def build_representations(registry, profile, rmsg, workdir=None, crops=None):
         photo_subjects.DEFAULT_THRESHOLDS["frames_per_reconfirmation"]))
     remembered, rejected = [], []
     where = FrameWhere(profile, rmsg)
+    # Q3 (Lead 20261001) — a look from an EARLIER dump is cropped from that
+    # dump's own identity index while its work dir is on disk.
+    others = {}
+
+    def crops_for(frame):
+        look_dir = frame.get("workdir")
+        if not (look_dir and workdir and crops.workdir) or \
+                Path(look_dir).resolve() == Path(workdir).resolve():
+            return crops
+        if look_dir not in others:
+            others[look_dir] = FrameCrops(look_dir, crops.pack,
+                                          crop_root=workdir)
+        return others[look_dir]
     # ⭐ SNS-15's read-time sum, and the SORT reads it too — deliberately the
     # same number the line below prints. Ordering by the stored `files` while
     # showing the summed one would hand the owner a list whose order disagrees
@@ -2194,9 +2213,11 @@ def build_representations(registry, profile, rmsg, workdir=None, crops=None):
                 # whole photo: a wrong example looks right when the photo
                 # holds both animals. `FrameCrops` keeps them apart from
                 # "not indexed here" exactly as it does for a tile.
-                told = crops.describe(frame) if crops is not None else None
+                told = crops_for(frame).describe(frame) if crops is not None else None
                 frame["crops"] = told["crops"] if told else []
                 frame["det_count"] = told["det_count"] if told else None
+                # Q3 — whole only when no index covers the look, and said.
+                frame["whole"] = told is None
             remembered.append({
                 "subject_id": subject.subject_id,
                 "display": subject_display(subject, profile, rmsg),
@@ -2295,6 +2316,12 @@ def render_representations(represented, rmsg):
                                + (f" (animal {frame['n']}."
                                   f"{int(crop.group(1)) + 1})" if crop else "")
                                + where_suffix(frame))
+                if frame.get("whole"):
+                    # Q3 — its own line, so the where-phrase stays the
+                    # where-phrase; the ASCII mark is what the web page reads
+                    # (an HTML comment, so `confirm` never sees it).
+                    out.append("> " + rmsg["review_frame_whole_note"].format(
+                        n=frame["n"]) + f" {WHOLE_MARK}")
             mapped = [f for f in record["frames"] if f.get("vec_ref")]
             if mapped:
                 # Q8-b — what `not <n>` resolves through. Parsed, never

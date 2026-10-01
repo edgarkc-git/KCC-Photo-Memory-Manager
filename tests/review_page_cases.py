@@ -745,6 +745,24 @@ A note.
           [c["animal"] for c in d4["frames"]["6"].get("crops", [])] == [1, 2])
     check("HIL-7 a one-animal re-presented frame is its crop (GUARD)",
           d4["frames"]["5"]["data"] == crop5)
+    whole_md = ("### Remembered already — check these are still right\n\n"
+                "> **Lotus** · 5 file(s) / 2 batch(es)\n"
+                "> ![](review-crops/aa11bb22_d0.jpg) [frame 5]\n"
+                "> Photo 5 is the whole photo: reason. <!-- whole -->\n"
+                "> - `recheck:` subj-0002 ______\n")
+    with tempfile.TemporaryDirectory() as tmpq3:
+        png(os.path.join(tmpq3, "review-crops/aa11bb22_d0.jpg"), 12, 12)
+        q3 = os.path.join(tmpq3, "memory-review_C4.md")
+        io.open(q3, "w", encoding="utf-8").write(whole_md)
+        rp.main(["render", q3, "-o", os.path.join(tmpq3, "p.html")])
+        html_q3 = io.open(os.path.join(tmpq3, "p.html"), encoding="utf-8").read()
+    check("Q3 the 'shown whole' line reaches the web under its photo "
+          "(REPRODUCTION)",
+          round_data(html_q3)["frames"]["5"].get("whole")
+          == "Photo 5 is the whole photo: reason.", "%r" % (
+              round_data(html_q3)["frames"]["5"].get("whole"),))
+    check("Q3 the web page prints the 'shown whole' line (REPRODUCTION)",
+          "f.whole" in io.open(rp.TEMPLATE, encoding="utf-8").read())
 
     # ---- HIL-6 B3 — "none of these are mine" is an answer Confirm can send --
     # The page's answer helpers are lifted out of the template and RUN (node);

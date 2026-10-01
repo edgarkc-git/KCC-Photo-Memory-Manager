@@ -728,13 +728,56 @@ def case_a_shared_remembered_frame_shows_each_crop(tmp):
     assert text.count("(animal ") >= 4, text
 
 
-def case_a_remembered_frame_not_indexed_here_stays_whole(tmp):
-    """GUARD — a look this dump's index says nothing about renders as it did
-    (the 20260929 ruling): whole, and the page is still written."""
+def case_a_remembered_frame_with_no_index_says_it_is_whole(tmp):
+    """REPRO Q3 (Lead 20261001, replaces 20260929) — a look no index covers
+    renders whole, and the page SAYS so beside it. Never a silent fallback."""
     pack_dir, workdir, sid, refs = pmc.two_looks_apart(tmp, frames=2)
     text = pmc.review_text(pack_dir, workdir).read_text()
     shown = pmc.rendered_frames(text)
     assert len(shown) == 2 and all("/samples/" in s for s in shown), shown
+    note = photo_profile.REVIEW_VOCAB["en"]["review_frame_whole_note"]
+    said = [l for l in text.splitlines() if pm.WHOLE_MARK in l]
+    assert sorted(said) == sorted("> " + note.format(n=n) + " " + pm.WHOLE_MARK
+                                  for n in (1, 2)), said
+
+
+def earlier_dump_page(tmp, gone=False):
+    """A pet remembered from an EARLIER dump, re-presented on a later one.
+    -> (re-presented images, page text, the later work dir, the looks)."""
+    import identify_cases as idc
+    import photo_embed
+    pack_dir, first, sid, refs = pmc.two_looks_apart(tmp, frames=2)
+    looks = [l for e in subject_of(pack_dir, sid).record["evidence"]
+             for l in e["looks"]]
+    index_looks(first, looks)
+    later = tmp / "dump-later"
+    pmc.write_batches(later, 1)
+    if gone:
+        shutil.rmtree(first / "embed")
+    saved = photo_embed.convert_to_thumbnail
+    photo_embed.convert_to_thumbnail = idc.thumbnail_stub()
+    try:
+        text = pmc.review_text(pack_dir, later).read_text()
+    finally:
+        photo_embed.convert_to_thumbnail = saved
+    return pmc.rendered_frames(text), text, later, looks
+
+
+def case_an_earlier_dumps_look_shows_its_own_crop(tmp):
+    """REPRO Q3 — a mature pet's least-sure photo is often from an earlier
+    dump. That dump's own identity index is opened and its crop shown."""
+    shown, text, later, looks = earlier_dump_page(tmp)
+    want = sorted(f"review-crops/{l['vec_ref']}_d0.jpg" for l in looks)
+    assert sorted(shown) == want, (shown, want)
+    assert all((later / s).is_file() for s in shown), shown
+
+
+def case_an_earlier_dump_without_its_index_says_whole(tmp):
+    """GUARD Q3 — the earlier dump is still there but its animal index is
+    not: the whole photo, with the note, and the page is still written."""
+    shown, text, later, looks = earlier_dump_page(tmp, gone=True)
+    assert len(shown) == 2 and all("/samples/" in s for s in shown), shown
+    assert text.count(pm.WHOLE_MARK) == 2, text
 
 
 def case_the_recheck_row_shows_a_filled_in_example(tmp):
@@ -768,8 +811,12 @@ CASES = [
      case_the_end_page_shows_the_crop_the_memory_holds),
     ("HIL-7: a shared remembered frame shows each crop (REPRO)",
      case_a_shared_remembered_frame_shows_each_crop),
-    ("HIL-7: a remembered frame not indexed here stays whole (GUARD)",
-     case_a_remembered_frame_not_indexed_here_stays_whole),
+    ("Q3: a remembered frame with no index says it is whole (REPRO)",
+     case_a_remembered_frame_with_no_index_says_it_is_whole),
+    ("Q3: an earlier dump's look shows its own crop (REPRO)",
+     case_an_earlier_dumps_look_shows_its_own_crop),
+    ("Q3: an earlier dump without its index says whole (GUARD)",
+     case_an_earlier_dump_without_its_index_says_whole),
     ("Q8-a: an away sighting is asked, not filed (REPRO)",
      case_an_away_sighting_is_asked_not_filed),
     ("Q8-a: a sighting with no GPS is asked (REPRO)", case_a_sighting_with_no_gps_is_asked),
