@@ -108,6 +108,8 @@ RE_RE_WHY = re.compile(r"^>\s*(shown because .+?)\s*$")
 RE_RECHECK = re.compile(r"^>?\s*-?\s*`?recheck:`?\s*(subj-\d+)")
 # HIL-4 — photo_memory.HOWTO_MARK: the two steps, printed verbatim.
 RE_HOWTO = re.compile(r"^>\s*(.+?)\s*<!-- how-to -->\s*$")
+# photo_memory.SHARED_MARK: "a photo the pet is in, holding 2+ animals".
+RE_SHARED = re.compile(r"^>\s*(.+?)\s*<!-- shared -->\s*$")
 # Q3 — photo_memory.WHOLE_MARK: "this re-presented photo is shown whole".
 RE_WHOLE = re.compile(r"^>\s*(.+?)\s*<!-- whole -->\s*$")
 
@@ -293,6 +295,10 @@ def parse_review(md_text):
                 if m.group(3):
                     rsubj["where"][n] = m.group(3)
                 continue
+            m = RE_SHARED.match(ln)
+            if m and rsubj["frames"]:
+                rsubj.setdefault("shared", {})[rsubj["frames"][-1]] = m.group(1)
+                continue
             m = RE_WHOLE.match(ln)
             if m and rsubj["frames"]:
                 rsubj.setdefault("whole", {})[rsubj["frames"][-1]] = m.group(1)
@@ -391,6 +397,7 @@ def build_round_data(rev, q, workdir, max_px, quality, pack_dir):
                 "batch": _batch_of(r["paths"][n]), "role": "represented",
                 "where": r["where"].get(n, ""),
                 "whole": r.get("whole", {}).get(n, ""),
+                "shared": r.get("shared", {}).get(n, ""),
                 "crops": [{"animal": a,
                            "data": encode_image(os.path.join(workdir, c), max_px, quality)
                            if os.path.exists(os.path.join(workdir, c)) else ""}

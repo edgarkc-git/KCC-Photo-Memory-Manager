@@ -1199,6 +1199,8 @@ def subject_looks(subject):
 CROP_DIR = "review-crops"
 # Q3 — marks the end page's "shown whole" line for photo_review_page.
 WHOLE_MARK = "<!-- whole -->"
+# Marks the end page's "a photo the pet is in" line for photo_review_page.
+SHARED_MARK = "<!-- shared -->"
 # HIL-4 — marks the two-step lines, which the web page prints verbatim.
 HOWTO_MARK = "<!-- how-to -->"
 
@@ -2311,13 +2313,25 @@ def render_representations(represented, rmsg):
                 # HIL-7 — the crop(s), as a tile shows them; the whole photo
                 # only when this dump's index says nothing about the look.
                 shared = (frame.get("det_count") or 0) > 1
-                for image in frame.get("crops") or [frame["image"]]:
+                # Lead ruling 20261001 (frame 13): a shared photo holds no
+                # crop of the pet (D-24), so the WHOLE photo comes first and
+                # the crops follow as what else is in it.
+                images = frame.get("crops") or [frame["image"]]
+                if shared:
+                    out.append(f"> ![]({frame['image']}) "
+                               + rmsg["review_frame_number"].format(n=frame["n"])
+                               + where_suffix(frame))
+                for image in images:
                     crop = CROP_FILE.search(str(image)) if shared else None
                     out.append(f"> ![]({image}) "
                                + rmsg["review_frame_number"].format(n=frame["n"])
                                + (f" (animal {frame['n']}."
                                   f"{int(crop.group(1)) + 1})" if crop else "")
                                + where_suffix(frame))
+                if shared:
+                    out.append("> " + rmsg["review_frame_shared_remembered"].format(
+                        n=frame["n"], count=frame["det_count"],
+                        subject=record["display"]) + f" {SHARED_MARK}")
                 if frame.get("whole"):
                     # Q3 — its own line, so the where-phrase stays the
                     # where-phrase; the ASCII mark is what the web page reads

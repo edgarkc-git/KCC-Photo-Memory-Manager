@@ -772,6 +772,36 @@ A note.
     check("Q3 the web page prints the 'shown whole' line (REPRODUCTION)",
           "f.whole" in io.open(rp.TEMPLATE, encoding="utf-8").read())
 
+    # ---- frame-13 ruling — a shared re-presented photo: whole first --------
+    shared_md = ("### Remembered already — check these are still right\n\n"
+                 "> **Lotus** · 5 file(s) / 2 batch(es)\n"
+                 "> ![](classify/batch-03/samples/g.png) [frame 7]\n"
+                 "> ![](review-crops/dd00ee11_d0.jpg) [frame 7] (animal 7.1)\n"
+                 "> ![](review-crops/dd00ee11_d1.jpg) [frame 7] (animal 7.2)\n"
+                 "> Photo 7 holds 2 animals. It is remembered as a photo Lotus "
+                 "is in. <!-- shared -->\n"
+                 "> - `recheck:` subj-0002 ______\n")
+    with tempfile.TemporaryDirectory() as tmps:
+        png(os.path.join(tmps, "classify/batch-03/samples/g.png"), 40, 60)
+        png(os.path.join(tmps, "review-crops/dd00ee11_d0.jpg"), 12, 12)
+        png(os.path.join(tmps, "review-crops/dd00ee11_d1.jpg"), 14, 14)
+        ms = os.path.join(tmps, "memory-review_C5.md")
+        io.open(ms, "w", encoding="utf-8").write(shared_md)
+        rp.main(["render", ms, "-o", os.path.join(tmps, "p.html")])
+        ds = round_data(io.open(os.path.join(tmps, "p.html"), encoding="utf-8").read())
+        whole7 = rp.encode_image(os.path.join(
+            tmps, "classify/batch-03/samples/g.png"), 640, 72)
+    f7 = ds["frames"]["7"]
+    check("frame-13 a shared re-presented photo is the whole photo on the web "
+          "(GUARD)", f7["data"] == whole7
+          and [c["animal"] for c in f7["crops"]] == [1, 2])
+    check("frame-13 its plain line reaches the web (REPRODUCTION)",
+          f7.get("shared") == "Photo 7 holds 2 animals. It is remembered as a "
+          "photo Lotus is in.", "%r" % (f7.get("shared"),))
+    tpl_s = io.open(rp.TEMPLATE, encoding="utf-8").read()
+    check("frame-13 the tick asks whether the pet is IN the photo "
+          "(REPRODUCTION)", '" is not in photo "' in tpl_s and "f.shared" in tpl_s)
+
     # ---- HIL-6 B3 — "none of these are mine" is an answer Confirm can send --
     # The page's answer helpers are lifted out of the template and RUN (node);
     # their row then goes through `apply` and `photo_memory`'s own parser.

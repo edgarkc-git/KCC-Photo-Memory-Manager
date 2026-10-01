@@ -720,12 +720,26 @@ def case_the_end_page_shows_the_crop_the_memory_holds(tmp):
 
 
 def case_a_shared_remembered_frame_shows_each_crop(tmp):
-    """REPRO HIL-7 — a remembered photo with two animals shows each crop,
-    labelled, so neither animal is hidden behind the other."""
+    """REPRO HIL-7 + frame-13 ruling (Lead 20261001) — a remembered photo
+    with two animals holds NO crop of the pet (D-24 kept it out of every
+    example space): the WHOLE photo comes first, each crop after it,
+    labelled, and one plain line says what the memory holds."""
     shown, text, looks = end_page_with_index(tmp, det_count=2)
-    assert sorted(shown) == sorted(f"review-crops/{l['vec_ref']}_d{d}.jpg"
-                                   for l in looks for d in (0, 1)), shown
+    assert sum("/samples/" in s for s in shown) == 2, shown
+    assert sorted(s for s in shown if "review-crops/" in s) == sorted(
+        f"review-crops/{l['vec_ref']}_d{d}.jpg" for l in looks for d in (0, 1)), shown
+    lines = [l for l in text.splitlines() if "[frame" in l]
+    firsts = {}
+    for l in lines:
+        n = l.split("[frame ")[1].split("]")[0]
+        firsts.setdefault(n, l)
+    assert all("/samples/" in l for l in firsts.values()), firsts
     assert text.count("(animal ") >= 4, text
+    note = photo_profile.REVIEW_VOCAB["en"]["review_frame_shared_remembered"]
+    said = [l for l in text.splitlines() if pm.SHARED_MARK in l]
+    assert sorted(said) == sorted(
+        "> " + note.format(n=n, count=2, subject="Name-Two") + " " + pm.SHARED_MARK
+        for n in firsts), said
 
 
 def case_a_remembered_frame_with_no_index_says_it_is_whole(tmp):

@@ -1684,6 +1684,12 @@ REVIEW_VOCAB = {
         "review_frame_whole_note": "Photo {n} is the whole photo: no animal "
                                    "index for the dump it came from is on "
                                    "this computer, so no crop could be cut.",
+        # Lead ruling 20261001 (frame 13) — a remembered photo holding 2+
+        # animals carries no crop of the pet: it is a photo the pet is IN.
+        "review_frame_shared_remembered": "Photo {n} holds {count} animals. "
+                                          "It is remembered as a photo "
+                                          "{subject} is in, never as what "
+                                          "{subject} looks like.",
         # HIL-5 — the row filled in, with THIS pet's id and a photo number
         # printed above it: an owner who only reads the hints did not know
         # what to type. Visible, never inside the row's comment.
