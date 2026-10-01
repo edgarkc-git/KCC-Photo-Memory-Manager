@@ -354,9 +354,10 @@ NAMES[AWAY_2] = "City-Two"
 TW_SPARSE = (23.5000, 120.9000)
 
 
-def run_layout(tmp, profile, layout, overpass=None):
+def run_layout(tmp, profile, layout, overpass=None, names=None):
     """Like `run`, but the caller lays out the days: [(day, [(point, hour)])].
-    `overpass` seeds overpass-cache.json, so a Taiwan stop stays offline.
+    `overpass` seeds overpass-cache.json, so a Taiwan stop stays offline;
+    `names` adds {point: name} to the seeded zoom-13 names.
     -> (returncode, parsed where.json or None, stdout, stderr, where_path)."""
     root = Path(tmp)
     workdir = root / "202603"
@@ -379,8 +380,9 @@ def run_layout(tmp, profile, layout, overpass=None):
     (workdir / "batches.json").write_text(json.dumps(
         {"batches": [{"batch": 1, "label": "b1", "from": min(days),
                       "to": max(days)}]}))
+    seeded = {**NAMES, **(names or {})}
     (root / "geocode-cache.json").write_text(json.dumps(
-        {geocode_key(pt): {"name": NAMES[pt]} for pt in NAMES}))
+        {geocode_key(pt): {"name": seeded[pt]} for pt in seeded}))
     if overpass:
         (root / "overpass-cache.json").write_text(json.dumps(overpass))
 
@@ -904,7 +906,7 @@ def k20_a_packless_home_day_is_never_named_in_taiwan():
     """⭐ REPRODUCTION (K20, Rule 3): the same in Taiwan, where a home stop
     went to the Overpass query. ⛔ FAILS on 8ec97b5. Offline: the stop's
     Overpass box is seeded with a peak named for the leak."""
-    leak = "Home-Leak-TW"
+    leak = "Homeleakpeak"
     seed = {stop_bbox_key(TW_HOME_POINT): [
         {"type": "node", "id": 1, "lat": TW_HOME_POINT[0], "lon": TW_HOME_POINT[1],
          "tags": {"natural": "peak", "name": leak}}]}
@@ -969,6 +971,34 @@ def k20_a_packless_trip_only_folder_is_its_own_home_by_choice():
     days = [out["days"].get(f"2026-04-1{i}") or {} for i in range(1, 4)]
     return (all(d.get("mode") == "home" and d.get("names") == [] for d in days)
             and NAMES[AWAY] not in stdout), f"{days}"
+
+
+@case
+def k20_an_owner_with_no_day_test_asks_no_overpass():
+    """GUARD (K20, owner ruling 20261001: "country only, no day test yet"). Overpass
+    runs only inside the owner's own country, and only a country with a day
+    test has an inside. ⛔ FAILS on 2559783 for the US owner: the Taiwan box
+    sent ANY owner's stop there to the peak query. A declared-US owner on a
+    stop inside the TW row gets the town name and no peak; a Taiwan owner on
+    the same stop still gets the peak (the positive control)."""
+    peak = "Birkhorn"
+    seed = {stop_bbox_key(TW_HOME_POINT): [
+        {"type": "node", "id": 2, "lat": TW_HOME_POINT[0], "lon": TW_HOME_POINT[1],
+         "tags": {"natural": "peak", "name": peak}}]}
+    layout = [("2026-04-20", [(TW_HOME_POINT, 9), (TW_HOME_POINT, 10),
+                              (TW_HOME_POINT, 11)])]
+    far = [{"lat": HOME_A[0], "lon": HOME_A[1]}]
+    got = {}
+    for owner, pack in (("US", {"country": "US", "home_locations": far}),
+                        ("TW", {"country": "TW", "home_locations": far})):
+        with tempfile.TemporaryDirectory() as tmp:
+            rc, out, stdout, err, _ = run_layout(
+                tmp, pack, layout, overpass=seed, names={TW_HOME_POINT: "Town-TW"})
+        day = (out or {}).get("days", {}).get("2026-04-20") or {}
+        got[owner] = (rc, day.get("mode"), day.get("names"))
+    return (got["US"] == (0, "area_z13", ["Town-TW"])
+            and got["TW"][:2] == (0, "overpass") and peak in (got["TW"][2] or [])), \
+        f"{got}"
 
 
 def main():

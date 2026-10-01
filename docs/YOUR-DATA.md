@@ -154,7 +154,7 @@ Network calls the product makes itself (from the code):
 | Call | When | What is sent |
 |---|---|---|
 | OpenStreetMap Nominatim (`nominatim.openstreetmap.org`) | naming places: `cluster` (also run by `prep`) and `photo_where.py`. `photo_index.py` reads the cache only | one position per batch or stop away from home, and per home day that has no label: the centre worked out from its photos, **rounded to 2 decimal places (about 1 km)** before it is sent, plus the owner's language. A day at a home with a label sends nothing. |
-| OpenStreetMap Overpass (`overpass-api.de`) | `photo_where.py` only, for a stop in Taiwan (naming peaks and trails) | a box around the stop: the southernmost, westernmost, northernmost and easternmost photo positions, each widened by about 500 m, **not rounded**. Hike naming needs about 400 m, so this box is sent at full precision. `cluster`, `prep` and the index flow never send it |
+| OpenStreetMap Overpass (`overpass-api.de`) | `photo_where.py` only, for a stop inside the owner's own country, when the engine has a day test for that country (today only Taiwan: the pack's `country`, or its first home; any other owner sends none) (naming peaks and trails) | a box around the stop: the southernmost, westernmost, northernmost and easternmost photo positions, each widened by about 500 m, **not rounded**. Hike naming needs about 400 m, so this box is sent at full precision. `cluster`, `prep` and the index flow never send it |
 | Nominatim, reachability only | `doctor` | no position, just a request to see that the service answers |
 | model downloads (Hugging Face, PyTorch, GitHub) | first vision run only | nothing about your photos |
 

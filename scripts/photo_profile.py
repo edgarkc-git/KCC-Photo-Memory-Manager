@@ -2185,6 +2185,26 @@ def name_budget(profile):
             number("soft", photo_name.DEFAULT_NAME_BUDGET_SOFT))
 
 
+def country(profile):
+    """-> the owner's primary home country as the pack declares it (`country`,
+    ISO 3166-1 alpha-2, upper case), or None when the pack does not say.
+
+    K20 (owner ruling, 20261001): the OWNER confirms it — onboarding asks "mark this
+    country as your primary home country?" after a home is confirmed, from a
+    list; nothing is looked up online. ONE country per owner: a home outside
+    it is still abroad (U2-04). The default for an undeclared pack lives in
+    `photo_cluster.owner_country()`, beside the country boxes it reads.
+    ⛔ A malformed value stops the run, like a malformed home row: guessing
+    a country decides which days are "abroad"."""
+    value = get(profile, "country")
+    if value is None:
+        return None
+    if not (isinstance(value, str) and re.fullmatch(r"[A-Za-z]{2}", value.strip())):
+        sys.exit("the owner pack's `country` must be a two-letter country code "
+                 "(ISO 3166-1, for example TW or US); fix it in photo-profile.json")
+    return value.strip().upper()
+
+
 def get(profile, *keys, default=None):
     cur = profile
     for k in keys:

@@ -8,11 +8,14 @@ Implements the SPEC v0.3 algorithm (tested 2026-07-03):
     disappearing (LL-PHO-97), and its [where] is the last stop the engine
     could NAME — Operational Rule 4 / L09 in the shape the pipeline can act
     on, and not merely the last non-home stop (see day_entry).
-  Taiwan stops: ONE Overpass query per stop bbox +500 m: natural=peak/saddle,
+  Stops inside the owner's own country (K20: only a country with a day test
+in photo_cluster.COUNTRY_BOXES, today the TW row): ONE Overpass query per
+stop bbox +500 m: natural=peak/saddle,
     named viewpoints, named trails -> rank by #track-points within 400 m then
     min distance (peaks keep min_d < 350 m); trail names reduce to a place
     name via strip_trail_name -> top 2-4 names, first-touch order.
-  Overseas stops: Nominatim reverse at zoom 13 (city level), in the OWNER PACK'S
+  Every other stop (abroad, or anywhere for an owner whose country has no
+day test): Nominatim reverse at zoom 13 (city level), in the OWNER PACK'S
   language (D-06) — the engine names no language of its own.
   A stop on a MOVED day that no peak query can name falls back to the same
     zoom-13 district label; a stop under MIN_NAME_POINTS is counted, not named.
@@ -41,9 +44,9 @@ from statistics import median
 sys.path.insert(0, str(Path(__file__).parent))
 import photo_profile  # noqa: E402
 import photo_sample  # noqa: E402
-from photo_cluster import (is_address, parse_date, parse_gps, in_taiwan,  # noqa: E402
+from photo_cluster import (is_address, parse_date, parse_gps, in_country,  # noqa: E402
                            haversine_km, place_label, no_pack_anchor,
-                           read_day_files,
+                           owner_country, read_day_files,
                            pick_variant, read_name, Geocoder, reverse_url)
 
 OVERPASS = "https://overpass-api.de/api/interpreter"
@@ -377,7 +380,7 @@ def area_name(center, geocoder, reject_fine=False):
 
 
 def name_stop(pts, day, homes, home_km, geocoder, op_cache, area_fallback,
-              places=(), place_km=None):
+              places=(), place_km=None, country="TW"):
     """One stop -> its entry. `area_fallback` is only ever true on a day that
     moved: a stop the peak query cannot name still deserves a town name, but
     turning that on for every day would rename days that answer correctly now.
@@ -413,7 +416,16 @@ def name_stop(pts, day, homes, home_km, geocoder, op_cache, area_fallback,
         return dict(span, mode="named", names=[label],
                     note="the owner's own name for this place "
                          "(frequent_places) — no map lookup")
-    if not in_taiwan(center):
+    # K20 — the peak/trail query runs ONLY inside the owner's own country
+    # (opened everywhere, it names a city trip after a viewpoint). An owner
+    # with no day test for their country gets the town-level name everywhere.
+    inside = in_country(center, country)
+    if inside is None:
+        name = area_name(center, geocoder)
+        return dict(span, mode="area_z13", names=[name] if name else [],
+                    note="no day test for the owner's country — town-level "
+                         "name, no peak query (K20)")
+    if not inside:
         name = area_name(center, geocoder)
         return dict(span, mode="overseas_z13", names=[name] if name else [])
     lat_m = 0.0045  # ~500 m
@@ -431,14 +443,14 @@ def name_stop(pts, day, homes, home_km, geocoder, op_cache, area_fallback,
 
 
 def day_entry(stops, day, homes, home_km, geocoder, op_cache, places=(),
-              place_km=None):
+              place_km=None, country="TW"):
     """One day -> its entry. A day that stayed put keeps the single-stop shape
     it has always had; a day that moved carries its stops and takes its name
     from the last non-home one (Operational Rule 4 / L09 — in-transit shots
     follow the destination)."""
     moved = len(stops) > 1
     entries = [name_stop(s, day, homes, home_km, geocoder, op_cache, moved,
-                         places, place_km)
+                         places, place_km, country)
                for s in stops]
     if not moved:
         return entries[0], entries[0]["names"]
@@ -478,11 +490,13 @@ def main():
     if args.anchor:
         lat, lon = (float(x) for x in args.anchor.split(","))
         homes.append((lat, lon, None, None))
+    # K20 — the owner's country and, with no home, photo_cluster's own
+    # packless anchor, over the whole work dir (never one batch, which would
+    # anchor on itself). Before this, no home meant every home day was named.
+    day_files = read_day_files(workdir / "manifest.csv")[0]
+    country = owner_country(pack.profile, day_files)
     if not homes:
-        # K20 — a packless run has a home too: photo_cluster's own fallback,
-        # over the whole work dir (never one batch, which would anchor on
-        # itself). Before this, no home meant every home day was named.
-        anchor = no_pack_anchor(read_day_files(workdir / "manifest.csv")[0])
+        anchor = no_pack_anchor(day_files, country)
         if anchor:
             homes.append((anchor[0], anchor[1], None, None))
 
@@ -543,7 +557,7 @@ def main():
     result_days, all_names = {}, []
     for d, stops in sorted(stops_by_day.items()):
         entry, names = day_entry(stops, d, homes, args.home_km, geocoder,
-                                 op_cache, places, place_km)
+                                 op_cache, places, place_km, country)
         result_days[d] = entry
         all_names.extend(names)
     geocoder.save()

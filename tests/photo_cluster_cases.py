@@ -2048,6 +2048,77 @@ def case_no_reverse_url_is_built_outside_the_one_helper():
             else f"reverse URL built at {hits}")
 
 
+# ---------------------------------------------------------------------------
+# K20 — the owner's own country, not Taiwan for everyone
+# ---------------------------------------------------------------------------
+
+US_HOME = (40.0000, -100.0000)   # invented, outside every COUNTRY_BOXES row
+US_TRIP = (42.5000, -100.0000)   # ~280 km from US_HOME
+K20_DAYS = ["2026-05-01", "2026-05-02", "2026-05-03"]
+
+
+def k20_types(home, trip, extra=None, third=None):
+    profile = {"language": "en",
+               "home_locations": [{"lat": home[0], "lon": home[1]}], **(extra or {})}
+    days = list(zip(K20_DAYS, [home, trip, third or home]))
+    rc, out, _so, err = run(days, profile)
+    return rc, (types_of(out, profile) if out else None), err
+
+
+@case
+def k20_an_owner_outside_taiwan_is_never_abroad_at_home():
+    """⭐ REPRODUCTION (K20). ⛔ FAILS on 2559783: the Taiwan box was tested
+    BEFORE the home, so for an owner who lives anywhere else every day — home
+    days included — was OVERSEAS ("abroad — <their home>", measured on a
+    made-up US owner). With no day test for their country the owner's days
+    are home or away, never abroad. Both routes: a home outside every row,
+    and a declared `country`."""
+    got = {}
+    for name, extra in (("undeclared", None), ("declared US", {"country": "US"})):
+        rc, types, err = k20_types(US_HOME, US_TRIP, extra)
+        got[name] = types if rc == 0 else f"rc={rc} {err[-200:]}"
+    want = ["TW_HOME", "TW_AWAY", "TW_HOME"]
+    return None if all(v == want for v in got.values()) else f"want {want}, got {got}"
+
+
+@case
+def k20_a_taiwan_owner_is_unchanged():
+    """GUARD (K20). A home in the TW row is TW without declaring it, and a
+    declared TW is the same: home, away and abroad exactly as before."""
+    got = {}
+    for name, extra in (("undeclared", None), ("declared TW", {"country": "tw"})):
+        rc, types, err = k20_types(HOME, TRIP, extra, third=ABROAD)
+        got[name] = types if rc == 0 else f"rc={rc} {err[-200:]}"
+    want = ["TW_HOME", "TW_AWAY", "OVERSEAS"]
+    return None if all(v == want for v in got.values()) else f"want {want}, got {got}"
+
+
+@case
+def k20_a_home_outside_the_owners_country_is_still_abroad():
+    """GUARD (K20, U2-04 — the owner's ruling). ONE country per owner: a Taiwan
+    owner's registered home abroad is still abroad, whether the country is
+    declared or comes from the first home."""
+    profile_extra = {"home_locations": [{"lat": HOME[0], "lon": HOME[1]},
+                                        {"lat": ABROAD[0], "lon": ABROAD[1]}]}
+    got = {}
+    for name, extra in (("first home", {}), ("declared TW", {"country": "TW"})):
+        profile = {"language": "en", **profile_extra, **extra}
+        rc, out, _so, err = run(list(zip(K20_DAYS, [HOME, ABROAD, HOME])), profile)
+        got[name] = types_of(out, profile) if rc == 0 and out else f"rc={rc} {err[-200:]}"
+    want = ["TW_HOME", "OVERSEAS", "TW_HOME"]
+    return None if all(v == want for v in got.values()) else f"want {want}, got {got}"
+
+
+@case
+def k20_a_malformed_country_stops_the_run():
+    """GUARD (K20). A country the engine cannot read decides which days are
+    abroad, so it stops the run with a sentence — never a guess."""
+    rc, _out, _so, err = run(list(zip(K20_DAYS, [US_HOME] * 3)),
+                             {"country": "United States",
+                              "home_locations": [{"lat": US_HOME[0], "lon": US_HOME[1]}]})
+    return None if rc != 0 and "two-letter country code" in err else f"rc={rc} {err[-200:]}"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("-v", "--verbose", action="store_true")
