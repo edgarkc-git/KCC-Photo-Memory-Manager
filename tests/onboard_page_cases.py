@@ -815,6 +815,10 @@ def country_cases(tmp, wd):
     sheet = op.sheet_text(d, op.sheet_blocks(d), {}, "digest")
     check("C5 the sheet asks the same question as text (REPRODUCTION)",
           ">>> country:" in sheet and "primary home country" in sheet)
+    flat_sheet = " ".join(l.lstrip("#").strip() for l in sheet.splitlines())
+    check("U2-2 the sheet says a blank keeps TW for a home in TW (REPRODUCTION)",
+          "Left blank: a home in TW keeps TW; elsewhere no day is called abroad."
+          in flat_sheet, flat_sheet[flat_sheet.find("country:"):][:400])
     known = dict(d, country=dict(d["country"], known="TW"))
     check("C5 a pack whose country is known is not asked on the sheet (GUARD)",
           ">>> country:" not in op.sheet_text(known, op.sheet_blocks(known), {}, "digest"))

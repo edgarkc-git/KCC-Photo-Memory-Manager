@@ -1656,8 +1656,10 @@ def sheet_text(data, blocks, photographs, digest, workdirs=()):
         out.append("#     you answer `live` above is OUTSIDE %s: write its "
                    "two-letter code" % boxes)
         out.append("#     (ISO 3166-1, e.g. US, JP, NZ). Nothing goes online "
-                   "for this. Left blank,")
-        out.append("#     no day is called abroad.")
+                   "for this.")
+        # U2-2 — blank keeps a boxed country (owner_country reads home-01).
+        out.append("#     Left blank: a home in %s keeps %s; elsewhere no day "
+                   "is called abroad." % (boxes, boxes))
         out.append(">>> country:")
         out.append("")
     # W1C-5 — the page's closing blocks, verbatim (disclaimer(), NEXT_STEPS).
