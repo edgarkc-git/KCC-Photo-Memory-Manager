@@ -42,7 +42,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 import photo_profile  # noqa: E402
 import photo_sample  # noqa: E402
 from photo_cluster import (is_address, parse_date, parse_gps, in_taiwan,  # noqa: E402
-                           haversine_km, place_label,
+                           haversine_km, place_label, no_pack_anchor,
+                           read_day_files,
                            pick_variant, read_name, Geocoder, reverse_url)
 
 OVERPASS = "https://overpass-api.de/api/interpreter"
@@ -477,6 +478,13 @@ def main():
     if args.anchor:
         lat, lon = (float(x) for x in args.anchor.split(","))
         homes.append((lat, lon, None, None))
+    if not homes:
+        # K20 — a packless run has a home too: photo_cluster's own fallback,
+        # over the whole work dir (never one batch, which would anchor on
+        # itself). Before this, no home meant every home day was named.
+        anchor = no_pack_anchor(read_day_files(workdir / "manifest.csv")[0])
+        if anchor:
+            homes.append((anchor[0], anchor[1], None, None))
 
     batches = json.loads((workdir / "batches.json").read_text())
     batch = next((b for b in batches["batches"] if b["batch"] == args.batch), None)

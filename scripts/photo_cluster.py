@@ -726,6 +726,28 @@ def away_km_answered(profile, flag=None):
     return value is not None and value != AWAY_KM_DEFAULT
 
 
+def no_pack_anchor(day_files):
+    """-> the no-pack home anchor, or None: the median point of the modal
+    0.2-degree cell among this work dir's day centroids.
+
+    ⛔ The ONE copy. `photo_where` imports it, so the stage that types a day
+    and the stage that names it can never disagree about where a packless
+    run's home is (K20: `photo_where` had none at all, and named a home day
+    after the park beside it). ⛔ Fallback only — the pack's homes always
+    win (R2-F3: a work dir holding one trip anchors on the trip itself).
+    K20: every day counts, not only days inside the Taiwan box, which gave a
+    packless run anywhere else no anchor."""
+    cells = {}
+    for e in day_files.values():
+        pt = e["centroid"]
+        if pt:
+            cells.setdefault((round(pt[0] / 0.2), round(pt[1] / 0.2)), []).append(pt)
+    if not cells:
+        return None
+    modal = max(cells.values(), key=len)
+    return (median(p[0] for p in modal), median(p[1] for p in modal))
+
+
 def read_day_files(manifest):
     """-> ({date: {"rows", "gps", "centroid"}}, [rows with no date]) from one
     manifest.csv. A day's centroid is the median of its GPS points, None with
@@ -879,16 +901,7 @@ def main():
         # cannot acquire one — it suppresses like any home and names like an
         # unlabelled one.
         labelled_homes = labelled_homes + [(lat, lon, None, None, None)]
-    auto_anchor = None
-    if not homes:
-        tw_days = [e["centroid"] for e in day_files.values()
-                   if e["centroid"] and in_taiwan(e["centroid"])]
-        if tw_days:
-            cells = {}
-            for pt in tw_days:
-                cells.setdefault((round(pt[0] / 0.2), round(pt[1] / 0.2)), []).append(pt)
-            modal = max(cells.values(), key=len)
-            auto_anchor = (median(p[0] for p in modal), median(p[1] for p in modal))
+    auto_anchor = None if homes else no_pack_anchor(day_files)
 
     days = sorted(day_files)
     for d in days:

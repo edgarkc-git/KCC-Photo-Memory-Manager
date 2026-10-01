@@ -354,8 +354,9 @@ NAMES[AWAY_2] = "City-Two"
 TW_SPARSE = (23.5000, 120.9000)
 
 
-def run_layout(tmp, profile, layout):
+def run_layout(tmp, profile, layout, overpass=None):
     """Like `run`, but the caller lays out the days: [(day, [(point, hour)])].
+    `overpass` seeds overpass-cache.json, so a Taiwan stop stays offline.
     -> (returncode, parsed where.json or None, stdout, stderr, where_path)."""
     root = Path(tmp)
     workdir = root / "202603"
@@ -380,6 +381,8 @@ def run_layout(tmp, profile, layout):
                       "to": max(days)}]}))
     (root / "geocode-cache.json").write_text(json.dumps(
         {geocode_key(pt): {"name": NAMES[pt]} for pt in NAMES}))
+    if overpass:
+        (root / "overpass-cache.json").write_text(json.dumps(overpass))
 
     profile_file = root / "photo-profile.json"
     profile_file.write_text(json.dumps(profile))
@@ -463,8 +466,11 @@ def case_a_day_too_sparse_to_name_is_counted_not_dropped():
     """The same silence had a second cause, and the backlog missed it: a day
     with fewer than MIN_NAME_POINTS points was dropped by the same gate. It is
     now reported with its count and left unnamed — never guessed at from a
-    single point (pitfall 2), and never simply absent."""
-    pack = {"home_locations": []}
+    single point (pitfall 2), and never simply absent.
+    K20: the pack carries a home far from the day. With no home at all a
+    one-day work dir now anchors on itself (`no_pack_anchor`), so the day
+    would be a home stop and this case would no longer reach the gate."""
+    pack = {"home_locations": [{"lat": HOME_A[0], "lon": HOME_A[1]}]}
     layout = [("2026-03-12", [(TW_SPARSE, 9)])]
     with tempfile.TemporaryDirectory() as tmp:
         rc, out, stdout, err, _ = run_layout(tmp, pack, layout)
@@ -839,6 +845,130 @@ def case_beyond_its_radius_a_named_place_leaves_the_map_to_name_it():
         if out["days"]["2026-03-03"].get("names") != [OWNER_PLACE]:
             return False, f"the pack's 2 km was not read: {out['days']['2026-03-03']}"
     return True, ""
+
+
+# ---------------------------------------------------------------------------
+# K20 — a packless run has a home: photo_cluster.no_pack_anchor
+# ---------------------------------------------------------------------------
+
+TW_HOME_POINT = (23.6000, 120.6000)   # invented, inside the Taiwan box
+
+
+def stop_bbox_key(point):
+    """The Overpass cache key photo_where builds for a stop of identical
+    points at `point` — the engine's own arithmetic, so a seeded leak name
+    is found offline exactly where a real query would have put it."""
+    import math
+    lat_m = 0.0045
+    lon_m = 0.0045 / max(math.cos(math.radians(point[0])), 0.2)
+    bbox = (point[0] - lat_m, point[1] - lon_m, point[0] + lat_m, point[1] + lon_m)
+    return ",".join(f"{v:.4f}" for v in bbox)
+
+
+def no_pack_layout(home):
+    """Five days at `home`, then one day at AWAY: the home cell is modal."""
+    days = [(f"2026-04-0{i}", [(home, 9), (home, 10), (home, 11)]) for i in range(1, 6)]
+    return days + [("2026-04-06", [(AWAY, 9), (AWAY, 10), (AWAY, 11)])]
+
+
+def no_pack_problems(out, stdout, leak):
+    if out is None:
+        return ["no where.json on stdout"]
+    problems = []
+    for d in (f"2026-04-0{i}" for i in range(1, 6)):
+        got = out["days"].get(d) or {}
+        if got.get("mode") != "home" or got.get("names") != []:
+            problems.append(f"{d} not suppressed: {got.get('mode')} {got.get('names')}")
+    if leak in stdout:
+        problems.append(f"{leak} leaked into the output")
+    if (out["days"].get("2026-04-06") or {}).get("names") != ["City-One"]:
+        problems.append("the away day lost its name (positive control)")
+    return problems
+
+
+@case
+def k20_a_packless_home_day_is_never_named_abroad():
+    """⭐ REPRODUCTION (K20, Rule 3). ⛔ FAILS on 8ec97b5: with no home in the
+    pack and no --anchor, photo_where had no home at all, so every home day
+    outside Taiwan was named after the place around it (measured on a made-up
+    US owner: "Green Lake", the park beside the home). It now takes
+    photo_cluster's own no-pack anchor over the whole work dir."""
+    with tempfile.TemporaryDirectory() as tmp:
+        rc, out, stdout, err, _ = run_layout(tmp, {}, no_pack_layout(HOME_A))
+    problems = no_pack_problems(out, stdout, NAMES[HOME_A])
+    return (rc == 0 and not problems), f"rc={rc} {problems} {err[-200:]}"
+
+
+@case
+def k20_a_packless_home_day_is_never_named_in_taiwan():
+    """⭐ REPRODUCTION (K20, Rule 3): the same in Taiwan, where a home stop
+    went to the Overpass query. ⛔ FAILS on 8ec97b5. Offline: the stop's
+    Overpass box is seeded with a peak named for the leak."""
+    leak = "Home-Leak-TW"
+    seed = {stop_bbox_key(TW_HOME_POINT): [
+        {"type": "node", "id": 1, "lat": TW_HOME_POINT[0], "lon": TW_HOME_POINT[1],
+         "tags": {"natural": "peak", "name": leak}}]}
+    with tempfile.TemporaryDirectory() as tmp:
+        rc, out, stdout, err, _ = run_layout(tmp, {}, no_pack_layout(TW_HOME_POINT),
+                                             overpass=seed)
+    problems = no_pack_problems(out, stdout, leak)
+    return (rc == 0 and not problems), f"rc={rc} {problems} {err[-200:]}"
+
+
+@case
+def k20_with_a_pack_home_the_no_pack_anchor_is_never_asked():
+    """GUARD (K20, R2-F3). The pack's homes always win: with one, photo_where
+    never calls no_pack_anchor (here it would raise)."""
+    import io
+    import contextlib
+    if not hasattr(photo_where, "no_pack_anchor"):
+        return False, "photo_where has no no_pack_anchor (the code before K20)"
+    pack = {"home_locations": [{"lat": HOME_A[0], "lon": HOME_A[1]}]}
+    called = []
+    with tempfile.TemporaryDirectory() as tmp:
+        rc, _out, _so, err, where = run_layout(tmp, pack, no_pack_layout(HOME_A))
+        workdir = where.parents[2]
+        saved = (photo_where.no_pack_anchor, sys.argv[:],
+                 os.environ.get("PHOTO_PROFILE"))
+
+        def refuse(*a):
+            called.append(a)
+            raise AssertionError("no_pack_anchor asked with a pack home")
+
+        photo_where.no_pack_anchor = refuse
+        sys.argv = ["photo_where.py", str(workdir), "--batch", "1"]
+        os.environ["PHOTO_PROFILE"] = str(Path(tmp) / "photo-profile.json")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                photo_where.main()
+            ok = True
+        except AssertionError:
+            ok = False
+        finally:
+            photo_where.no_pack_anchor, sys.argv = saved[0], saved[1]
+            if saved[2] is None:
+                os.environ.pop("PHOTO_PROFILE", None)
+            else:
+                os.environ["PHOTO_PROFILE"] = saved[2]
+    return (rc == 0 and ok and not called), f"rc={rc} called={len(called)} {err[-200:]}"
+
+
+@case
+def k20_a_packless_trip_only_folder_is_its_own_home_by_choice():
+    """⚠️ THE CHOSEN COST of the two cases above (Lead D1, 20261001), pinned so
+    a later reader sees it was chosen, not missed. A packless work dir holding
+    ONLY a trip anchors on the trip itself (R2-F3's shape), so its stops are
+    home stops and nothing there is named. Privacy-safe, benchmark-only: a
+    real owner always has a pack, and photo_cluster already types such a
+    folder this way. Measured on a US trip: the 3 city days lost "Spokane"."""
+    layout = [(f"2026-04-1{i}", [(AWAY, 9), (AWAY, 10), (AWAY, 11)]) for i in range(1, 4)]
+    with tempfile.TemporaryDirectory() as tmp:
+        rc, out, stdout, err, _ = run_layout(tmp, {}, layout)
+    if rc != 0 or out is None:
+        return False, f"rc={rc} {err[-200:]}"
+    days = [out["days"].get(f"2026-04-1{i}") or {} for i in range(1, 4)]
+    return (all(d.get("mode") == "home" and d.get("names") == [] for d in days)
+            and NAMES[AWAY] not in stdout), f"{days}"
 
 
 def main():
