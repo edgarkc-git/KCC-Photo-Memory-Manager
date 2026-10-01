@@ -58,7 +58,9 @@ The judgment steps stay with the driving agent and the owner:
 ⭐ **Run every command from the collection's workspace folder** — the folder
 that holds `Working Files/collection.json` (photo-init). From there
 `photo_run.py` and `photo_index.py` take the **bare dump name** (`202401`) and
-find the work dir themselves. From anywhere else, pass the full work dir path.
+find the work dir themselves. From anywhere else — a work dir included —
+a bare dump name is NOT found (`no collection.json under cwd`): pass the
+full work dir path. A `cd` into a work dir is the usual way to lose it.
 ⛔ Never compose a work dir path by hand: the dump name is enough, and every
 stop message prints any other command with its paths already filled in —
 run those lines as printed. Where a command below shows `"<work dir>"`, type
@@ -299,19 +301,23 @@ missing — there is no second list to keep in step.
    nothing else on the row. Any other word refuses the whole file. A row looks
    like:
    ``- `I-0100` · batch 35 · `classify/batch-35/samples/<photo>.jpg` · `subj-0001` Name-A · identity 0.6768 lead 0.2416 · animal 1 of 1 · crop: `review-crops/<ref>_d0.jpg` · verdict: agree``
-   Check it first with `photo_index.py identify 202401 --answers
+   Apply it with the lines the views file's header prints — they carry the
+   full work dir, so they work from any folder. ⛔ You edit
+   `identify-views.md` inside the work dir; a bare dump name (`202401`) typed
+   from there is NOT found (`no collection.json under cwd`, HIL01). Check it
+   first with `photo_index.py identify "<work dir>" --answers
    "<work dir>/identify-views.md"` (a dry run: it prints the counts). Then
-   `photo_index.py identify 202401 --answers "<work dir>/identify-views.md"
+   `photo_index.py identify "<work dir>" --answers "<work dir>/identify-views.md"
    --go`, and go on to step d. ⛔ **If the index is frozen** (always, after a
    name corrected after the copy), `--go` refuses with `Lift it first`. The
    stop, the views file's header and `identify --new-only` then print an
    `unfreeze "<work dir>" --reason "..."` line first; run the stop's route:
    ```
-   python3 scripts/photo_index.py unfreeze 202401 --reason "..."   # (the freeze locks the names)
-   python3 scripts/photo_index.py identify 202401 --answers "<work dir>/identify-views.md" --go
-   python3 scripts/photo_index.py render 202401
-   python3 scripts/photo_index.py check 202401
-   python3 scripts/photo_index.py freeze 202401
+   python3 scripts/photo_index.py unfreeze "<work dir>" --reason "..."   # (the freeze locks the names)
+   python3 scripts/photo_index.py identify "<work dir>" --answers "<work dir>/identify-views.md" --go
+   python3 scripts/photo_index.py render "<work dir>"
+   python3 scripts/photo_index.py check "<work dir>"
+   python3 scripts/photo_index.py freeze "<work dir>"
    ```
    then re-run `finish --go`. A row left blank names nothing and is recorded
    nowhere; `finish` does not ask it again and says on every run how many photos

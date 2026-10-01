@@ -168,7 +168,8 @@ as a web page (for example a private claude.ai artifact, so you can answer it
 in a browser), that page holds the photos and crops shown on it, and it stays
 online until you delete it, page by page. To delete them: ask the agent to
 delete the pages it published, or open your list of pages (in Claude Code,
-`/artifacts`; on the web, claude.ai/code/artifacts) and delete each one.
+`/artifacts`; on the web, claude.ai/code/artifacts) and delete each one
+(from Claude Code's own help, not measured by this product).
 
 And the vision pass, below.
 

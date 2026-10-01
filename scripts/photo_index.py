@@ -781,7 +781,8 @@ def open_for_change(workdir, pack, index, cmd):
     if why is None:
         raise Refused("the index is frozen and the freeze still holds (D-I16) — "
                       "nothing changed. Lift it first, with a reason:\n"
-                      f"  photo_index.py unfreeze \"{workdir}\" --reason \"...\"")
+                      f"  {run_line('photo_index.py')} unfreeze \"{workdir}\" "
+                      "--reason \"...\"")
     lift(index, cmd, f"the freeze was stale: {why}")
 
 
@@ -1428,8 +1429,8 @@ def cmd_recut(args):
     if index.get("frozen"):
         raise Refused("the index is frozen (D-I16) — a re-cut would move files out "
                       "of the folders the freeze locked. Nothing written. Lift it "
-                      "first:\n  photo_index.py unfreeze \"" + str(workdir)
-                      + "\" --reason \"...\"")
+                      f"first:\n  {run_line('photo_index.py')} unfreeze "
+                      f"\"{workdir}\" --reason \"...\"")
     grouped = [fo["id"] for fo in live(index) if fo["kind"] in PARENTS]
     parted = [fo["id"] for fo in live(index) if fo.get("days")]
     if grouped or parted or any(e.get("cmd") in {f"{GROUP_CMD} {a}" for a in GROUP_STRUCTURE}
@@ -1925,7 +1926,7 @@ def cmd_apply_page(args):
         raise Refused(
             f"{page}: {', '.join(missing)} — not in the owner pack as the page "
             "says. Confirm the page first:\n"
-            f"  photo_memory.py confirm \"{workdir}\" --page {page} --go\n"
+            f"  {run_line('photo_memory.py')} confirm \"{workdir}\" --page {page} --go\n"
             "(a row that confirm refused: blank it or correct it, write the page "
             "again with `photo_memory.py review --batch`, and confirm it) — "
             "nothing changed")
@@ -1947,7 +1948,7 @@ def cmd_apply_page(args):
     for fid, old, new in changed:
         print(f"  {fid}: {' + '.join(old) or '—'} → {' + '.join(new)}")
     for ref, month in proposals:
-        print(f"  proposed, not run: photo_index.py group make-fsl-month "
+        print(f"  proposed, not run: {run_line('photo_index.py')} group make-fsl-month "
               f"\"{workdir}\" {ref} {month} --reason \"...\"")
     if changed:
         for line in radius_notices(workdir, pack, index, refs, changed):
@@ -2045,8 +2046,9 @@ def answers_route(workdir, pack, index, indent):
     refuses `--answers --go` (D-I16), so the route starts by lifting it."""
     lines = []
     if index.get("frozen") and freeze_problem(workdir, pack, index) is None:
-        lines.append(f"{indent}photo_index.py unfreeze \"{workdir}\" --reason \"...\"")
-    lines.append(f"{indent}photo_index.py identify \"{workdir}\" --answers "
+        lines.append(f"{indent}{run_line('photo_index.py')} unfreeze \"{workdir}\" "
+                     "--reason \"...\"")
+    lines.append(f"{indent}{run_line('photo_index.py')} identify \"{workdir}\" --answers "
                  f"\"{workdir / VIEWS_NAME}\" --go")
     return lines
 
@@ -2146,7 +2148,8 @@ def cmd_identify(args):
             if earlier:
                 print(f"identify: {len({p['sample'] for p in earlier})} photo(s) were "
                       "left without a verdict and stay unnamed; run "
-                      f"`photo_index.py identify \"{workdir}\"` to see them again")
+                      f"`{run_line('photo_index.py', crops=True)} identify "
+                      f"\"{workdir}\"` to see them again")
         if not offered:
             print("identify: no photo to view — nothing proposed "
                   f"({len(not_offered)} not offered)")
@@ -2216,7 +2219,7 @@ def apply_views(args, workdir, pack, target, index, offered):
         raise Refused(f"{path.name} was written for owner pack {pinned}, and the "
                       f"pack is now {pack_id(pack)} (a confirm, a rename or a pack "
                       "edit) — nothing written. Write the views again:\n"
-                      f"  photo_index.py identify \"{workdir}\"")
+                      f"  {run_line('photo_index.py', crops=True)} identify \"{workdir}\"")
     bad = [r["id"] for r in rows if r["verdict"] and r["verdict"] not in VERDICTS]
     if bad:
         raise Refused(f"{', '.join(bad)}: a verdict is one of {', '.join(VERDICTS)} "
@@ -3683,6 +3686,18 @@ def main(argv=None):
     args = ap.parse_args(argv)
     args.workdir = dump_workdir(args.workdir, getattr(args, "profile", None))
     return args.fn(args)
+
+
+def run_line(script, crops=False):
+    """H-I (HIL01 obs-15) — `<python> <script>` with the script's full path,
+    for a printed next step: an agent pasting a bare `photo_index.py ...`
+    composed the rest itself and lost the work dir from inside it. A stage
+    that makes crops gets the pages' python, or the pasted line is HIL-10
+    again by hand."""
+    import photo_platform
+    import photo_run
+    return photo_platform.run_line(
+        photo_run.page_python() if crops else photo_run.PY, HERE / script)
 
 
 def dump_workdir(arg, profile):

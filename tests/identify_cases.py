@@ -603,6 +603,49 @@ def a_stale_pin_is_refused():
 
 
 @case
+def a_printed_identify_line_runs_from_any_folder():
+    """REPRODUCTION (H-I: a printed line names a bare script). ⛔ FAILS on
+    beb57e9: the lines `identify` prints began with a bare `photo_index.py`,
+    which runs from no folder as printed. Each now names the python and the
+    script by full path: the views file's apply line, and the stale-pin
+    refusal's line, which makes crops and so names the pages' python (HIL-10).
+    The refusal's line is RUN, as printed, from a folder that is not the
+    workspace. ⚠️ HIL01 obs-15's own trigger was a bare DUMP NAME copied from
+    the photo-run SKILL and typed inside the work dir; that is fixed in the
+    SKILL text only, with no case here."""
+    import shlex
+    import subprocess
+    import photo_run
+    script = str(ROOT / "scripts" / "photo_index.py")
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, pack, _ = id_dump(tmp, [PET])
+        ix.run("identify", wd)
+        head = views(wd).split("## Proposed")[0]
+        apply_ = next((ln for ln in head.splitlines() if " --answers " in ln), "")
+        answer(wd, {"PET_3.jpg": "agree"})
+        reg = pack / "photo-subjects" / "subjects.json"
+        data = json.loads(reg.read_text())
+        data["defaults"]["accept"] = 0.83
+        reg.write_text(json.dumps(data))
+        _gcode, _gout, gerr = go(wd)
+        again = next((ln for ln in gerr.splitlines()
+                      if ln.rstrip().endswith(f'identify "{wd.resolve()}"')), "")
+        argv = shlex.split(again)
+        elsewhere = Path(tmp) / "elsewhere"
+        elsewhere.mkdir()
+        ran = (subprocess.run(argv, cwd=elsewhere, capture_output=True, text=True)
+               if len(argv) > 1 else None)
+    a_argv = shlex.split(apply_)
+    ok = (len(a_argv) > 1 and a_argv[1] == script
+          and len(argv) > 1 and argv[0] == str(photo_run.page_python())
+          and argv[1] == script and ran is not None
+          and ran.returncode in (0, photo_index.EXIT_VIEWS_WANTED)
+          and "no collection.json" not in ran.stderr + ran.stdout)
+    return ok, (f"apply={apply_!r} again={again!r} "
+                f"ran={None if ran is None else (ran.returncode, ran.stderr[-200:])}")
+
+
+@case
 def a_second_go_changes_nothing():
     """GUARD (idempotent). The same answers applied twice write nothing the
     second time, and the photo is not proposed again."""
@@ -928,8 +971,10 @@ def a_frozen_views_file_and_the_apply_reminder_name_unfreeze():
         answer(wd, {"PET_3.jpg": "agree"})
         ncode, nout, _n = ix.run("identify", wd, "--new-only")
     wd = wd.resolve()
-    unfreeze = f'photo_index.py unfreeze "{wd}" --reason "..."'
-    apply_ = (f'photo_index.py identify "{wd}" --answers '
+    line = photo_platform.run_line(photo_platform.owner_python(),
+                                   ROOT / "scripts" / "photo_index.py")
+    unfreeze = f'{line} unfreeze "{wd}" --reason "..."'
+    apply_ = (f'{line} identify "{wd}" --answers '
               f'"{wd / photo_index.VIEWS_NAME}" --go')
     ok = (codes == [0, 0, 0] and r.returncode == 3
           and f"    {unfreeze}\n    {apply_}\n\nthen render, check and freeze again "
@@ -956,7 +1001,8 @@ def an_unfrozen_stop_prints_the_route_as_before():
             f"     {py} {tool} identify \"{wd}\" --answers \"{vf}\" --go\n"
             f"     {py} {tool} render \"{wd}\"   (then check and freeze)\n"
             "   then re-run this command.")
-    apply_ = f'photo_index.py identify "{wd}" --answers "{vf}" --go'
+    line = photo_platform.run_line(py, tool)
+    apply_ = f'{line} identify "{wd}" --answers "{vf}" --go'
     ok = (codes == [0, 0] and r.returncode == 3 and stop in r.stdout
           and "unfreeze" not in r.stdout and "$ photo_index.py verify" not in r.stdout
           and f"When you have written your verdicts:\n\n    {apply_}\n\n" in head

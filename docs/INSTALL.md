@@ -127,8 +127,10 @@ zip, but do not unzip there.
 Safari may unzip the download by itself: if Downloads holds the folder
 `KCC-Photo-Memory-Manager-main` instead of the zip, skip the unzip line.
 
-Both columns were measured (macOS on a scratch copy; Windows by a test agent,
-with `Expand-Archive` and `Move-Item`). On Windows you can also right-click
+Both columns were measured with the earlier folder name (macOS on a scratch
+copy; Windows by a test agent, with `Expand-Archive` and `Move-Item`). The
+`-main` name was measured on macOS only (HIL01); the Windows `-main` lines
+are not measured yet. On Windows you can also right-click
 the zip, choose **Extract All…**, then **Browse** to `C:\` before you press
 Extract: its default is a folder next to the zip, which is often inside a
 synced folder. Then rename the extracted `KCC-Photo-Memory-Manager-main` folder
