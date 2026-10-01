@@ -443,6 +443,17 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
   // G6-6d — a photo with 2+ animals may be in one group per animal: its
   // first group is `assign`, the others `extra`. Every other photo is in one.
   function animalsIn(n){ return (frames[n] && frames[n].animals) || 1; }
+  // cropTicks:begin
+  // HIL-4 — a "not a real animal" tick for EVERY crop, a lone one too: a toy
+  // detected alone was unmarkable on the web. A lone crop IS the tile, so it
+  // needs no second picture beside its tick.
+  function cropTicks(f, n){
+    var crops = (f && f.crops) || [];
+    return crops.map(function(c){
+      return {key: n + "." + c.animal, data: c.data, thumb: crops.length > 1};
+    });
+  }
+  // cropTicks:end
   function groupsOf(n){
     var g = state.assign[n], out = typeof g === "number" ? [g] : [];
     ((state.extra || {})[n] || []).forEach(function(x){ if(out.indexOf(x) < 0) out.push(x); });
@@ -559,24 +570,25 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
         var ab = document.createElement("div"); ab.className = "fwhere";
         ab.textContent = animalsIn(n) + " animals in this photo: add it to one group per animal. It names them, and is never kept as an example of either.";
         m.appendChild(ab);
-        // Q8-c — one tick per crop: a picture in a frame or a reflection is
-        // not a real animal. It stops counting; nothing is rejected.
-        (f.crops || []).forEach(function(c){
-          var key = n + "." + c.animal;
-          var lab = document.createElement("label"); lab.className = "fwhere";
-          if(c.data){ var ci = document.createElement("img"); ci.src = c.data;
-            ci.alt = "animal " + key; ci.style.height = "48px"; ci.style.verticalAlign = "middle";
-            lab.appendChild(ci); }
-          var cb = document.createElement("input"); cb.type = "checkbox";
-          if(!state.notAnimal) state.notAnimal = {};
-          cb.checked = !!state.notAnimal[key];
-          cb.addEventListener("change", function(){
-            state.notAnimal[key] = cb.checked; save(); paint(); });
-          lab.appendChild(cb);
-          lab.appendChild(document.createTextNode(" animal " + key + " is not a real animal (a picture, a reflection)"));
-          m.appendChild(lab);
-        });
       }
+      // Q8-c — one tick per crop: a toy, a picture in a frame or a reflection
+      // is not a real animal. It stops counting; nothing is rejected.
+      cropTicks(f, n).forEach(function(t){
+        var key = t.key;
+        var lab = document.createElement("label"); lab.className = "fwhere";
+        if(t.thumb){ var ci = document.createElement("img"); ci.src = t.data;
+          ci.alt = "animal " + key; ci.style.height = "48px"; ci.style.verticalAlign = "middle";
+          lab.appendChild(ci); }
+        var cb = document.createElement("input"); cb.type = "checkbox";
+        if(!state.notAnimal) state.notAnimal = {};
+        cb.checked = !!state.notAnimal[key];
+        cb.addEventListener("change", function(){
+          state.notAnimal[key] = cb.checked; save(); paint(); });
+        lab.appendChild(cb);
+        lab.appendChild(document.createTextNode(" " + (t.thumb ? "animal " + key : "this")
+          + " is not a real animal (a toy, a picture, a reflection)"));
+        m.appendChild(lab);
+      });
       m.appendChild(nm);
 
       var sl = document.createElement("select");

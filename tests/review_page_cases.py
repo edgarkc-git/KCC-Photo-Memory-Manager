@@ -782,6 +782,26 @@ A note.
     check("HIL-6 the page offers the answer as a button (REPRODUCTION)",
           'id="btn-none"' in tpl_b3)
 
+    # ---- HIL-4 B2 — every crop can be marked not a real animal, one alone too
+    tk = (tpl_b3.split("// cropTicks:begin")[1].split("// cropTicks:end")[0]
+          if "// cropTicks:begin" in tpl_b3 else None)
+    ticks = None
+    if tk and node:
+        ran = _subprocess.run([node, "-e", tk + "\nconsole.log(JSON.stringify(["
+                               "cropTicks(%s, 1), cropTicks(%s, 2), cropTicks(%s, 3)]));"
+                               % (json.dumps(f1), json.dumps(f2),
+                                  json.dumps({"animals": 1, "crops": []}))],
+                              capture_output=True, text=True)
+        ticks = json.loads(ran.stdout) if ran.returncode == 0 else ran.stderr
+    check("HIL-4 a one-animal crop can be marked not a real animal as 1.1 "
+          "(REPRODUCTION)", isinstance(ticks, list)
+          and [t["key"] for t in ticks[0]] == ["1.1"]
+          and ticks[0][0]["thumb"] is False, "%r" % (ticks,))
+    check("HIL-4 a shared photo keeps one tick per crop, with its picture "
+          "(GUARD)", isinstance(ticks, list)
+          and [(t["key"], t["thumb"]) for t in ticks[1]] == [("2.1", True), ("2.2", True)]
+          and ticks[2] == [])
+
     # ---- HIL-5 B5 — recheck on the web needs no typed id and no typed `not` --
     rck = (tpl_b3.split("// recheck:begin")[1].split("// recheck:end")[0]
            if "// recheck:begin" in tpl_b3 else None)
