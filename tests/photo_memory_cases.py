@@ -4812,8 +4812,39 @@ def case_a_refused_go_leaves_the_pinned_page_valid(tmp):
     rc, again = confirm(pack_dir, workdir, checkpoint=1, go=True)
     assert "NOTHING in the file was applied" not in again, again
     assert rc == 0, again
-    log("a refused partition audits, and the page pinned before it still "
-        "confirms")
+
+    # ⭐ ...and doc 4 v4 on a refusal a PAGE can still reach inside
+    # `partition_picks()` (measured 20261001): a split whose picked frame no
+    # longer has its vector (the work dir was re-embedded after the page was
+    # written). The draft on the refused rows must not stay booked as asked,
+    # and it is asked again at the next checkpoint.
+    import csv as _csv
+    pack_dir, workdir, split, other, _b = u26_page(tmp / "booking", lambda s, o: [
+        ([s[0]], "Name-A"), (s[1:], "Name-B")])
+    victim = [l for e in psub.load(pack=open_pack(pack_dir)).get_literal(split)
+              .record["evidence"] for l in e["looks"]][0]
+    emb = Path(victim["workdir"]) / "embed" / "embeddings.csv"
+    rows = list(_csv.DictReader(open(emb)))
+    for row in rows:
+        if row["SourceFile"] == victim["path"]:
+            row["sha256"] = "0" * 64
+    with open(emb, "w", newline="") as fh:
+        writer = _csv.DictWriter(fh, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    rc, said = confirm(pack_dir, workdir, checkpoint=1, go=True)
+    assert rc == 1 and "was picked apart by" in said, said
+    assert split not in set(pm.asked_before(workdir)), \
+        "the draft on the refused rows is still booked as asked"
+    pm.cmd_review(argparse.Namespace(
+        workdir=str(workdir), profile=str(pack_dir / "photo-profile.json"),
+        checkpoint=2, out=None))
+    asked = {i for b in pm.parse_review(
+        (workdir / "memory-review_C2.md").read_text()) for i in b["subject_ids"]}
+    assert split in asked, ("the refused answer's draft did not come back: "
+                            f"{asked}")
+    log("a refused partition audits, the page pinned before it still "
+        "confirms, and a refused split's draft is asked again")
 
 # ======================================================= step 9, item 2 ====
 
