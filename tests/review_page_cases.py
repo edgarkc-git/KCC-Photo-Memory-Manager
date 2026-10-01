@@ -885,6 +885,49 @@ A note.
           and rows_b5[0]["subject_ids"] == ["subj-0002"]
           and not rows_b5[0]["name"], "%r" % (rows_b5,))
 
+    # ---- U2-7 — a fully blank answer is valid and exits 0 ---------------------
+    with tempfile.TemporaryDirectory() as tmpu7:
+        def run_u7(page, rows):
+            md = os.path.join(tmpu7, "P-B01.md")
+            io.open(md, "w", encoding="utf-8").write(page)
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    rc = rp.main(["apply", md, "--answer", _write(tmpu7, rows)])
+            except SystemExit as e:
+                rc = "refused: %s" % e
+            return rc, out.getvalue(), io.open(md, encoding="utf-8").read()
+
+        blank = ["page: P-B01",
+                 "> - `pick:` ______   `who:` ______   `name:` ______",
+                 "> - `skip:` ______"]
+        rc, said, after = run_u7(CROPPED, blank)
+        check("U2-7 a fully blank batch-page answer exits 0, writes nothing and "
+              "says so (REPRODUCTION)",
+              rc == 0 and after == CROPPED and "blank answer" in said,
+              "%r %r" % (rc, said))
+        rc, said, after = run_u7(CROPPED, ["page: P-B01"])
+        check("U2-7 an answer of only its `page:` line is blank too (REPRODUCTION)",
+              rc == 0 and after == CROPPED, "%r" % (rc,))
+        rc, _, after = run_u7(CROPPED, ["page: P-B01",
+                                        "recheck: subj-0099 withdraw"])
+        check("U2-7 a filled row that matches nothing still refuses (GUARD)",
+              str(rc).startswith("refused: nothing changed")
+              and after == CROPPED, "%r" % (rc,))
+        rc, _, after = run_u7(CROPPED, ["page: P-B01", "hello there"])
+        check("U2-7 a line on no answer key still refuses (GUARD)",
+              str(rc).startswith("refused: nothing changed")
+              and after == CROPPED, "%r" % (rc,))
+        rc, _, after = run_u7(REVIEW, [])
+        check("U2-7 an empty answer file still refuses (GUARD)",
+              str(rc).startswith("refused: nothing changed")
+              and after == REVIEW, "%r" % (rc,))
+        rc, _, after = run_u7(CROPPED, ["page: P-B02",
+                                        "> - `pick:` ______"])
+        check("U2-7 a blank answer for another page still refuses (GUARD)",
+              str(rc).startswith("refused: this answer is for page P-B02")
+              and after == CROPPED, "%r" % (rc,))
+
     print("\n%d/%d review_page cases passed"
           % (len(PASS), len(PASS) + len(FAIL)))
     if FAIL:

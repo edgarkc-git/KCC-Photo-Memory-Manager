@@ -521,6 +521,18 @@ def apply_answer(md_text, answer_lines):
     return apply_answer_report(md_text, answer_lines)[0]
 
 
+def blank_answer_row(line):
+    """True for an answer row on the page's own keys with every value left
+    `______` — copied from the page as rendered, before anyone answered."""
+    t = line.replace("`", "").strip().lstrip(">").strip().lstrip("-").strip()
+    if not re.match(r"(?:pick|skip|recheck|place):", t, re.I):
+        return False
+    t = re.sub(r"^recheck:\s*subj-\d+", "", t, flags=re.I)
+    t = re.sub(r"^place:\s*\d+", "", t, flags=re.I)
+    t = re.sub(r"\b(?:pick|who|name|skip|home):", "", t, flags=re.I)
+    return not BLANK_ROW.sub("", t).strip()
+
+
 def apply_answer_report(md_text, answer_lines):
     """Splice the owner's rows into the markdown, in the text path's shape.
     -> (new text, [earlier answer rows this answer replaced]).
@@ -733,6 +745,13 @@ def cmd_apply(args):
 
     new_text, replaced = apply_answer_report(md_text, answer_lines)
     assert_clean_text(new_text, md_path)
+    if new_text == md_text and (named or answer_lines) and all(
+            blank_answer_row(l) for l in answer_lines):
+        # U2-7 — every question left undecided is a valid answer; only a
+        # filled or unreadable row that landed nowhere is a mismatch.
+        print("%s  ·  blank answer — every question left undecided; "
+              "nothing written" % md_path)
+        return 0
     if new_text == md_text:
         raise SystemExit("nothing changed — no answer row matched %s" % md_path)
     if not args.dry_run:
