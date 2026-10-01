@@ -369,12 +369,18 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
   // furniture, and the tab names the page it is.
   function furniture(){
     var placeOnly = !!PAGE && !nums.length && !RE.length && PLACES.length > 0;
+    // HIL-4 — the two steps are THE instruction: the 4-step click strip
+    // folds into one "how to click" line under them, never a second set.
+    var howto = !placeOnly && (D.howto || []).length > 0;
     return {
       placeOnly: placeOnly,
       title: PAGE ? "Photo page " + PAGE
                   : "Memory review · Checkpoint " + (D.checkpoint || "C1"),
       hide: placeOnly ? ["howmany", "pets", "f-files", "f-batches", "steps", "toolbar",
-                         "answer-card", "subjects-card", "pet-notes"] : [],
+                         "answer-card", "subjects-card", "pet-notes"]
+                      : howto ? ["steps"] : [],
+      clickLine: howto ? "How to click: select a pet's photos, press New group, " +
+        "give the group the pet's name; repeat for each pet, then press Confirm." : "",
       noRound: placeOnly ? "" : (D.no_round || (PAGE ? "" : "No draft crossed the threshold."))
     };
   }
@@ -397,6 +403,9 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
     var hw = document.getElementById("howto"); hw.hidden = false;
     (D.howto || []).forEach(function(s){
       var p = document.createElement("p"); p.textContent = s; hw.appendChild(p); });
+    if(FURNITURE.clickLine){
+      var cl = document.createElement("p"); cl.className = "note";
+      cl.textContent = FURNITURE.clickLine; hw.appendChild(cl); }
   }
   if(PAGE){
     document.getElementById("later-note").textContent =

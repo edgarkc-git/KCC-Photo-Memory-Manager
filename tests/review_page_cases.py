@@ -596,6 +596,14 @@ A note.
     check("G8 a checkpoint page keeps its furniture and its threshold line (GUARD)",
           ok and got["c"]["hide"] == [] and got["c"]["noRound"] == threshold
           and "Photo page" not in got["c"]["title"])
+    howto_page = dict(pet_page, howto=["Step 1. a", "Step 2. b"])
+    got_h = furnished(howto_page)
+    check("HIL-4 one instruction set: the two steps replace the 4-step strip "
+          "(REPRODUCTION)", isinstance(got_h, dict) and "steps" in got_h["hide"]
+          and got_h.get("clickLine"), "%r" % (got_h,))
+    check("HIL-4 a page without the two steps keeps its strip (GUARD)",
+          ok and "steps" not in got["pet"]["hide"]
+          and "steps" not in got["c"]["hide"])
     check("G8 every element the page can hide exists in the template (GUARD)",
           all('id="%s"' % i in tpl_g8 for i in listed))
     send_back = tpl_g8.split('id="subjects-card"')[-1].split("</aside>")[0]
