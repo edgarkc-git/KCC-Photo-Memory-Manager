@@ -685,6 +685,43 @@ def device_spec_cases(tmp, wd, D_plain, tpl, f3_plain):
           and "Zenith Q1" in refused["not in this collection"], refused)
 
 
+def printed_line_cases(tmp):
+    """H-C C4 / H-I (HIL01 obs-15) — a printed next step must run from any
+    folder: an absolute interpreter, the script's full path, and the work
+    dir whenever the line knows it."""
+    import ast
+    import photo_census
+    scripts = os.path.join(os.path.dirname(HERE), "scripts")
+    census = os.path.join(scripts, "photo_census.py")
+    wd = os.path.join(tmp, "printed-wd")
+    os.makedirs(wd, exist_ok=True)
+    places = os.path.join(wd, "census-places.txt")
+    io.open(places, "w", encoding="utf-8").write(
+        photo_census.STAMP_PREFIX + " deadbeef\n")
+    try:
+        op.check_places_stamp(places)
+        said = ""
+    except SystemExit as err:
+        said = str(err)
+    check("C4 the stale-places refusal prints a runnable census line "
+          "(REPRODUCTION)", ('"%s"' % census) in said and ('"%s"' % wd) in said
+          and "python3 photo_census.py" not in said, said[-200:])
+    how = " ".join(op.screen_gate([{"dims": [11, 22]}], tmp).values())
+    check("C4 the uncounted-size refusal names the sheet by its full path "
+          "(REPRODUCTION)", os.path.join(scripts, "photo_onboard_page.py") in how
+          and "python3 photo_onboard_page.py" not in how, how[-200:])
+    stale = []
+    for name in ("photo_onboard_page.py", "photo_census.py", "photo_settings.py"):
+        tree = ast.parse(io.open(os.path.join(scripts, name), encoding="utf-8").read())
+        doc = ast.get_docstring(tree, clean=False)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                    and node.value != doc and "python3 photo_" in node.value:
+                stale.append("%s:%d" % (name, node.lineno))
+    check("C4 no printed line starts with a bare `python3 photo_` (REPRODUCTION)",
+          not stale, ", ".join(stale))
+
+
 def repeat_page_cases(tmp, wd):
     """HIL-9 (HIL01) — a 2nd or later onboarding page asked section 4
     (language, types, away_km) EMPTY although the pack held the answers, and
@@ -1747,6 +1784,7 @@ def main():
         # ---- 14. the answer contract: what the owner answers -> the pack ---
         answer_contract(tmp)
         repeat_page_cases(tmp, wd)
+        printed_line_cases(tmp)
 
         # ---- 15. U3-06: what the evidence strips withhold, and say ---------
         evidence_cases(tmp)

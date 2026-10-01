@@ -716,6 +716,13 @@ def render_near_misses(c):
     return out
 
 
+def apply_line():
+    """H-C C4 / H-I — the onboarding `apply` step as a line that runs from
+    any folder, by the one rule `photo_index.run_line()` keeps."""
+    import photo_index
+    return photo_index.run_line("photo_onboard_page.py") + " apply"
+
+
 def render(c, path, profile=None, owner=None):
     out = [f"device census — {c['files']} files in {path}", ""]
     # Named once, up here, because both cross-checks below answer the same
@@ -849,8 +856,8 @@ def render(c, path, profile=None, owner=None):
             out.append("  ANSWER each confirmed row as `home: <number> = "
                        "<city word> live` — one line per row, the number as "
                        "printed above. Write them in a plain text file, then:")
-            out.append(f"    python3 photo_onboard_page.py apply <that file> "
-                       f"--write-pack <pack> --coords-in {places_file(path)}")
+            out.append(f"    {apply_line()} <that file> "
+                       f"--write-pack <pack> --coords-in \"{places_file(path)}\"")
             out.append("  The engine reads the coordinate out of that file "
                        "and writes the pack row itself. You never type a "
                        "coordinate, and none is printed here.")
@@ -900,8 +907,7 @@ def render(c, path, profile=None, owner=None):
                "write their answers as `screen: <w>x<h> = <device>` (or "
                "`= no`) and `home: <number> = <city word> live`, one per "
                "line, and apply that file:")
-    out.append("  python3 photo_onboard_page.py apply <that file> "
-               "--write-pack <pack>")
+    out.append(f"  {apply_line()} <that file> --write-pack <pack>")
     out.append("  (add `--coords-in <the census places file>` if any home row "
                "is answered — that is where the coordinates were kept.)")
     return "\n".join(out)

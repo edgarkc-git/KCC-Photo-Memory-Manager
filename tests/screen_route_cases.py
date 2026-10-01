@@ -101,7 +101,7 @@ def case_uncounted_is_refused_not_shown(tmp):
     code, said = run("apply", answers, "--pack", pack)
     assert "NOT COUNTED" in said, said
     assert "Show the owner" not in said, said
-    assert 'photo_onboard_page.py sheet "<work dir>"' in said, said
+    assert 'photo_onboard_page.py" sheet "<work dir>"' in said, said  # H-C C4: full path
 
 
 def case_mixed_collections_are_refused(tmp):

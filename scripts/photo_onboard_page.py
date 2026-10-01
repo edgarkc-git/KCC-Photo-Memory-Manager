@@ -844,8 +844,9 @@ NEXT_STEPS = [
      "a page asks you to match each pet you named here with its photos, "
      "picking the name from your list, and to name any place you visit often "
      "that is not a home. Expect a few of these pages, a few minutes each. "
-     "The copy waits until they are answered, because a name given after the "
-     "copy names nothing."),
+     "The copy waits until they are answered: a name given after the copy "
+     "does not rename a folder by itself, so you would rename those folders "
+     "by hand."),
     ("The copy",
      "Files are copied into the new folders and every copy is checked. Files "
      "with no date go to a to-be-checked folder for you to sort by hand."),
@@ -1380,7 +1381,7 @@ SHEET_PREAMBLE = """\
 #  ONBOARDING — the same checkpoint as the page, for a session with no
 #  browser. Answer it here, then:
 #
-#      python3 photo_onboard_page.py apply <this file>
+#      {APPLY} <this file>
 #
 #  ⛔ TWO OF THESE QUESTIONS CANNOT BE ANSWERED FROM THE NUMBERS, and both
 #     of those two move files. The screen size with the most files is
@@ -1427,7 +1428,8 @@ def withheld_stanza(data):
 
 
 def sheet_text(data, blocks, photographs, digest, workdirs=()):
-    out = [SHEET_PREAMBLE] + withheld_stanza(data)
+    out = [SHEET_PREAMBLE.replace("{APPLY}", cli("photo_onboard_page.py")
+                                  + " apply")] + withheld_stanza(data)
     out.append("sheet: %d" % SHEET_VERSION)
     out.append("generated: %s" % data["generated"])
     out.append("owner: %s" % (data["owner"] or "-"))
@@ -1512,8 +1514,10 @@ def sheet_text(data, blocks, photographs, digest, workdirs=()):
         out.append("# NOT LISTED: " + "; ".join(cut) + ".")
         out.append("#   If the place you live is not above, tell the session: "
                    "the census prints")
-        out.append("#   every place it withheld with "
-                   "`photo_census.py <work dir> --all-places`.")
+        out.append("#   every place it withheld with")
+        out.append("#   %s %s --all-places"
+                   % (cli("photo_census.py"),
+                      quoted(workdirs[0]) if len(workdirs) == 1 else '"<work dir>"'))
         out.append("")
 
     out.append(RULE)
@@ -1940,6 +1944,18 @@ RE_COORD_ROW = re.compile(r"^(?:place\s+(\d+)\s*:|([A-Za-z])\s)\s*"
                           r"(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)(?:\s|$)")
 
 
+def cli(script, crops=False):
+    """H-C C4 / H-I — a printed next step that runs from any folder: the one
+    rule `photo_index.run_line()` keeps (full interpreter and script path;
+    the pages' python when the stage makes crops or reads photographs)."""
+    import photo_index
+    return photo_index.run_line(script, crops=crops)
+
+
+def quoted(path):
+    return '"%s"' % path
+
+
 def check_places_stamp(path):
     """STOP if a census places file no longer matches the manifest it came
     from (Q7, owner ruling 20260920).
@@ -1974,8 +1990,9 @@ def check_places_stamp(path):
             "%s was written from a manifest that is not beside it any more, "
             "so its numbered places cannot be checked.\n"
             "  Those numbers belong to one census run. Re-run\n"
-            "      python3 photo_census.py <the work dir>\n"
-            "  and answer the list it prints." % path)
+            "      %s %s\n"
+            "  and answer the list it prints."
+            % (path, cli("photo_census.py"), quoted(pathlib.Path(path).parent)))
     now = photo_census.manifest_stamp(manifest)
     if now != stamp:
         raise SystemExit(
@@ -1984,9 +2001,9 @@ def check_places_stamp(path):
             "  Its place numbers belong to the earlier run, so an answer "
             "given against them could register the wrong place.\n"
             "  Re-run\n"
-            "      python3 photo_census.py %s\n"
+            "      %s %s\n"
             "  and answer the numbers it prints now."
-            % (path, pathlib.Path(path).parent))
+            % (path, cli("photo_census.py"), quoted(pathlib.Path(path).parent)))
 
 
 def read_coords(path):
@@ -2636,7 +2653,9 @@ def screen_gate(new_sizes, near, workdirs=(), route="sheet"):
       A sheet's own questions are pinned by `questions_digest`."""
     collection_dir, why = bound_collection(near, workdirs)
     how = ('make the sheet from the work dir and answer that one: '
-           'python3 photo_onboard_page.py sheet "<work dir>" --out-dir <folder>')
+           '%s sheet %s --out-dir <folder>'
+           % (cli("photo_onboard_page.py", crops=True),
+              quoted(workdirs[0]) if len(workdirs) == 1 else '"<work dir>"'))
     if not collection_dir:
         return {tuple(sorted(e["dims"])): "%s (%s) — %s"
                 % (NOT_COUNTED_MARK, why, how) for e in new_sizes}
@@ -2689,10 +2708,11 @@ def print_screen_move_preview(new_sizes, profile, near, workdirs=()):
             print("      Do not put this size to the owner yet. Make the sheet "
                   "from the work dir, answer that one, and run this dry run "
                   "on it:\n"
-                  "          python3 photo_onboard_page.py sheet \"<work dir>\" "
-                  "--out-dir <folder>\n"
+                  "          %s sheet %s --out-dir <folder>\n"
                   "      The sheet records its work dirs, and the count is "
-                  "made from their collection.json.")
+                  "made from their collection.json."
+                  % (cli("photo_onboard_page.py", crops=True),
+                     quoted(workdirs[0]) if len(workdirs) == 1 else '"<work dir>"'))
             continue
         print("\n   ⚠️  NEW screen size %s MOVES FILES. Show the owner this, and "
               "add it only after their yes (--add-screen %s):" % (shown, shown))
@@ -2776,7 +2796,7 @@ def backfill_ids(pack_arg, go):
     print("\n⚠️  Writing ids moves this pack's id (now %s). A review page "
           "written before that is refused at `confirm`, whole, and nothing on "
           "it is applied — answer any open review page first, or re-run "
-          "`photo_memory.py review` afterwards." % before)
+          "`%s review <work dir>` afterwards." % (before, cli("photo_memory.py")))
     if not go:
         print("\nDRY RUN — nothing written. Add --go to write (each changed "
               "file is copied to a .bak first).")
