@@ -536,6 +536,67 @@ def shared_frame_rows(workdir, block, refusals, pack=None):
     return logs
 
 
+def read_mixed_rows(block, registry, changes):
+    """U2-6 (owner ruling 20261001; supersedes OA-19 for this case only) — a
+    NAMED pick row whose one-animal frames span 2+ drafts, while one of those
+    drafts is split by another row, is read as ONE ROW PER DRAFT with the same
+    who and name: the two-row form `partition_subject()`'s refusal teaches,
+    and with one name on both (doc 8 amendment (a)) one subject over the ids
+    they name. Said in owner words, in the dry run and under --go alike.
+
+    Runs after `shared_frame_rows()`, so a 2+ animal frame has already left
+    the rows. ⛔ The storage gate is NOT changed: a mixed row reaching
+    `partition_subject()` from anywhere else is still refused. A row with no
+    name, or whose drafts no other row splits (an SNS-16 join), is left as it
+    is."""
+    picks = [u for u in block["picks"] if u["verb"] == "pick"]
+
+    def drafts_of(unit):
+        out = {}
+        for n in unit["numbers"]:
+            entry = block["frames"].get(n)
+            if entry:
+                out.setdefault(entry["subject_id"], []).append(n)
+        return out
+
+    rows_per = {}
+    for unit in picks:
+        for sid in drafts_of(unit):
+            rows_per[sid] = rows_per.get(sid, 0) + 1
+    out, row_no = [], 0
+    for unit in block["picks"]:
+        if unit["verb"] != "pick":
+            out.append(unit)
+            continue
+        row_no += 1
+        drafts = drafts_of(unit)
+        if not (unit["name"] and len(drafts) > 1
+                and any(rows_per[s] > 1 for s in drafts)):
+            out.append(unit)
+            continue
+        loose = [n for n in unit["numbers"] if n not in block["frames"]]
+        pieces = []
+        for i, (sid, numbers) in enumerate(drafts.items()):
+            piece = dict(unit)
+            piece["numbers"] = numbers + (loose if i == 0 else [])
+            piece["refs"] = {sid: [block["frames"][n]["ref"] for n in numbers]}
+            piece["subject_ids"] = [sid]
+            pieces.append(piece)
+        out.extend(pieces)
+        kinds = {(registry.get_literal(s).record.get("kind") if registry.get_literal(s)
+                  else None) or "animal" for s in drafts}
+        kind = kinds.pop() if len(kinds) == 1 else "animal"
+        said = [("photo " if len(p["numbers"]) == 1 else "photos ")
+                + ", ".join(str(n) for n in p["numbers"]) for p in pieces]
+        count = {2: "two", 3: "three", 4: "four"}.get(len(pieces), str(len(pieces)))
+        changes.append(
+            "Q%d: Row %d had photos of %s %s groups, so it was read as %s rows, "
+            "%s named %s: %s." % (block["n"], row_no, count, kind, count,
+                                  "both" if len(pieces) == 2 else "all",
+                                  unit["name"], ", and ".join(said)))
+    block["picks"] = out
+
+
 def batch_page_name(batch):
     """-> the file name of batch N's page: `P-B03.md`."""
     return f"P-B{int(batch):02d}.md"
@@ -5183,6 +5244,7 @@ def cmd_confirm(args):
             if logged:
                 shared_logs.extend(logged)
                 shared_blocks.append((block, logged))
+            read_mixed_rows(block, registry, changes)
             # U-3: the owner's picks, kept as (frame sample path, the draft id
             # that frame stood for, the name typed on the row). Resolved and
             # filtered AFTER the pack is saved — a row refused below must

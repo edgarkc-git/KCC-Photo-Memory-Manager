@@ -3170,6 +3170,14 @@ class Registry:
                 # ⛔ Not a pending decision: do not "resolve" this by making the
                 # call succeed.
                 #
+                # ⭐ U2-6, owner ruling 20261001 — supersedes OA-19 FOR ONE CASE,
+                # and not here: a NAMED page row whose one-animal frames span
+                # 2+ drafts, one of them split by another row, is read as one
+                # row per draft with the same who/name BEFORE it reaches this
+                # gate (`photo_memory.read_mixed_rows()`), and says so. This
+                # gate is unchanged and still refuses a mixed row from any
+                # caller.
+                #
                 # ⭐ Doc 8 amendment (a), 2026-08-27, changes the MESSAGE and
                 # not this gate: the two rows may now carry the SAME name, so
                 # "say it as two rows" no longer sends an owner whose answer is

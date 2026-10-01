@@ -4706,6 +4706,22 @@ def split_and_share_page(pack_dir, workdir, checkpoint=1):
     return path, split, other
 
 
+def mixed_groups(pack_dir):
+    """U2-6 — the row a page can no longer send (it is read as two rows
+    first), built as storage sees it: one row of the split draft that also
+    names the other draft, and one row of the rest. -> (registry, split id,
+    groups)."""
+    reg = psub.load(pack=open_pack(pack_dir))
+    split = max(reg.drafts, key=lambda s: (len(s.record.get("evidence") or []),
+                                           s.subject_id))
+    other = [d for d in reg.drafts if d is not split][0]
+    refs = [l["vec_ref"] for e in split.record["evidence"] for l in e["looks"]]
+    refs = list(dict.fromkeys(refs))
+    return reg, split.subject_id, [
+        {"vec_refs": refs[:1], "shared_with": [other.subject_id], "centroid": [1.0]},
+        {"vec_refs": refs[1:], "shared_with": [], "centroid": [1.0]}]
+
+
 def follow_stale_instruction(said, workdir, away):
     """Do what the stale-page refusal says to the page, literally: move the
     page it names out of the work dir, if it says so. -> True when it did."""
@@ -4767,6 +4783,9 @@ def case_a_refused_go_leaves_the_pinned_page_valid(tmp):
     worse than one that moves a hash. What changes is that provenance stops
     counting as state — the same reason `photo-memory-log.md` was excluded
     from the snapshot when it was written."""
+    # ⭐ U2-6 (owner ruling 20261001): the page answer of this shape is read
+    # as two rows and accepted, so the refused --go is made at storage, the
+    # one place this gate still bites, and the pinned page is then confirmed.
     pack_dir, workdir = a_split_and_a_share(tmp)
     path, split, other = split_and_share_page(pack_dir, workdir)
     pinned = pm.pinned_snapshot(path.read_text())
@@ -4774,40 +4793,27 @@ def case_a_refused_go_leaves_the_pinned_page_valid(tmp):
     assert pinned == open_pack(pack_dir).snapshot()["id"]
     trail = len(psub.load(pack=open_pack(pack_dir)).audit_trail())
 
-    rc, said = confirm(pack_dir, workdir, checkpoint=1, go=True)
-    assert rc == 1, ("the split-and-share row was not refused", said)
-    assert "wrote 0 change(s)" in said, said
+    reg, sid, groups = mixed_groups(pack_dir)
+    try:
+        reg.partition_subject(sid, groups, by="Test Operator")
+        refused = None
+    except ValueError as err:
+        refused = str(err)
+    assert refused and "both splits this subject and names" in refused, refused
 
     grown = psub.load(pack=open_pack(pack_dir)).audit_trail()
     assert len(grown) > trail, "the refusal left no trace in the audit log"
     assert pinned == open_pack(pack_dir).snapshot()["id"], \
-        ("a refused --go moved the pack — the page it refused can no longer "
-         "be confirmed at all")
+        ("a refused partition moved the pack — the page it was pinned to can "
+         "no longer be confirmed at all")
 
     # ...and the proof that matters to the owner: the same file is still
-    # readable, so the refusal is about the row and never about the page.
+    # readable after the refusal.
     rc, again = confirm(pack_dir, workdir, checkpoint=1, go=True)
     assert "NOTHING in the file was applied" not in again, again
-    assert rc == 1, again
-
-    # ⭐ ...and doc 4 v4 on the refusal it was MEASURED on. This one reaches
-    # the booking correction through `partition_picks()`, which refuses on
-    # behalf of every row that claimed the draft — a different path from the
-    # answer rows, and the one the FINDINGS actually walked.
-    booked = set(pm.asked_before(workdir)) & {split, other}
-    assert not booked, ("the drafts on the refused row are still booked as "
-                        f"asked: {booked}")
-    pm.cmd_review(argparse.Namespace(
-        workdir=str(workdir), profile=str(pack_dir / "photo-profile.json"),
-        checkpoint=2, out=None))
-    asked = {i for b in pm.parse_review(
-        (workdir / "memory-review_C2.md").read_text())
-        for i in b["subject_ids"]}
-    assert {split, other} <= asked, ("the refused answer's drafts did not come "
-                                     f"back: {asked}")
-    log("a refused --go audits, the page it refused still validates, and the "
-        "drafts on that row are asked again")
-
+    assert rc == 0, again
+    log("a refused partition audits, and the page pinned before it still "
+        "confirms")
 
 # ======================================================= step 9, item 2 ====
 
@@ -4862,16 +4868,14 @@ def case_the_dry_run_predicts_the_go_it_refuses(tmp):
         f"the dry run said {dry_changes} change(s) / {dry_refused} refused "
         f"and --go delivered {go_changes} / {go_refused}\n--- dry ---\n{dry}"
         f"\n--- go ---\n{said}")
-    assert rc_dry == rc_go == 1, (rc_dry, rc_go)
-    assert go_refused == 1 and go_changes == 0, (said,)
-    assert "both splits this subject and names" in dry, dry
-    assert split in dry and other in dry, dry
-
-    # ...and nothing was half applied on either side
+    # ⭐ U2-6 (owner ruling 20261001): this row is now read as one row per
+    # draft before storage, in BOTH modes, so the agreement is asserted on
+    # the accepted answer — still both directions, still the same numbers.
+    assert rc_dry == rc_go == 0, (rc_dry, rc_go, dry, said)
+    assert go_refused == 0 and go_changes > 0, (said,)
+    assert "so it was read as two rows" in dry and "so it was read as two rows" in said
     after = psub.load(pack=open_pack(pack_dir))
-    assert after.get_literal(split).is_draft, after.get_literal(split).record
-    assert after.get_literal(other).is_draft, after.get_literal(other).record
-    assert not after.get_literal(other).name, "a refused row wrote a name"
+    assert after.get_literal(other).name == "Name-Shared", after.get_literal(other).record
     log(f"dry run and --go both say {go_changes} change(s) / {go_refused} "
         "refused")
 
@@ -4961,10 +4965,12 @@ def case_a_split_row_and_a_naming_row_share_one_name(tmp):
     and the collision is still a question."""
     # First, the refusal that starts the loop — it must now teach a form that
     # works, which is the half of D6 that is a message and not a gate.
+    # U2-6 (owner ruling 20261001): a page answer of this shape is now read
+    # as two rows before storage, so the teaching is read off the gate itself.
     taught_dir, taught_workdir = a_split_and_a_share(tmp)
-    split_and_share_page(taught_dir, taught_workdir)
-    rc, taught = confirm(taught_dir, taught_workdir, checkpoint=1)
-    assert rc == 1, taught
+    _reg, _split, groups = mixed_groups(taught_dir)
+    taught = _reg.partition_refusal(_split, groups)
+    assert taught, "the storage gate no longer refuses a mixed row"
     assert "TWO rows" in taught, taught
     assert "share a name" in taught, \
         ("the shared-row refusal still sends the owner to a door the "
@@ -7872,6 +7878,103 @@ def case_a_page_confirmed_under_another_name_is_refused(tmp):
     log("P-B02, a copy and an unmarked page refused; P-B01 by its name applied")
 
 
+# ============================================================ U2-6 ======
+
+def u26_page(tmp, rows):
+    """The split-and-share fixture, answered with `rows`: [(frames, name)],
+    frames as page numbers. -> (pack dir, work dir, split, other, by_subject)."""
+    pack_dir, workdir = a_split_and_a_share(tmp)
+    pm.cmd_review(argparse.Namespace(
+        workdir=str(workdir), profile=str(pack_dir / "photo-profile.json"),
+        checkpoint=1, out=None))
+    path = workdir / "memory-review_C1.md"
+    by_subject = pm.parse_review(path.read_text())[0]["frames_by_subject"]
+    split = max(by_subject, key=lambda s: (len(by_subject[s]), s))
+    other = [s for s in by_subject if s != split][0]
+    text = path.read_text()
+    for frames, name in rows(by_subject[split], by_subject[other]):
+        if PICK_ROW not in text:
+            text = text.replace("> - `skip:`", "> - " + PICK_ROW + "\n> - `skip:`", 1)
+        text = fill_pick(text, None, frames=",".join(map(str, frames)), name=name)
+    path.write_text(text)
+    return pack_dir, workdir, split, other, by_subject
+
+
+def u26_outcome(pack_dir):
+    """The registry as an owner sees it, ids aside: per name, the status and
+    the exemplar and look refs; and which drafts were superseded."""
+    reg = psub.load(pack=open_pack(pack_dir))
+    named = {}
+    for s in reg.subjects:
+        if s.name:
+            named.setdefault(s.name, []).append((
+                s.status,
+                tuple(sorted(e.get("vec_ref") for e in s.exemplars)),
+                tuple(sorted(l["vec_ref"] for e in s.record.get("evidence") or []
+                             for l in e.get("looks") or []))))
+    return ({k: sorted(v) for k, v in named.items()},
+            sorted(len(s.record.get("evidence") or []) for s in reg.subjects
+                   if s.status == psub.STATUS_SUPERSEDED))
+
+
+def case_u26_a_row_that_splits_and_names_is_read_as_two(tmp):
+    """⭐ REPRO U2-6 (owner ruling 20261001, supersedes OA-19 for this case).
+    UAT2, S24U P-B01: Step 1 followed exactly gave a named row whose photos
+    held two drafts, one of them split by another row, and confirm refused it
+    in storage words. The row is now read as one row per draft with the same
+    name — the two-row form the refusal itself taught — said in owner words,
+    and the result matches that typed two-row form field by field."""
+    mixed = u26_page(tmp / "mixed", lambda s, o: [
+        ([s[0]] + list(o), "Name-Lotus"), (s[1:], "Name-Birk")])
+    rc_dry, dry = confirm(mixed[0], mixed[1], checkpoint=1, go=False)
+    rc, said = confirm(mixed[0], mixed[1], checkpoint=1, go=True)
+    typed = u26_page(tmp / "typed", lambda s, o: [
+        ([s[0]], "Name-Lotus"), (s[1:], "Name-Birk"), (list(o), "Name-Lotus")])
+    rc_t, said_t = confirm(typed[0], typed[1], checkpoint=1, go=True)
+    assert rc_t == 0, said_t
+    assert rc_dry == 0 and rc == 0, (dry, said)
+    for out in (dry, said):
+        assert "Row 1 had photos of two cat groups, so it was read as two rows, " \
+               "both named Name-Lotus" in out, out
+        assert mixed[2] not in out.split("read as two rows")[1].split("\n")[0], out
+    assert u26_outcome(mixed[0]) == u26_outcome(typed[0]), (
+        u26_outcome(mixed[0]), u26_outcome(typed[0]))
+
+
+def case_u26_a_mixed_row_with_no_name_is_not_rewritten(tmp):
+    """GUARD U2-6 — the rewrite needs the owner's name; a nameless row is
+    never read as anything and is refused as before."""
+    pack_dir, workdir, split, other, _b = u26_page(tmp, lambda s, o: [
+        ([s[0]] + list(o), ""), (s[1:], "Name-Birk")])
+    rc, said = confirm(pack_dir, workdir, checkpoint=1, go=False)
+    assert "was read as two rows" not in said, said
+    assert rc == 1, said
+
+
+def case_u26_the_storage_gate_still_refuses_a_mixed_row(tmp):
+    """GUARD U2-6 — OA-19's gate in partition_subject() is unchanged: a mixed
+    row reaching storage from any other caller is still refused."""
+    pack_dir, workdir = a_split_and_a_share(tmp)
+    reg = psub.load(pack=open_pack(pack_dir))
+    split = max(reg.drafts, key=lambda s: (len(s.record.get("evidence") or []), s.subject_id))
+    other = [d for d in reg.drafts if d is not split][0]
+    refs = [l["vec_ref"] for e in split.record["evidence"] for l in e["looks"]]
+    why = reg.partition_refusal(split.subject_id, [
+        {"vec_refs": refs[:1], "shared_with": [other.subject_id], "centroid": [1.0]},
+        {"vec_refs": refs[1:], "shared_with": [], "centroid": [1.0]}])
+    assert why and "both splits this subject and names" in why, why
+
+
+def case_u26_a_join_that_splits_nothing_is_not_rewritten(tmp):
+    """GUARD U2-6 — one row naming two drafts and splitting neither is the
+    SNS-16 join, unchanged: not read as two rows."""
+    pack_dir, workdir, split, other, _b = u26_page(tmp, lambda s, o: [
+        (list(s) + list(o), "Name-Lotus")])
+    rc, said = confirm(pack_dir, workdir, checkpoint=1, go=False)
+    assert "was read as two rows" not in said, said
+    assert rc == 0, said
+
+
 CASES = [
     ("F22 — a frame whose crop cannot be made is refused (REPRODUCTION)",
      case_a_frame_whose_crop_cannot_be_made_is_refused),
@@ -7940,6 +8043,14 @@ CASES = [
      case_the_dry_run_predicts_the_go_it_refuses),
     ("step 9 — a legal split is still predicted and still performed",
      case_a_predicted_split_still_runs_under_go),
+    ("U2-6 — a row that splits and names is read as two (REPRODUCTION)",
+     case_u26_a_row_that_splits_and_names_is_read_as_two),
+    ("U2-6 — a mixed row with no name is not rewritten (GUARD)",
+     case_u26_a_mixed_row_with_no_name_is_not_rewritten),
+    ("U2-6 — the storage gate still refuses a mixed row (GUARD)",
+     case_u26_the_storage_gate_still_refuses_a_mixed_row),
+    ("U2-6 — a join that splits nothing is not rewritten (GUARD)",
+     case_u26_a_join_that_splits_nothing_is_not_rewritten),
     ("OA-19 — the two-row remedy the refusal teaches is performed",
      case_the_two_row_remedy_the_refusal_teaches_is_performed),
     ("D6 — a split row and a naming row may share one name",
