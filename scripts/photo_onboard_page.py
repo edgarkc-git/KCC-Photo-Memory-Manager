@@ -1087,16 +1087,23 @@ def build_data(targets, profile, with_coords, prefill=None, device_specs=None,
             kept_rows.append(kept)
         homes[key] = kept_rows
 
+    screens = with_device_checks(
+        screens_section(all_rows, census_all, pack.profile,
+                        full_names=full_names), specs)
     return {
+        # H-C C3 / obs-9 — what this unit adds that the pack does not hold.
+        "new": {"cameras": photo_census.pack_gap(census_all, pack.profile)[0],
+                "screens": len(screens["candidates"]),
+                "homes": len(homes["rows"]),
+                "near_misses": homes["near_misses"],
+                "onboarded": bool(pack_answers(pack.profile))},
         "owner": pack.owner or "",
         "generated": datetime.now(timezone.utc).astimezone()
                              .strftime("%Y-%m-%d %H:%M"),
         "files": len(all_rows),
         "units": [label for label, _ in units],
         "cameras": cameras_section(all_rows),
-        "screens": with_device_checks(
-            screens_section(all_rows, census_all, pack.profile,
-                            full_names=full_names), specs),
+        "screens": screens,
         "device_specs": specs,
         "homes": homes,
         "language_signal": census_all["language_signal"],
@@ -1168,6 +1175,26 @@ def report_counts(data, what):
               " showing anyone the %s." % what)
 
 
+def nothing_new(data):
+    """H-C C3 / obs-9 (owner ruling 20261001) -> the one line to print when
+    this unit adds no camera, no screen size and no proposed home to a pack
+    that has been onboarded before, else None. A near-miss is not a home
+    candidate, but it is DISCLOSED here with the route to open it (D-04)."""
+    new = data["new"]
+    if not new["onboarded"] or new["cameras"] or new["screens"] or new["homes"]:
+        return None
+    line = ("Nothing new to ask for %s: every camera and screen size is "
+            "already in the pack, and no place here looks like a home. No "
+            "page written." % " + ".join(data["units"]))
+    near = new["near_misses"]
+    if near:
+        days = sorted(r["days"] for r in near)
+        line += (" %d place(s) seen on %s day(s) were not proposed as homes."
+                 % (len(near), days[0] if days[0] == days[-1]
+                    else "%d-%d" % (days[0], days[-1])))
+    return line
+
+
 def cmd_render(args):
     with io.open(TEMPLATE, encoding="utf-8") as fh:
         template = fh.read()
@@ -1178,6 +1205,21 @@ def cmd_render(args):
                                          prefill=read_prefill(args.prefill),
                                          device_specs=args.device_spec,
                                          full_names=full_names)
+    skip = None if args.force_page else nothing_new(data)
+    if skip:
+        print(skip)
+        same = ""
+        if args.profile:
+            same += " --profile %s" % quoted(args.profile)
+        if args.coords_out:
+            same += " --coords-out %s" % quoted(args.coords_out)
+        if args.with_coords:
+            same += " --with-coords"
+        print("To see them, or to add a home or camera by hand:\n  %s render %s "
+              "--out %s%s --force-page"
+              % (cli("photo_onboard_page.py", crops=True),
+                 " ".join(quoted(x) for x in args.targets), quoted(args.out), same))
+        return 0
     html = render(template, data)
     with io.open(args.out, "w", encoding="utf-8") as fh:
         fh.write(html)
@@ -3144,6 +3186,10 @@ def main(argv=None):
                         "up, with where from. Repeatable. A cross-check shown "
                         "beside the screen sizes, never a verdict; leave it out "
                         "and the page is unchanged")
+    r.add_argument("--force-page", action="store_true",
+                   help="write the page even when this unit adds nothing new "
+                        "(no camera, screen size or home), e.g. to add a home "
+                        "or camera by hand (H-C C3)")
     r.add_argument("--unfiltered-evidence", action="store_true",
                    help="embed the evidence photographs WITHOUT the check "
                         "that leaves out documents (U3-06). Only for a python "

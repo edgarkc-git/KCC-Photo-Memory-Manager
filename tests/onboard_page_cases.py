@@ -685,6 +685,61 @@ def device_spec_cases(tmp, wd, D_plain, tpl, f3_plain):
           and "Zenith Q1" in refused["not in this collection"], refused)
 
 
+def nothing_new_cases(tmp, wd):
+    """H-C C3 / obs-9 (owner ruling 20261001, option b) — a unit whose census
+    adds no camera, no screen size and no proposed home gets NO page, and one
+    line says so: the near-miss count, and how to open the page anyway."""
+    d = data_of(render_to(wd, os.path.join(tmp, "nn-probe.html"), False))
+    near = d["homes"]["near_misses"]
+
+    def pack_that_knows(name, cameras=True, screens=True, homes=True):
+        pack = fresh_pack(tmp, name)
+        path = os.path.join(pack, "photo-profile.json")
+        prof = json.load(io.open(path, encoding="utf-8"))
+        prof["language"] = "en"
+        prof.setdefault("cluster_defaults", {}).update(away_km=3, away_km_answered=True)
+        if cameras:
+            prof["own_camera_makes"] = sorted({dv["make"] for dv in d["cameras"]["devices"]})
+        if screens:
+            prof["declined_screen_dims"] = [c["dims"] for c in d["screens"]["candidates"]]
+        io.open(path, "w", encoding="utf-8").write(json.dumps(prof))
+        if homes:
+            _, hw = op.build_data([wd], os.path.join(pack, "photo-profile.json"),
+                                  with_coords=True)
+            prof["home_locations"] = [
+                {"label": "Home-%s" % r["id"], "lat": r["coord"][0], "lon": r["coord"][1]}
+                for r in hw["rows"]]
+            io.open(path, "w", encoding="utf-8").write(json.dumps(prof))
+        return os.path.join(pack, "photo-profile.json")
+
+    def render_with(prof, *extra):
+        out = os.path.join(tmp, "nn-%d.html" % len(os.listdir(tmp)))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = op.main(["render", wd, "--out", out, "--profile", prof, *extra])
+        return code, buf.getvalue(), os.path.exists(out)
+
+    known = pack_that_knows("nn-known")
+    code, said, wrote = render_with(known)
+    check("C3 a unit with nothing new gets no page (REPRODUCTION)",
+          code == 0 and not wrote and "Nothing new to ask" in said, said[-300:])
+    check("C3 the line names the near-miss count and the --force-page route "
+          "(REPRODUCTION)", ("%d place(s)" % len(near)) in said
+          and "--force-page" in said and "photo_onboard_page.py" in said
+          and ('--profile "%s"' % known) in said, said[-400:])
+    code, said, wrote = render_with(known, "--force-page")
+    check("C3 --force-page still writes the page (GUARD)", code == 0 and wrote)
+    for name, kw in (("a new camera", {"cameras": False}),
+                     ("a new screen size", {"screens": False}),
+                     ("a proposed home", {"homes": False})):
+        code, said, wrote = render_with(pack_that_knows("nn-" + name.replace(" ", "-"), **kw))
+        check("C3 %s still gets a page (GUARD)" % name, wrote and "Nothing new" not in said,
+              said[-200:])
+    code, said, wrote = render_with(os.path.join(fresh_pack(tmp, "nn-fresh"),
+                                                 "photo-profile.json"))
+    check("C3 a first page over a fresh pack is always written (GUARD)", wrote)
+
+
 def country_cases(tmp, wd):
     """K20 + H-C C5 (owner ruling 20261001) — after a home answered "I live
     here", the page asks "Mark this country as your primary home country?",
@@ -1871,6 +1926,7 @@ def main():
         repeat_page_cases(tmp, wd)
         printed_line_cases(tmp)
         country_cases(tmp, wd)
+        nothing_new_cases(tmp, wd)
 
         # ---- 15. U3-06: what the evidence strips withhold, and say ---------
         evidence_cases(tmp)

@@ -133,6 +133,14 @@ python3 <scripts>/photo_onboard_page.py apply page.html --pack "<pack dir>"
 
 On Windows the interpreter is `<repo>\.venv\Scripts\python.exe` wherever these lines say `<repo>/.venv/bin/python3`.
 
+**No page is a complete answer.** When a later unit adds no camera, no screen
+size and no proposed home to a pack that was onboarded before, `render` writes
+NO page, prints one line starting `Nothing new to ask for <unit>` (with how
+many near-miss places it saw), and exits 0. Tell the owner that line as it is
+and go to the next step; do not make a page for them. Only if the owner wants
+to see the near-miss places, or add a home or camera by hand, run the
+`--force-page` line it printed.
+
 ⛔ **`render` and `sheet` need the repo `.venv`** (CLIP). They leave out every
 evidence photograph that looks like a document — a ticket, a receipt, a form,
 an ID card — because on real dumps those carried a name, an ID number, a unit
