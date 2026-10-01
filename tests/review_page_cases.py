@@ -718,6 +718,34 @@ A note.
     check("B1 a 2-animal frame keeps the whole photo and both crops (GUARD)",
           f2["data"] == whole2 and [c["animal"] for c in f2["crops"]] == [1, 2])
 
+    # ---- HIL-7 B4 — a re-presented frame reaches the web as its crop(s) -----
+    remembered_md = ("### Remembered already — check these are still right\n\n"
+                     "> **Lotus** · 5 file(s) / 2 batch(es)\n"
+                     "> ![](review-crops/aa11bb22_d0.jpg) [frame 5]\n"
+                     "> ![](review-crops/cc33dd44_d0.jpg) [frame 6] (animal 6.1)\n"
+                     "> ![](review-crops/cc33dd44_d1.jpg) [frame 6] (animal 6.2)\n"
+                     "> `shown:` subj-0002 5=aa11bb22, 6=cc33dd44\n"
+                     "> - `recheck:` subj-0002 ______\n")
+    with tempfile.TemporaryDirectory() as tmpb4:
+        png(os.path.join(tmpb4, "review-crops/aa11bb22_d0.jpg"), 12, 12)
+        png(os.path.join(tmpb4, "review-crops/cc33dd44_d0.jpg"), 14, 14)
+        png(os.path.join(tmpb4, "review-crops/cc33dd44_d1.jpg"), 16, 16)
+        b4 = os.path.join(tmpb4, "memory-review_C3.md")
+        io.open(b4, "w", encoding="utf-8").write(remembered_md)
+        rp.main(["render", b4, "-o", os.path.join(tmpb4, "p.html")])
+        d4 = round_data(io.open(os.path.join(tmpb4, "p.html"),
+                                encoding="utf-8").read())
+        crop5 = rp.encode_image(os.path.join(
+            tmpb4, "review-crops/aa11bb22_d0.jpg"), 640, 72)
+    r4 = d4["recheck"][0]
+    check("HIL-7 a shared re-presented frame is one frame, not two "
+          "(REPRODUCTION)", r4["frames"] == [5, 6], "%r" % (r4["frames"],))
+    check("HIL-7 a shared re-presented frame carries both crops to the web "
+          "(REPRODUCTION)",
+          [c["animal"] for c in d4["frames"]["6"].get("crops", [])] == [1, 2])
+    check("HIL-7 a one-animal re-presented frame is its crop (GUARD)",
+          d4["frames"]["5"]["data"] == crop5)
+
     # ---- HIL-6 B3 — "none of these are mine" is an answer Confirm can send --
     # The page's answer helpers are lifted out of the template and RUN (node);
     # their row then goes through `apply` and `photo_memory`'s own parser.

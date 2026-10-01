@@ -273,8 +273,14 @@ def parse_review(md_text):
             m = RE_IMG.match(ln)
             if m:
                 n = int(m.group(2))
-                rsubj["frames"].append(n)
-                rsubj["paths"][n] = m.group(1)
+                # HIL-7 — a shared frame is one line per crop, one frame.
+                if n not in rsubj["frames"]:
+                    rsubj["frames"].append(n)
+                    rsubj["paths"][n] = m.group(1)
+                crop = RE_CROP_ANIMAL.search(ln)
+                if crop:
+                    rsubj.setdefault("crops", {}).setdefault(n, []).append(
+                        (int(crop.group(1)), m.group(1)))
                 if m.group(3):
                     rsubj["where"][n] = m.group(3)
                 continue
@@ -371,6 +377,10 @@ def build_round_data(rev, q, workdir, max_px, quality, pack_dir):
                 "file": os.path.basename(r["paths"][n]),
                 "batch": _batch_of(r["paths"][n]), "role": "represented",
                 "where": r["where"].get(n, ""),
+                "crops": [{"animal": a,
+                           "data": encode_image(os.path.join(workdir, c), max_px, quality)
+                           if os.path.exists(os.path.join(workdir, c)) else ""}
+                          for a, c in r.get("crops", {}).get(n, [])],
                 "data": encode_image(src, max_px, quality)}
         recheck.append({"subject_id": r["subject_id"], "name": r["name"],
                         "files": r["files"], "batches": r["batches"],

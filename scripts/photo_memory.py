@@ -2124,7 +2124,7 @@ def worst_frames(registry, subject, wanted, workdir=None):
     return frames, unscored, reasons
 
 
-def build_representations(registry, profile, rmsg, workdir=None):
+def build_representations(registry, profile, rmsg, workdir=None, crops=None):
     """-> {"remembered": [...], "rejected": [...]}. SNS-5, and the ONE thing
     that makes Pattern 6 true: every permanent decision the pack holds comes
     back in front of the owner, every round, whether or not new evidence
@@ -2190,6 +2190,13 @@ def build_representations(registry, profile, rmsg, workdir=None):
                                                      workdir)
             for frame in frames:
                 frame["where"] = where.phrase(frame)
+                # HIL-7 — the crop whose vector the memory holds, never the
+                # whole photo: a wrong example looks right when the photo
+                # holds both animals. `FrameCrops` keeps them apart from
+                # "not indexed here" exactly as it does for a tile.
+                told = crops.describe(frame) if crops is not None else None
+                frame["crops"] = told["crops"] if told else []
+                frame["det_count"] = told["det_count"] if told else None
             remembered.append({
                 "subject_id": subject.subject_id,
                 "display": subject_display(subject, profile, rmsg),
@@ -2278,9 +2285,16 @@ def render_representations(represented, rmsg):
                 # `number_frames()`. The number identifies the photograph on
                 # the page; it does not open a promotion path, because a
                 # re-presentation promotes nothing.
-                out.append(f"> ![]({frame['image']}) "
-                           + rmsg["review_frame_number"].format(n=frame["n"])
-                           + where_suffix(frame))
+                # HIL-7 — the crop(s), as a tile shows them; the whole photo
+                # only when this dump's index says nothing about the look.
+                shared = (frame.get("det_count") or 0) > 1
+                for image in frame.get("crops") or [frame["image"]]:
+                    crop = CROP_FILE.search(str(image)) if shared else None
+                    out.append(f"> ![]({image}) "
+                               + rmsg["review_frame_number"].format(n=frame["n"])
+                               + (f" (animal {frame['n']}."
+                                  f"{int(crop.group(1)) + 1})" if crop else "")
+                               + where_suffix(frame))
             mapped = [f for f in record["frames"] if f.get("vec_ref")]
             if mapped:
                 # Q8-b — what `not <n>` resolves through. Parsed, never
@@ -4170,7 +4184,8 @@ def cmd_review(args):
                     and not final_round_asked(workdir))
     questions, suppressed, round_deferred, held_for_final = build_questions(
         registry, workdir, pack, profile, rmsg, last_ask=last_ask, batch=batch)
-    represented = build_representations(registry, profile, rmsg, workdir)
+    represented = build_representations(registry, profile, rmsg, workdir,
+                                        FrameCrops(workdir, pack))
     places = []
     if batch is not None:
         rows = [row for row in rows if row["batch"] == batch]

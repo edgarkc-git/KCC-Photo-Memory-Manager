@@ -667,7 +667,83 @@ def case_a_shared_frame_page_end_to_end(tmp):
     assert "2+ animals" not in said and "refused" not in said.lower(), said
 
 
+# ================================================================ HIL-7 ====
+
+def index_looks(workdir, looks, det_count=1):
+    """This dump's identity index over `looks`, `det_count` boxes each."""
+    import csv
+    import numpy as np
+    import identify_cases as idc
+    import photo_identity
+    embed = Path(workdir) / "embed"
+    embed.mkdir(parents=True, exist_ok=True)
+    rows = [{"SourceFile": look["path"], "sha256": look["vec_ref"],
+             "status": photo_identity.STATUS_OK, "det_index": d,
+             "det_count": det_count, "kind": "cat", "det_score": 0.9,
+             "box": "%d,0,%d,20" % (20 * d, 20 * d + 20), "box_share": 0.5,
+             "error": ""} for look in looks for d in range(det_count)]
+    with open(embed / "identity.csv", "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=photo_identity.CSV_FIELDS)
+        w.writeheader()
+        w.writerows(rows)
+    with open(embed / "identity.npy", "wb") as fh:
+        np.save(fh, np.stack([idc.e(i % idc.DIM) for i in range(len(rows))]))
+    (embed / "identity-meta.json").write_text(json.dumps(
+        {**photo_identity.meta_identity(idc.DIM), "created_at": "2029-01-01 00:00"}))
+
+
+def end_page_with_index(tmp, det_count=1):
+    """-> (the re-presented images on the end page, its text, the looks)."""
+    import identify_cases as idc
+    import photo_embed
+    pack_dir, workdir, sid, refs = pmc.two_looks_apart(tmp, frames=2)
+    looks = [l for e in subject_of(pack_dir, sid).record["evidence"]
+             for l in e["looks"]]
+    index_looks(workdir, looks, det_count)
+    saved = photo_embed.convert_to_thumbnail
+    photo_embed.convert_to_thumbnail = idc.thumbnail_stub()
+    try:
+        text = pmc.review_text(pack_dir, workdir).read_text()
+    finally:
+        photo_embed.convert_to_thumbnail = saved
+    return pmc.rendered_frames(text), text, looks
+
+
+def case_the_end_page_shows_the_crop_the_memory_holds(tmp):
+    """REPRO HIL-7 — a re-presented frame is the CROP whose vector the pet
+    holds. At beb57e9 it was the whole photo: a wrong example (the other cat
+    cropped) looked right, because both cats were in the picture."""
+    shown, text, looks = end_page_with_index(tmp)
+    want = sorted(f"review-crops/{l['vec_ref']}_d0.jpg" for l in looks)
+    assert sorted(shown) == want, (shown, want)
+    assert all((tmp / "dump-betauser00" / s).is_file() for s in shown), shown
+
+
+def case_a_shared_remembered_frame_shows_each_crop(tmp):
+    """REPRO HIL-7 — a remembered photo with two animals shows each crop,
+    labelled, so neither animal is hidden behind the other."""
+    shown, text, looks = end_page_with_index(tmp, det_count=2)
+    assert sorted(shown) == sorted(f"review-crops/{l['vec_ref']}_d{d}.jpg"
+                                   for l in looks for d in (0, 1)), shown
+    assert text.count("(animal ") >= 4, text
+
+
+def case_a_remembered_frame_not_indexed_here_stays_whole(tmp):
+    """GUARD — a look this dump's index says nothing about renders as it did
+    (the 20260929 ruling): whole, and the page is still written."""
+    pack_dir, workdir, sid, refs = pmc.two_looks_apart(tmp, frames=2)
+    text = pmc.review_text(pack_dir, workdir).read_text()
+    shown = pmc.rendered_frames(text)
+    assert len(shown) == 2 and all("/samples/" in s for s in shown), shown
+
+
 CASES = [
+    ("HIL-7: the end page shows the crop the memory holds (REPRO)",
+     case_the_end_page_shows_the_crop_the_memory_holds),
+    ("HIL-7: a shared remembered frame shows each crop (REPRO)",
+     case_a_shared_remembered_frame_shows_each_crop),
+    ("HIL-7: a remembered frame not indexed here stays whole (GUARD)",
+     case_a_remembered_frame_not_indexed_here_stays_whole),
     ("Q8-a: an away sighting is asked, not filed (REPRO)",
      case_an_away_sighting_is_asked_not_filed),
     ("Q8-a: a sighting with no GPS is asked (REPRO)", case_a_sighting_with_no_gps_is_asked),

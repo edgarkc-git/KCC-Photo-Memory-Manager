@@ -786,10 +786,16 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
       (r.frames||[]).forEach(function(n){
         var f = frames[n]; if(!f) return;
         var fig = document.createElement("div"); fig.className = "fig";
-        var im = document.createElement("img");
-        im.src = f.data; im.loading = "lazy";
-        im.alt = r.name + ", photo " + n + ", from batch " + f.batch + (f.where ? ", " + f.where : "");
-        fig.appendChild(im);
+        // HIL-7 — each crop of a shared photo, so neither animal hides.
+        var pics = (f.crops || []).length > 1
+          ? f.crops.map(function(c){ return c.data; }).filter(Boolean) : [f.data];
+        pics.forEach(function(src, i){
+          var im = document.createElement("img");
+          im.src = src; im.loading = "lazy";
+          im.alt = r.name + ", photo " + n + (pics.length > 1 ? ", animal " + (i + 1) : "") +
+            ", from batch " + f.batch + (f.where ? ", " + f.where : "");
+          fig.appendChild(im);
+        });
         if(f.where){ var wh = document.createElement("div"); wh.className = "fwhere";
           wh.textContent = f.where; fig.appendChild(wh); }
         shots.appendChild(fig);
