@@ -424,22 +424,29 @@ adopt somebody else's state while looking like a clean start.
 ### 1. Ask: where is the Raw Folder? (AskUserQuestion)
 
 Ask the owner for the Raw Media Files Folder location(s) — more than one
-path is allowed. Verify each exists; if not, list `/Volumes/` and ask the
-owner to connect the drive rather than guessing.
+path is allowed. Ask with an empty question: ⛔ do NOT list drives or folders
+first, and never offer a folder the owner did not name as a choice. A disk
+holds the owner's private folders; showing them as options turns a question
+into a tour of their drive (HIL01 HIL-1).
+
+Verify each typed path exists. ONLY when one is missing, list `/Volumes/`
+to say which drives are connected, and ask the owner to connect the drive or
+correct the path, rather than guessing.
 
 ### 2. Ask: where should the Sorted Folder go? (AskUserQuestion)
 
 Offer options in this order:
 
-1. **(Recommended / default)** `/Volumes/<drive>/_<RawFolderName>` — same
-   drive as the raw folder, underscore prefix, name identical to (or
-   containing) the raw folder's name. Example: raw
-   `/Volumes/EXAMPLE_DRIVE/Photo Archive` →
-   `/Volumes/EXAMPLE_DRIVE/_Photo Archive`.
-2. A **previously used destination root** if one is visible on a mounted
-   volume (e.g. an existing `_Photo_Manager` folder on another drive) —
-   merge new output into it.
-3. Other — the owner types a path.
+1. **(Recommended / default)** `/Volumes/<drive>/_sorted_<RawFolderName>` —
+   same drive as the raw folder, next to it, named `_sorted_` + the raw
+   folder's name. Example: raw `/Volumes/EXAMPLE_DRIVE/Photo Archive` →
+   `/Volumes/EXAMPLE_DRIVE/_sorted_Photo Archive`.
+2. Other — the owner types a path (for example a sorted folder they already
+   use).
+
+⛔ On a first run, offer only these two. Never look for, and never offer, a
+folder you found on a drive (an existing sorted or archive folder): merging
+into a folder the owner did not name is their call, made by typing it.
 
 ### 3. Record the configuration
 
@@ -474,7 +481,7 @@ a. `<workspace>/Working Files/collection.json` — **the authoritative copy**:
   "created": "YYYYMMDD.HHmm",
   "drive": "<volume name>",
   "raw_roots": ["/Volumes/<drive>/<Raw Folder>"],
-  "dest_root": "/Volumes/<drive>/_<Raw Folder>",
+  "dest_root": "/Volumes/<drive>/_sorted_<Raw Folder>",
   "groups": []
 }
 ```
@@ -486,7 +493,9 @@ failed run. `memory_root` may be omitted for the default location.
 
 The pipeline scripts pick this up automatically: run `photo_run.py` and
 `photo_index.py` from the workspace folder and `Working Files/collection.json`
-supplies the workdir root, so every command takes the bare dump name;
+supplies the workdir root, so a command run THERE takes the bare dump name.
+⛔ From any other folder (a work dir included) a bare dump name is not found:
+paste the printed next-step lines as they are, with their full paths;
 `photo_plan.py` / `photo_execute.py` resolve `dest_root` from it (allowlist
 follows it — D5 generalized per-collection). A merge into an existing folder
 is declared per folder with `photo_index.py dest`.
@@ -497,7 +506,7 @@ for orientation; nothing in the pipeline reads it.
 
 ```
 Raw Folder(s):  /Volumes/<drive>/<Raw Folder>   (external drive — not always connected)
-Sorted Folder:  /Volumes/<drive>/_<Raw Folder>  (dest_root; created at first execute)
+Sorted Folder:  /Volumes/<drive>/_sorted_<Raw Folder>  (dest_root; created at first execute)
 Config:         Working Files/collection.json (THE configuration — this block is a copy)
 ```
 

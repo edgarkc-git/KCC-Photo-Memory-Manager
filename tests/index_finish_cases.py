@@ -279,7 +279,7 @@ def a_confirm_between_the_two_checks_is_caught_before_the_first_copy():
         wd, _pack = ready(tmp)
         verdicts, calls = [0, STALE], []
 
-        def fake(script, *a):
+        def fake(script, *a, python=None):
             calls.append(script)
             rc = verdicts.pop(0) if script == "photo_index.py" and verdicts else 0
             return subprocess.CompletedProcess([script], rc)
@@ -309,7 +309,7 @@ def a_copy_check_of_6_is_not_a_flag():
         wd, _pack = ready(tmp)
         calls = []
 
-        def fake(script, *a):
+        def fake(script, *a, python=None):
             calls.append((script,) + a)
             rc = 6 if script == "photo_index.py" and "--copied" in a else 0
             return subprocess.CompletedProcess([script], rc)
@@ -356,6 +356,40 @@ def finish_runs_identify_with_the_pages_python():
         finally:
             photo_run.run, photo_run.page_python = real, real_page
     return seen == ["/the/pages/python"], f"seen={seen}"
+
+
+@case
+def the_end_of_dump_review_runs_with_the_pages_python():
+    """REPRODUCTION (HIL01 HIL-10). ⛔ FAILS on beb57e9: `finish` ran the
+    end-of-dump `review --final` (and its dry-run `--preview`) with whatever
+    python started it, so under a system python3 every MP4/HEIC frame lost
+    its crop and no end page was written. Both now use `page_python()`."""
+    seen = {}
+    for go in (True, False):
+        with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+            wd, _pack = ready(tmp)
+
+            def fake(script, *a, python=None):
+                if script == "photo_memory.py" and "--final" in a:
+                    seen.setdefault(go, []).append(python)
+                return subprocess.CompletedProcess([script], 0)
+
+            args = Args(wd)
+            args.go = go
+            real, real_page = photo_run.run, photo_run.page_python
+            photo_run.run = fake
+            photo_run.page_python = lambda: "/the/pages/python"
+            photo_run._pack_cache.clear()
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    photo_run.cmd_finish(args)
+            except SystemExit:
+                pass
+            finally:
+                photo_run.run, photo_run.page_python = real, real_page
+                photo_run._pack_cache.clear()
+    want = {True: ["/the/pages/python"], False: ["/the/pages/python"]}
+    return seen == want, f"seen={seen}"
 
 
 @case

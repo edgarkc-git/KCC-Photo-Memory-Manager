@@ -1203,7 +1203,8 @@ def preview_stops(args, workdir):
         print("  `finish --go` would not stop for a page or for views")
         return
     rc = run("photo_memory.py", "review", workdir, "--pre-plan", "--preview",
-             "--checkpoint", next_checkpoint(workdir)).returncode
+             "--checkpoint", next_checkpoint(workdir),
+             python=page_python()).returncode
     if rc == PRE_PLAN_ROUND_FIRED_RC:
         print("  ⚠️ `finish --go` would STOP here, before copying: a naming "
               "round would be put to the owner (above)")
@@ -1266,7 +1267,7 @@ def pre_plan_checkpoint(args, workdir):
     print("\n===== pre-plan naming checkpoint (U-2) =====")
     checkpoint = next_checkpoint(workdir)
     rc = run("photo_memory.py", "review", workdir, "--pre-plan",
-             "--checkpoint", checkpoint).returncode
+             "--checkpoint", checkpoint, python=page_python()).returncode
     if rc == PRE_PLAN_ROUND_FIRED_RC:
         print("\n⛔ STOPPED BEFORE COPYING — nothing was written.\n"
               "   A naming round was just put to the owner. Answer the review "
@@ -1280,8 +1281,8 @@ def pre_plan_checkpoint(args, workdir):
         return True
     if rc != 0:
         stage_failed("the pre-plan naming round", rc,
-                     f"{PY} {HERE / 'photo_memory.py'} review \"{workdir}\" "
-                     f"--pre-plan --checkpoint {checkpoint}")
+                     f"{photo_platform.run_line(page_python(), HERE / 'photo_memory.py')} "
+                     f"review \"{workdir}\" --pre-plan --checkpoint {checkpoint}")
     return False
 
 
@@ -1361,7 +1362,10 @@ def batch_page_checkpoint(workdir, pack=None):
               f"{page} --go\n"
               "   then re-run this command: it writes the next page, or goes on "
               "to the copy when none is due. A name confirmed now is named INTO "
-              "the folder; after the copy it names nothing.\n"
+              "the folder. After the copy, a name the end-of-dump page changes "
+              "reaches a folder only through a re-lock (render, check, freeze), "
+              "and the engine never renames a copied folder: the freeze lists "
+              "it to rename by hand (plan/folder-renames.md).\n"
               "   To go ahead without answering, add --skip-memory.")
         return True
     if rc != 0:
@@ -1571,20 +1575,23 @@ def cmd_finish(args):
             # pack this conductor resolved is the one the subprocess resolves
             # (`load_pack_cached` exports PHOTO_PROFILE). ⛔ Not an import:
             # the conductor holds no registry and is not going to start.
-            if run("photo_memory.py", "review", workdir,
-                   "--final").returncode != 0:
+            if run("photo_memory.py", "review", workdir, "--final",
+                   python=page_python()).returncode != 0:
                 # A warning, NOT a flag. Nothing that was copied depends on
                 # this page, so it must not change what `finish` exits with —
                 # the same posture as the rename backstop above.
                 print("⚠️  the end-of-dump review did not write a page — run "
-                      "`photo_memory.py review <work dir> --final` by hand. "
-                      "Nothing this dump copied is affected.")
+                      "it by hand:\n     "
+                      f"{photo_platform.run_line(page_python(), HERE / 'photo_memory.py')} "
+                      f"review \"{workdir}\" --final\n"
+                      "   Nothing this dump copied is affected.")
     else:
         print("\n(the end-of-dump memory round runs only with --go)")
         pack = load_pack_cached(args, workdir)
         if pack.dir is not None:
             rc = run("photo_memory.py", "review", workdir, "--final", "--preview",
-                     "--checkpoint", next_checkpoint(workdir)).returncode
+                     "--checkpoint", next_checkpoint(workdir),
+                     python=page_python()).returncode
             if rc == PRE_PLAN_ROUND_FIRED_RC:
                 # UAT01-9 F11: a re-run wrote C3 beside an unconfirmed C2.
                 print("  ⚠️ `finish --go` would end by putting a NEW page to the "

@@ -7,7 +7,9 @@ measured, it says so.
 Words used here:
 
 - **product folder**: the folder that holds `README.md`, `scripts/` and the
-  `photo-*` folders. The zip holds ONE folder, `KCC-Photo-Memory-Manager-RS`;
+  `photo-*` folders. The zip from GitHub (green **Code** button, **Download ZIP**) is
+  `KCC-Photo-Memory-Manager-main.zip` and holds ONE folder,
+  `KCC-Photo-Memory-Manager-main`;
   step 1 unzips it and renames it to `photo-manager`, so the product folder is
   `~/photo-manager` (macOS) or `C:\photo-manager` (Windows). Write its full
   path wherever this guide says `<product folder>`.
@@ -118,15 +120,18 @@ zip, but do not unzip there.
 
 | | macOS (Terminal) | Windows 11 (PowerShell) |
 |---|---|---|
-| unzip | `unzip ~/Downloads/<zip name>.zip -d ~` | `Expand-Archive -LiteralPath "$HOME\Downloads\<zip name>.zip" -DestinationPath C:\photo-unzip` |
-| rename the inner folder | `mv ~/KCC-Photo-Memory-Manager-RS ~/photo-manager` | `Move-Item C:\photo-unzip\KCC-Photo-Memory-Manager-RS C:\photo-manager` |
+| unzip | `unzip ~/Downloads/KCC-Photo-Memory-Manager-main.zip -d ~` | `Expand-Archive -LiteralPath "$HOME\Downloads\KCC-Photo-Memory-Manager-main.zip" -DestinationPath C:\photo-unzip` |
+| rename the inner folder | `mv ~/KCC-Photo-Memory-Manager-main ~/photo-manager` | `Move-Item C:\photo-unzip\KCC-Photo-Memory-Manager-main C:\photo-manager` |
 | result: the product folder | `~/photo-manager` (holds `README.md`) | `C:\photo-manager` (holds `README.md`) |
+
+Safari may unzip the download by itself: if Downloads holds the folder
+`KCC-Photo-Memory-Manager-main` instead of the zip, skip the unzip line.
 
 Both columns were measured (macOS on a scratch copy; Windows by a test agent,
 with `Expand-Archive` and `Move-Item`). On Windows you can also right-click
 the zip, choose **Extract All…**, then **Browse** to `C:\` before you press
 Extract: its default is a folder next to the zip, which is often inside a
-synced folder. Then rename the extracted `KCC-Photo-Memory-Manager-RS` folder
+synced folder. Then rename the extracted `KCC-Photo-Memory-Manager-main` folder
 to `photo-manager`. Afterwards `C:\photo-unzip` is empty and can be deleted.
 
 Put your workspace folders (step 5) on a local disk too, for example

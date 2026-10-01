@@ -217,6 +217,12 @@ missing — there is no second list to keep in step.
    gives up WHO/WHAT deliberately (a metadata-only dump: screenshots, no-date
    files, no subjects). It is not a way past a stage that simply has not been
    run.
+   ⭐ **A batch with nothing to look at** (its only files were held out as
+   screenshots or documents, or `photo_see` exited 3 for it) is rendered with
+   `photo_index.py render "<work dir>" --no-vision`. It covers only the
+   batches with no see output; every seen batch keeps its labels. ⛔ Never
+   write an empty `{}` into `decisions.json` and `--apply` it to get past the
+   refusal: that records a look that never happened.
 
    ⭐ **There is no classify step on this flow.** `photo_sample.py` and
    `photo_classify_set.py` (`--type`, `--where`) are not run: the index names folders
@@ -251,6 +257,11 @@ missing — there is no second list to keep in step.
    - Make the web page for the owner with the line the stop prints:
      `<repo>/.venv/bin/python3 <repo>/scripts/photo_review_page.py render "<work dir>/P-B<NN>.md" --workdir "<work dir>" --pack "<pack>"`.
      A page with only a place question shows none of the animal parts.
+   - ⛔ **Send the owner to the page, and wait for their answer.** Never offer
+     your own reading of the photos for them to agree to ("my reading: Name-A
+     in 1, 2, 4 — is that right?"). The owner picks the frames (SNS-1); a yes
+     to your guess is your guess, and it trains the pack. If the page cannot
+     hold what the owner says, write their answer in their own words.
    - The owner picks each animal's photos and gives a name from their own list
      with `same` (`name: Name-A same`); a new name for an animal not on the list;
      `skip:` for one that is not theirs. A place is answered with its name, plus
@@ -434,6 +445,12 @@ missing — there is no second list to keep in step.
 what's left.
 
 ## Exit codes you will meet
+
+Read the exit code of the command itself. ⛔ Never pipe a stage into `tail`
+or `head` and then read `$?`: that is the exit code of `tail` (0), not of the
+stage. `${PIPESTATUS[0]}` is no fix: it is bash-only and empty in zsh, the
+macOS shell. Write the output to a file instead:
+`<command> > run.log 2>&1; echo "EXIT=$?"; tail -40 run.log`.
 
 | command | exit | means | do |
 |---|---|---|---|

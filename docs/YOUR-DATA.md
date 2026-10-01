@@ -162,6 +162,14 @@ Every one of these requests carries the product's User-Agent
 (`kcc-photo-manager`). Turning the geocoder off (`--no-geocode`) keeps names
 to what the cache and the pack already know.
 
+**Review pages your agent publishes.** The product writes its onboarding,
+batch and end-of-dump pages as files on your disk. If your agent publishes one
+as a web page (for example a private claude.ai artifact, so you can answer it
+in a browser), that page holds the photos and crops shown on it, and it stays
+online until you delete it, page by page. To delete them: ask the agent to
+delete the pages it published, or open your list of pages (in Claude Code,
+`/artifacts`; on the web, claude.ai/code/artifacts) and delete each one.
+
 And the vision pass, below.
 
 ## Reminder — what leaves your machine, and how much

@@ -720,6 +720,32 @@ def the_page_stage_prefers_the_venv_even_when_this_python_has_clip():
 
 
 @case
+def the_pre_plan_round_runs_with_the_pages_python():
+    """REPRODUCTION (HIL01 HIL-10, the same defect on a dump with no index).
+    ⛔ FAILS on beb57e9: `review --pre-plan`, and the dry run's `--preview` of
+    it, ran with whatever python started `finish`, while every batch page ran
+    with `page_python()`. A failed round's printed line names the same one."""
+    real_page = photo_run.page_python
+    photo_run.page_python = lambda: "/the/pages/python"
+    got = {}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir, _pack = make_dump(tmp)
+            with conductor(rc=0) as (rec, _buf):
+                photo_run.pre_plan_checkpoint(Args(str(workdir)), workdir)
+            got["go"] = rec.pythons.get("photo_memory.py")
+            with conductor(rc=0) as (rec, _buf):
+                photo_run.preview_stops(Args(str(workdir), go=False), workdir)
+            got["preview"] = rec.pythons.get("photo_memory.py")
+            code, out, _rec = stage_exit(workdir, 1)
+    finally:
+        photo_run.page_python = real_page
+    want = {"go": "/the/pages/python", "preview": "/the/pages/python"}
+    return (got == want and code == photo_run.EXIT_STAGE_FAILED
+            and "/the/pages/python" in out), f"got={got} code={code} out={out[-300:]!r}"
+
+
+@case
 def with_no_venv_a_failed_page_says_the_venv_is_missing():
     """GUARD (U6-21). A fresh owner with no `.venv` gets a stop that names it,
     never a crash and never "Planning continues"."""
