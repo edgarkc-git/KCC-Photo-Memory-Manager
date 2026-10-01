@@ -548,6 +548,8 @@ writes nothing, even while the index is frozen. Run it after
 every `confirm`, `rename` or `--detach` too, not only before an unfreeze.
 Re-lock with `photo_index.py freeze 202401 --reason "..."` so the index log
 says why the names changed.
+If the dump has a batch with no see output (rendered with `--no-vision`), every
+`render` of the re-lock, `--dry-run` included, needs `--no-vision` again.
 
 **After a correction, `finish --go` may stop again for the agent's views (exit
 3)** — a confirm changes which photos recognition proposes. This is step 3b,

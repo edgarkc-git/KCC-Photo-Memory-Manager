@@ -1142,7 +1142,9 @@ def cmd_render(args):
             + ", ".join(f"B{n}" for n in unseen)
             + " — nothing rendered. [who] and [what] cannot reach a folder name "
             "without it (R1). Run photo_see first, or pass --no-vision to render "
-            "those folders from metadata alone.")
+            "those folders from metadata alone. Such a batch stays unseen, so "
+            "every later render of this dump (each --dry-run and each re-lock) "
+            "needs --no-vision again.")
     for fo in held:
         if fo["dest"]["mode"] != "new" and not Path(fo["dest"]["existing_path"]).is_dir():
             raise Refused(f"{fo['id']}: the {fo['dest']['mode']} target is no longer "
