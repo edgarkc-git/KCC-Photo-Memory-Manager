@@ -219,6 +219,49 @@ def a_page_written_and_not_applied_holds_the_next_one():
 # ---------------------------------------------------------------------------
 
 @case
+def the_lines_a_waiting_page_and_a_stale_page_print_name_their_scripts():
+    """REPRODUCTION (H-I follow-up, HIL01 obs-15). ⛔ FAILS on 2ac5961: these
+    stops printed a bare `photo_memory.py ...` / `photo_index.py ...`, which
+    runs from no folder as printed. Each line now begins with a python and
+    the script's full path; a `review` line, which makes crops, names the
+    pages' python (HIL-10)."""
+    import shlex
+    import photo_run
+    scripts = ROOT / "scripts"
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, extra = page_dump(tmp, pets=(1,), place_batches=())
+        next_page(wd, extra)
+        _rc, waiting = next_page(wd, extra)
+        page = wd / "P-B01.md"
+        reg = pack_dir / "photo-subjects" / "subjects.json"
+        data = json.loads(reg.read_text())
+        data["subjects"].append({"subject_id": "subj-0950", "name": "Other",
+                                 "who": "pet", "kind": "cat",
+                                 "status": "human-confirmed", "exemplars": []})
+        reg.write_text(json.dumps(data))
+        page.write_text(pmc.fill_pick(page.read_text(), [1], name="Name-A"))
+        _rc2, stale = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+
+    def argv_of(text, needle):
+        """The printed command holding `needle`: a whole line, or the
+        backtick span inside a sentence."""
+        line = next((ln for ln in text.splitlines() if needle in ln), "")
+        if "`" in line:
+            line = next((part for part in line.split("`")[1::2] if needle in part), "")
+        return shlex.split(line.strip()) if line.strip() else []
+
+    confirm = argv_of(waiting, " confirm ")
+    apply_ = argv_of(waiting, " apply-page ")
+    review = argv_of(stale, " review ")
+    want_review_py = str(photo_run.page_python())
+    ok = (len(confirm) > 2 and confirm[1] == str(scripts / "photo_memory.py")
+          and len(apply_) > 2 and apply_[1] == str(scripts / "photo_index.py")
+          and len(review) > 2 and review[1] == str(scripts / "photo_memory.py")
+          and review[0] == want_review_py)
+    return ok, f"confirm={confirm[:3]} apply={apply_[:3]} review={review[:3]}"
+
+
+@case
 def a_page_offers_the_owners_own_animal_names():
     """REPRODUCTION (G6 item 3). ⛔ FAILS on 8a70e69. The names declared at
     onboarding are offered on the page with the `same` token that joins a

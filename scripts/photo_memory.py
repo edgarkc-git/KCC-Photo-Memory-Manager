@@ -4165,6 +4165,14 @@ def page_tiles(text):
             for b in parse_review(text)]
 
 
+def cli_line(script, crops=False):
+    """H-I — `<python> "<repo>/scripts/<script>"` for a printed next step:
+    photo_index's ONE helper (the pages' python for a line that makes
+    crops), never a second copy."""
+    import photo_index
+    return photo_index.run_line(script, crops=crops)
+
+
 def stale_page_way_on(path, workdir):
     """M7 — how to get a fresh page for the same questions after a stale one
     was refused. -> one instruction that works.
@@ -4179,12 +4187,13 @@ def stale_page_way_on(path, workdir):
     rename inside: `REVIEW_GLOB` is wider than the name it parses (LL-PHO-94)."""
     move = (f"Move {path.name} OUT of the work dir (never rename it inside: "
             "any page name there still counts), then ")
+    review = f"{cli_line('photo_memory.py', crops=True)} review \"{workdir}\""
     if BATCH_PAGE_IN_NAME.match(path.name):
-        return (move + "re-run `finish --go` (or `photo_memory.py review "
-                f"\"{workdir}\" --next-page`): it writes {path.name} again "
+        return (move + f"re-run `finish --go` (or `{review} --next-page`): "
+                f"it writes {path.name} again "
                 "from the pack as it stands, with the same questions. Nothing "
                 "in the old page was applied, so only the typing is lost.")
-    return (move + f"run `photo_memory.py review \"{workdir}\"`: it asks the "
+    return (move + f"run `{review}`: it asks the "
             "same questions again on a fresh page. Nothing in the old page was "
             "applied, so only the typing is lost.")
 
@@ -4387,7 +4396,8 @@ def cmd_review(args):
         # U5-06: `confirm` defaults to checkpoint 1, so from round 2 on a
         # command without the number opens the round-1 page, which is refused
         # as stale and writes nothing.
-        confirm = f'photo_memory.py confirm "{workdir}" --checkpoint {checkpoint}'
+        confirm = (f'{cli_line("photo_memory.py")} confirm "{workdir}" '
+                   f'--checkpoint {checkpoint}')
         if out.resolve() != (workdir / f"memory-review_C{checkpoint}.md").resolve():
             confirm += f' --file "{out}"'
         print(f"  (pre-plan: a question was put to the owner — answer {out.name} "
@@ -4427,8 +4437,8 @@ def next_page(args, workdir, pack, registry, rmsg):
     if waiting:
         page = waiting[0][1][:-3]
         print(f"page {page}.md is written and not applied yet — answer it, then:\n"
-              f"  photo_memory.py confirm \"{workdir}\" --page {page} --go\n"
-              f"  photo_index.py apply-page \"{workdir}\" {page} --go")
+              f"  {cli_line('photo_memory.py')} confirm \"{workdir}\" --page {page} --go\n"
+              f"  {cli_line('photo_index.py')} apply-page \"{workdir}\" {page} --go")
         return PAGE_WAITING_RC
     cap = photo_profile.batch_pages(pack.profile)
     pet_pages = sum(1 for p in pages if "sns" in (p.get("kinds") or []))
