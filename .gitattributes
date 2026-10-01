@@ -12,3 +12,9 @@
 # means git never converts either direction, on any platform, regardless of
 # what core.autocrlf is set to locally.
 tests/golden/** -text
+
+# H-G (obs-16): `git archive` — every GitHub zip, the green Code button's
+# included — writes the commit, its date and its tags into this file, so a
+# download can say which build it is. A clone keeps the placeholder; doctor
+# then asks git.
+scripts/BUILD.txt export-subst

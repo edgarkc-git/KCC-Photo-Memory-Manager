@@ -420,15 +420,47 @@ def preflight():
     return [i["item"] for i in missing if i["need"] == NEED_START]
 
 
+BUILD_FILE = HERE / "BUILD.txt"
+
+
+def build_id(build_file=BUILD_FILE, repo=HERE.parent):
+    """H-G (obs-16) — which build this is, for a tester to report.
+
+    Three routes, in order: a zip made by `git archive` (every GitHub
+    download) carries `<commit> <date> <refs>` in BUILD.txt (export-subst);
+    a clone keeps the `$Format` placeholder, and git describes it; anything
+    else says it does not know, with the pyproject version beside it."""
+    text = build_file.read_text(encoding="utf-8").strip() if build_file.is_file() else ""
+    if text and not text.startswith("$Format"):
+        sha, _, rest = text.partition(" ")
+        date, _, refs = rest.partition(" ")
+        tag = re.search(r"tag: ([^,\s]+)", refs)
+        return f"{tag.group(1) if tag else 'untagged'} (commit {sha[:7]}, {date})"
+    if (Path(repo) / ".git").exists():
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        r = subprocess.run(["git", "-C", str(repo), "describe", "--tags",
+                            "--always", "--dirty"], capture_output=True,
+                           text=True, env=env)
+        if r.returncode == 0 and r.stdout.strip():
+            return f"{r.stdout.strip()} (a git clone)"
+    found = re.search(r'^version\s*=\s*"([^"]+)"', (Path(repo) / "pyproject.toml")
+                      .read_text(encoding="utf-8"), re.M) \
+        if (Path(repo) / "pyproject.toml").is_file() else None
+    return ("unknown (not a release download)"
+            + (f" — version {found.group(1)}" if found else ""))
+
+
 def cmd_doctor(args):
     facts = gather_facts()
     items = doctor_items(facts)
+    build = build_id()
     if args.json:
-        print(json.dumps({"platform": facts["platform"], "items": items,
-                          "install_plan": install_plan(items), **verdict(items)},
-                         ensure_ascii=False, indent=1))
+        print(json.dumps({"platform": facts["platform"], "build": build,
+                          "items": items, "install_plan": install_plan(items),
+                          **verdict(items)}, ensure_ascii=False, indent=1))
     else:
-        print(render_items(items, facts["platform"]))
+        print(render_items(items, facts["platform"]).replace(
+            "\n", f"\nbuild: {build}\n", 1))
     sys.exit(0 if verdict(items)["ready_to_start"] else 1)
 
 

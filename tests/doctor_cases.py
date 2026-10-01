@@ -624,6 +624,105 @@ def the_owner_types_py_on_windows():
             and photo_platform.owner_python("posix") == "python3"), ""
 
 
+# ---------------------------------------------------------------------------
+# H-G (obs-16) — a build id a tester can report
+# ---------------------------------------------------------------------------
+
+def git(*args, cwd):
+    """git with the hook's GIT_* scrubbed: run from the pre-commit hook, an
+    inherited GIT_DIR would point every call here at the real repo."""
+    import os
+    import subprocess
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True,
+                          text=True, env=env, check=True)
+
+
+def tagged_repo(tmp):
+    """-> a temp repo whose BUILD.txt is the shipped placeholder, marked
+    export-subst exactly as the product's own .gitattributes marks it, and
+    tagged v9.9.9."""
+    repo = Path(tmp) / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "scripts" / "BUILD.txt").write_text(
+        (SCRIPTS / "BUILD.txt").read_text(encoding="utf-8"), encoding="utf-8")
+    (repo / ".gitattributes").write_text("scripts/BUILD.txt export-subst\n")
+    (repo / "pyproject.toml").write_text('[project]\nversion = "9.9.9"\n')
+    git("init", "-q", cwd=repo)
+    git("add", ".", cwd=repo)
+    git("commit", "-q", "-m", "one", cwd=repo)
+    git("tag", "v9.9.9", cwd=repo)
+    return repo
+
+
+@case
+def doctor_names_the_build():
+    """REPRODUCTION (HIL01 obs-16). ⛔ FAILS on 6419ced: doctor printed no
+    build at all, and a GitHub zip carries no commit, so a tester could not
+    say which build they ran. The text has a `build:` line, the JSON a
+    `build` field."""
+    import json
+    _code, text = run_doctor(facts())
+    _code, out = run_doctor(facts(), json_out=True)
+    line = next((ln for ln in text.splitlines() if ln.startswith("build: ")), "")
+    return (bool(line) and json.loads(out).get("build") == line[len("build: "):]), \
+        f"line={line!r} json={json.loads(out).get('build')!r}"
+
+
+@case
+def a_release_zip_names_its_tag_and_commit():
+    """GUARD (H-G), route 1: the zip `git archive` makes of a tag — what a
+    GitHub release download is — names the tag and the commit, with no git
+    beside it. Fed by a real archive, never a hand-typed stamp."""
+    import tempfile
+    import zipfile
+    import photo_run
+    if not hasattr(photo_run, "build_id"):
+        return False, "photo_run has no build_id"
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = tagged_repo(tmp)
+        sha = git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+        zpath = Path(tmp) / "release.zip"
+        git("archive", "--format=zip", "--prefix=unzipped/", "-o", str(zpath),
+            "v9.9.9", cwd=repo)
+        with zipfile.ZipFile(zpath) as z:
+            z.extractall(tmp)
+        got = photo_run.build_id(Path(tmp) / "unzipped" / "scripts" / "BUILD.txt",
+                                 Path(tmp) / "unzipped")
+    return (got.startswith("v9.9.9 (commit ") and sha[:7] in got), got
+
+
+@case
+def a_clone_names_its_build_through_git():
+    """GUARD (H-G), route 2: a clone keeps the placeholder; git describes it."""
+    import tempfile
+    import photo_run
+    if not hasattr(photo_run, "build_id"):
+        return False, "photo_run has no build_id"
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = tagged_repo(tmp)
+        got = photo_run.build_id(repo / "scripts" / "BUILD.txt", repo)
+    return got == "v9.9.9 (a git clone)", got
+
+
+@case
+def a_copy_with_neither_says_it_does_not_know():
+    """GUARD (H-G), route 3: no stamp and no git — a copied folder — says it
+    does not know, and gives the pyproject version beside it."""
+    import shutil as sh
+    import tempfile
+    import photo_run
+    if not hasattr(photo_run, "build_id"):
+        return False, "photo_run has no build_id"
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = tagged_repo(tmp)
+        sh.rmtree(repo / ".git")
+        got = photo_run.build_id(repo / "scripts" / "BUILD.txt", repo)
+    return got == "unknown (not a release download) — version 9.9.9", got
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")

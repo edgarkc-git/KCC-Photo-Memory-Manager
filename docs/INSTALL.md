@@ -7,10 +7,13 @@ measured, it says so.
 Words used here:
 
 - **product folder**: the folder that holds `README.md`, `scripts/` and the
-  `photo-*` folders. The zip from GitHub (green **Code** button, **Download ZIP**) is
-  `KCC-Photo-Memory-Manager-main.zip` and holds ONE folder,
-  `KCC-Photo-Memory-Manager-main`;
-  step 1 unzips it and renames it to `photo-manager`, so the product folder is
+  `photo-*` folders. Download it from the GitHub **Releases** page: the
+  latest release's **Source code (zip)**, `KCC-Photo-Memory-Manager-<version>.zip`
+  (for release `v2.0.1` the `<version>` is `2.0.1`), which holds ONE folder,
+  `KCC-Photo-Memory-Manager-<version>` (that name is not measured yet). The
+  green **Code** button's zip is `KCC-Photo-Memory-Manager-main` instead: it
+  works the same, but it is whatever was last pushed, not a tested release.
+  Step 1 unzips it and renames it to `photo-manager`, so the product folder is
   `~/photo-manager` (macOS) or `C:\photo-manager` (Windows). Write its full
   path wherever this guide says `<product folder>`.
 - **workspace**: a separate, empty folder you make for ONE photo collection.
@@ -120,20 +123,21 @@ zip, but do not unzip there.
 
 | | macOS (Terminal) | Windows 11 (PowerShell) |
 |---|---|---|
-| unzip | `unzip ~/Downloads/KCC-Photo-Memory-Manager-main.zip -d ~` | `Expand-Archive -LiteralPath "$HOME\Downloads\KCC-Photo-Memory-Manager-main.zip" -DestinationPath C:\photo-unzip` |
-| rename the inner folder | `mv ~/KCC-Photo-Memory-Manager-main ~/photo-manager` | `Move-Item C:\photo-unzip\KCC-Photo-Memory-Manager-main C:\photo-manager` |
+| unzip | `unzip ~/Downloads/KCC-Photo-Memory-Manager-<version>.zip -d ~` | `Expand-Archive -LiteralPath "$HOME\Downloads\KCC-Photo-Memory-Manager-<version>.zip" -DestinationPath C:\photo-unzip` |
+| rename the inner folder | `mv ~/KCC-Photo-Memory-Manager-<version> ~/photo-manager` | `Move-Item C:\photo-unzip\KCC-Photo-Memory-Manager-<version> C:\photo-manager` |
 | result: the product folder | `~/photo-manager` (holds `README.md`) | `C:\photo-manager` (holds `README.md`) |
 
-Safari may unzip the download by itself: if Downloads holds the folder
-`KCC-Photo-Memory-Manager-main` instead of the zip, skip the unzip line.
+Write the release's version where the lines say `<version>` (for the green
+Code button's zip, write `main`). Safari may unzip the download by itself: if
+Downloads holds the folder instead of the zip, skip the unzip line.
 
 Both columns were measured with the earlier folder name (macOS on a scratch
 copy; Windows by a test agent, with `Expand-Archive` and `Move-Item`). The
-`-main` name was measured on macOS only (HIL01); the Windows `-main` lines
-are not measured yet. On Windows you can also right-click
+`-main` name was measured on macOS only (HIL01); a release's `-<version>`
+name, and the Windows lines with either name, are not measured yet. On Windows you can also right-click
 the zip, choose **Extract All…**, then **Browse** to `C:\` before you press
 Extract: its default is a folder next to the zip, which is often inside a
-synced folder. Then rename the extracted `KCC-Photo-Memory-Manager-main` folder
+synced folder. Then rename the extracted `KCC-Photo-Memory-Manager-<version>` folder
 to `photo-manager`. Afterwards `C:\photo-unzip` is empty and can be deleted.
 
 Put your workspace folders (step 5) on a local disk too, for example
@@ -200,6 +204,13 @@ stay in it):
 | macOS | Windows 11 |
 |---|---|
 | `python3 "<product folder>/scripts/photo_run.py" doctor` | `py "<product folder>\scripts\photo_run.py" doctor` |
+
+Its second line, `build: v2.0.1 (commit abc1234, 2026-10-01)`, says which
+build you have: a release download names its tag; the Code button's zip
+names its commit, and says `untagged` when that commit is not a release; a
+folder with neither says `unknown`. Give that line with any report. (Measured
+with `git archive` on this Mac; a zip made by GitHub itself is not measured
+yet.)
 
 It lists Python, exiftool, the repo `.venv`, the packages inside it, ffmpeg, a
 real preview and the network, each OK or MISSING, and then an **install
