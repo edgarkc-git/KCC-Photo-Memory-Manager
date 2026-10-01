@@ -1661,6 +1661,13 @@ REVIEW_VOCAB = {
                                    "photo that is NOT this one (e.g. not 3) "
                                    "to take just that photo out of its memory "
                                    "and keep the name",
+        # HIL-5 — the row filled in, with THIS pet's id and a photo number
+        # printed above it: an owner who only reads the hints did not know
+        # what to type. Visible, never inside the row's comment.
+        "review_recheck_example": "Not sure what to type? If photo {n} is "
+                                  "not {subject}, write the row as "
+                                  "`recheck: {sid} not {n}`. Leave it blank "
+                                  "if every photo above is {subject}.",
         "review_recheck_name_hint": "or type a new name to correct this one · "
                                     "if that name is one this pack already "
                                     "remembers you will be asked which you "

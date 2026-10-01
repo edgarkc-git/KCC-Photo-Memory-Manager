@@ -782,6 +782,33 @@ A note.
     check("HIL-6 the page offers the answer as a button (REPRODUCTION)",
           'id="btn-none"' in tpl_b3)
 
+    # ---- HIL-5 B5 — recheck on the web needs no typed id and no typed `not` --
+    rck = (tpl_b3.split("// recheck:begin")[1].split("// recheck:end")[0]
+           if "// recheck:begin" in tpl_b3 else None)
+    vals = None
+    if rck and node:
+        ran = _subprocess.run([node, "-e", rck + "\nconsole.log(JSON.stringify(["
+                               "recheckValue({kind:'not', frames:{6:true, 5:true, 7:false}}),"
+                               "recheckValue({kind:'withdraw'}),"
+                               "recheckValue({kind:'rename', name:' Birk '}),"
+                               "recheckValue({kind:'ok', frames:{5:true}}),"
+                               "recheckValue({kind:'not', frames:{}}),"
+                               "recheckValue(undefined)]));"],
+                              capture_output=True, text=True)
+        vals = json.loads(ran.stdout) if ran.returncode == 0 else ran.stderr
+    check("HIL-5 a ticked photo becomes `not <n>` with no typing (REPRODUCTION)",
+          isinstance(vals, list) and vals[0] == "not 5,6", "%r" % (vals,))
+    check("HIL-5 withdraw, a new name and 'still right' are one choice each "
+          "(REPRODUCTION)",
+          isinstance(vals, list) and vals[1:] == ["withdraw", "Birk", "", "", ""],
+          "%r" % (vals,))
+    md_b5 = rp.apply_answer(remembered_md, ["- recheck: subj-0002 not 5,6"])
+    rows_b5 = pm.parse_representations(md_b5)
+    check("HIL-5 the web's recheck row is the text form's `not` answer (GUARD)",
+          len(rows_b5) == 1 and rows_b5[0]["not_frames"] == [5, 6]
+          and rows_b5[0]["subject_ids"] == ["subj-0002"]
+          and not rows_b5[0]["name"], "%r" % (rows_b5,))
+
     print("\n%d/%d review_page cases passed"
           % (len(PASS), len(PASS) + len(FAIL)))
     if FAIL:

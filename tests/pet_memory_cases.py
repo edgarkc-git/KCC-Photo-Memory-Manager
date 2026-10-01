@@ -737,7 +737,33 @@ def case_a_remembered_frame_not_indexed_here_stays_whole(tmp):
     assert len(shown) == 2 and all("/samples/" in s for s in shown), shown
 
 
+def case_the_recheck_row_shows_a_filled_in_example(tmp):
+    """REPRO HIL-5 follow-up — the owner left `recheck:` blank because he did
+    not know what to type. The page now shows the row filled in, with THIS
+    pet's id and the number of a photo printed above it."""
+    pack_dir, workdir, sid, refs, page, frame_of = remembered(tmp)
+    text = page.read_text()
+    n = min(frame_of.values())
+    example = f"`recheck: {sid} not {n}`"
+    assert example in text, text.split("Remembered already")[-1]
+    assert pm.parse_representations(text) == [], pm.parse_representations(text)
+
+
+def case_the_example_typed_as_shown_takes_the_photo_out(tmp):
+    """GUARD — typing exactly what the example shows is a working answer."""
+    pack_dir, workdir, sid, refs, page, frame_of = remembered(tmp)
+    n = min(frame_of.values())
+    answer(page, sid, f"not {n}")
+    rc, said = pmc.confirm(pack_dir, workdir)
+    ref = [r for r, k in frame_of.items() if k == n][0]
+    assert rc == 0 and ref not in looks_of(subject_of(pack_dir, sid)), said
+
+
 CASES = [
+    ("HIL-5: the recheck row shows a filled-in example (REPRO)",
+     case_the_recheck_row_shows_a_filled_in_example),
+    ("HIL-5: the example typed as shown takes the photo out (GUARD)",
+     case_the_example_typed_as_shown_takes_the_photo_out),
     ("HIL-7: the end page shows the crop the memory holds (REPRO)",
      case_the_end_page_shows_the_crop_the_memory_holds),
     ("HIL-7: a shared remembered frame shows each crop (REPRO)",

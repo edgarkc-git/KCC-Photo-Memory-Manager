@@ -766,10 +766,26 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
     }).filter(function(r){ return r.name; });
   }
 
+  // recheck:begin
+  // HIL-5 — one answer per remembered pet, built from clicks: the page adds
+  // the id, and `not` carries the ticked photo numbers. Each choice is the
+  // whole answer on its row, as `confirm` requires.
+  function recheckValue(c){
+    if(!c) return "";
+    if(c.kind === "not"){
+      var ns = Object.keys(c.frames || {}).filter(function(k){ return c.frames[k]; })
+        .map(Number).sort(function(a,b){ return a-b; });
+      return ns.length ? "not " + ns.join(",") : "";
+    }
+    if(c.kind === "withdraw") return "withdraw";
+    if(c.kind === "rename") return (c.name || "").trim();
+    return "";
+  }
+  // recheck:end
   function recheckState(sid){
-    if(!state.recheck) state.recheck = {};
-    if(state.recheck[sid] === undefined) state.recheck[sid] = "";
-    return state.recheck[sid];
+    if(!state.rc) state.rc = {};
+    if(!state.rc[sid]) state.rc[sid] = {kind:"ok", frames:{}, name:""};
+    return state.rc[sid];
   }
 
   function renderRecheck(){
@@ -798,6 +814,17 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
         });
         if(f.where){ var wh = document.createElement("div"); wh.className = "fwhere";
           wh.textContent = f.where; fig.appendChild(wh); }
+        // HIL-5 — the photo's own "not this pet" tick: no number to type.
+        var st = recheckState(r.subject_id);
+        var tl = document.createElement("label"); tl.className = "fwhere";
+        var tb = document.createElement("input"); tb.type = "checkbox";
+        tb.checked = st.kind === "not" && !!st.frames[n];
+        tb.setAttribute("aria-label", "Photo " + n + " is not " + r.name);
+        tb.addEventListener("change", function(){
+          st.frames[n] = tb.checked; st.kind = "not"; save(); render(); });
+        tl.appendChild(tb);
+        tl.appendChild(document.createTextNode(" photo " + n + " is not " + r.name));
+        fig.appendChild(tl);
         shots.appendChild(fig);
       });
       row.appendChild(shots);
@@ -810,20 +837,26 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
       why.textContent = r.why || "";
       body.appendChild(why);
 
+      var st = recheckState(r.subject_id);
+      [["ok", "Still right: every photo here is " + r.name],
+       ["not", "Some photos are not " + r.name + ": tick them under the photo, and only those leave its memory"],
+       ["withdraw", "Take the name " + r.name + " back and ask me again"],
+       ["rename", "Its name is different:"]].forEach(function(o){
+        var lab = document.createElement("label"); lab.className = "why";
+        lab.style.display = "block";
+        var rb = document.createElement("input"); rb.type = "radio";
+        rb.name = "rc-" + r.subject_id; rb.value = o[0]; rb.checked = st.kind === o[0];
+        rb.addEventListener("change", function(){ st.kind = o[0]; save(); render(); });
+        lab.appendChild(rb); lab.appendChild(document.createTextNode(" " + o[1]));
+        body.appendChild(lab);
+      });
       var inp = document.createElement("input");
       inp.type = "text"; inp.id = "rc-" + r.subject_id;
-      inp.value = recheckState(r.subject_id);
-      inp.placeholder = "leave blank if it is still right";
-      inp.setAttribute("aria-label", "Recheck " + r.name);
-      inp.addEventListener("input", function(){
-        state.recheck[r.subject_id] = inp.value; save(); paint(); });
+      inp.value = st.name || ""; inp.hidden = st.kind !== "rename";
+      inp.placeholder = "the name you call it";
+      inp.setAttribute("aria-label", "New name for " + r.name);
+      inp.addEventListener("input", function(){ st.name = inp.value; save(); paint(); });
       body.appendChild(inp);
-
-      var v = document.createElement("div"); v.className = "verbs";
-      v.innerHTML = "<code>withdraw</code> takes the name back and asks again  ·  " +
-        "<code>revive</code> takes a rejection back  ·  " +
-        "or type a new name to correct this one";
-      body.appendChild(v);
       row.appendChild(body);
       box.appendChild(row);
     });
@@ -832,7 +865,7 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
   function recheckRows(){
     return RE.map(function(r){
       return {subject_id:r.subject_id, name:r.name,
-              value:(state.recheck && state.recheck[r.subject_id] || "").trim()};
+              value:recheckValue(recheckState(r.subject_id))};
     }).filter(function(r){ return r.value; });
   }
 

@@ -2328,6 +2328,10 @@ def render_representations(represented, rmsg):
             # and `parse_representations()` strips comments before it reads —
             # otherwise the words `same` and `distinct` in this very sentence
             # would arm every row the renderer wrote.
+            if mapped:
+                out.append("> " + rmsg["review_recheck_example"].format(
+                    n=mapped[0]["n"], subject=record["display"],
+                    sid=record["subject_id"]))
             out.append(f"> - `{RECHECK_KEY}:` {record['subject_id']} ______"
                        f" <!-- {rmsg['review_recheck_hint']} · "
                        f"{rmsg['review_recheck_name_hint']} · "
