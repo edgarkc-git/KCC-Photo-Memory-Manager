@@ -87,6 +87,9 @@ RE_IMG = re.compile(
     r"(?:\s*·\s*(.*\S))?")
 # Q8-c — which crop of a shared frame a line shows: `(animal 1.2)`.
 RE_CROP_ANIMAL = re.compile(r"\[frame\s+\d+\]\s*\(animal\s+\d+\.(\d+)\)")
+# HIL-4/5 — a one-animal frame's line is its crop with no `(animal …)`; the
+# file name carries the detection, as photo_memory.CROP_FILE reads it.
+RE_CROP_NAME = re.compile(r"(?:^|/)review-crops/[^/]+_d(\d+)\.jpg$")
 # F26 — `<photo>.<animal>` on a `pick:` row; the same shape as
 # photo_memory.CROP_REF, which this standalone script does not import.
 RE_PICK_CROP = re.compile(r"(?<![\d.])(\d+)\.(\d+)(?![\d.])")
@@ -218,9 +221,18 @@ def parse_review(md_text):
                 if m.group(3):
                     q["where"][int(m.group(2))] = m.group(3)
                 crop = RE_CROP_ANIMAL.search(ln)
+                alone = RE_CROP_NAME.search(m.group(1))
                 if crop:
                     q.setdefault("crops", {}).setdefault(int(m.group(2)), []).append(
                         (int(crop.group(1)), m.group(1)))
+                elif alone:
+                    # HIL-5 — the markdown shows this frame as its one crop,
+                    # so the web tile must too: the whole photo can hold an
+                    # animal the detector missed, and the owner then names
+                    # the photo for an animal the crop is not.
+                    q.setdefault("crops", {})[int(m.group(2))] = [
+                        (int(alone.group(1)) + 1, m.group(1))]
+                    q.setdefault("alone", {})[int(m.group(2))] = m.group(1)
                 continue
             m = RE_FRAMES.match(ln)
             if m:
@@ -331,6 +343,9 @@ def build_round_data(rev, q, workdir, max_px, quality, pack_dir):
                 "frame %d points at %s, which does not exist. The `frames:` "
                 "line is the storage key and is never guessed around — "
                 "re-render the checkpoint instead." % (n, src))
+        alone = q.get("alone", {}).get(n)
+        if alone and os.path.exists(os.path.join(workdir, alone)):
+            src = os.path.join(workdir, alone)
         frames[str(n)] = {
             "subject_id": f["subject_id"], "key": f["key"],
             "file": os.path.basename(f["path"]),

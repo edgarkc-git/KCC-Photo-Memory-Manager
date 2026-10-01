@@ -77,6 +77,26 @@ pack snapshot: sha256:00112233445566778899 · 9 file(s)
 > - `recheck:` subj-0010 ______ <!-- hint four -->
 """
 
+# HIL-4/5 — the shape `photo_memory review` writes for a batch page whose
+# identity index cropped each frame: frame 1 holds ONE animal, so its line is
+# the crop alone; frame 2 holds two, so each crop says which animal it is.
+CROPPED = """<!-- sns-page: P-B01 -->
+
+### Questions
+
+**Q1 · Group it — cat** — affects 2 file(s) / 1 batch(es)
+> **1** · an unnamed cat · 2 file(s) / 1 batch(es)
+> ![](review-crops/aa11bb22_d0.jpg) [frame 1]
+> ![](review-crops/cc33dd44_d0.jpg) [frame 2] (animal 2.1)
+> ![](review-crops/cc33dd44_d1.jpg) [frame 2] (animal 2.2)
+> `subjects:` 1=subj-0001
+> `frames:` 1=subj-0001 aa11bb22 classify/batch-01/samples/a.png, \
+2=subj-0001 cc33dd44 classify/batch-01/samples/b.png
+> `animals:` 2=2
+> - `pick:` ______   `who:` ______   `name:` ______
+> - `skip:` ______
+"""
+
 PATHS = ["classify/batch-01/samples/a.png",
          "classify/batch-01/samples/b, two.png",
          "classify/batch-02/samples/c.png",
@@ -666,6 +686,37 @@ A note.
     check("F26 one photo on two rows, one name each, is still written (GUARD)",
           "`pick:` 3 `who:` pet `name:` Märta" in two_rows
           and "`pick:` 3 `who:` pet `name:` Öskar" in two_rows, two_rows)
+
+    # ---- HIL-4/5 B1 — a one-animal frame shows its CROP on the web too -----
+    with tempfile.TemporaryDirectory() as tmpb1:
+        for p in ("classify/batch-01/samples/a.png",
+                  "classify/batch-01/samples/b.png"):
+            png(os.path.join(tmpb1, p), 40, 60)
+        png(os.path.join(tmpb1, "review-crops/aa11bb22_d0.jpg"), 12, 12)
+        png(os.path.join(tmpb1, "review-crops/cc33dd44_d0.jpg"), 14, 14)
+        png(os.path.join(tmpb1, "review-crops/cc33dd44_d1.jpg"), 16, 16)
+        b1 = os.path.join(tmpb1, "memory-review_C1.md")
+        io.open(b1, "w", encoding="utf-8").write(CROPPED)
+        rp.main(["render", b1, "-o", os.path.join(tmpb1, "p.html")])
+        d1 = round_data(io.open(os.path.join(tmpb1, "p.html"),
+                                encoding="utf-8").read())
+        whole = rp.encode_image(os.path.join(
+            tmpb1, "classify/batch-01/samples/a.png"), 640, 72)
+        crop1 = rp.encode_image(os.path.join(
+            tmpb1, "review-crops/aa11bb22_d0.jpg"), 640, 72)
+        whole2 = rp.encode_image(os.path.join(
+            tmpb1, "classify/batch-01/samples/b.png"), 640, 72)
+    f1, f2 = d1["frames"]["1"], d1["frames"]["2"]
+    check("B1 a one-animal frame's web tile is its crop, as in the markdown "
+          "(REPRODUCTION)", f1["data"] == crop1 and f1["data"] != whole,
+          "tile is the %s" % ("crop" if f1["data"] == crop1 else "whole photo"))
+    check("B1 the one crop is offered for a not-a-real-animal mark as 1.1 "
+          "(REPRODUCTION)",
+          [c["animal"] for c in f1.get("crops", [])] == [1]
+          and f1["crops"][0]["data"] == crop1, "%r" % (
+              [c["animal"] for c in f1.get("crops", [])],))
+    check("B1 a 2-animal frame keeps the whole photo and both crops (GUARD)",
+          f2["data"] == whole2 and [c["animal"] for c in f2["crops"]] == [1, 2])
 
     print("\n%d/%d review_page cases passed"
           % (len(PASS), len(PASS) + len(FAIL)))
