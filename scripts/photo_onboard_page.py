@@ -729,6 +729,31 @@ def read_prefill(raw):
     return out
 
 
+def pack_answers(profile):
+    """HIL-9 — {page key: value} for the section-4 answers this pack already
+    holds FROM THE OWNER, the shape `read_prefill` returns.
+
+    ⛔ Only what an owner actually gave. The template ships `language: en`
+    and `away_km: 3`, so neither proves an answer: `en` counts once the pack
+    has been through an onboarding (it holds a camera, a home or a screen
+    size, or an answered away_km), and away_km counts only when
+    `photo_cluster.away_km_answered()` says so."""
+    profile = profile or {}
+    out = {}
+    onboarded = bool(profile.get("own_camera_makes") or profile.get("home_locations")
+                     or profile.get("screen_dims")
+                     or photo_cluster.away_km_answered(profile))
+    language = profile.get("language")
+    if language and (language != "en" or onboarded):
+        out["language"] = language
+    types = (profile.get("naming_spec") or {}).get("types") or []
+    if types:
+        out["types"] = ", ".join(types)
+    if photo_cluster.away_km_answered(profile):
+        out["away"] = str(away_km_shown(profile))
+    return out
+
+
 LANGUAGE_NO_CLUE = ("Your filenames give no clue to which language you use. "
                     "That is not a reason to assume English, so the engine "
                     "asks you instead of guessing.")
@@ -1051,7 +1076,11 @@ def build_data(targets, profile, with_coords, prefill=None, device_specs=None,
         "drop_note": DROP_NOTE,
         "languages": languages(),
         "type_defaults": type_defaults(),
-        "prefill": prefill or {},
+        # HIL-9 — a later page quotes the pack's own section-4 answers; a
+        # --prefill given on the command line still wins.
+        "prefill": dict(pack_answers(pack.profile), **(prefill or {})),
+        "prefill_from_pack": sorted(k for k in pack_answers(pack.profile)
+                                    if k not in (prefill or {})),
         # ⛔ Read off the PACK this page is describing, never hardcoded. The
         # hardcoded 3 told one owner their default was a safe small number
         # while their pack held 60 — which is the strongest possible argument
@@ -2354,6 +2383,18 @@ def known_pet_names(pack_dir):
     return {(s.name or "").lower() for s in registry.subjects if s.name}
 
 
+def pack_pet_names(pack_dir):
+    """-> the pets this pack already names (HIL-9: not re-asked on a later
+    page; a new one is named on the pet pages)."""
+    import photo_subjects
+
+    registry = photo_subjects.load(
+        pack=photo_profile.Pack(directory=pack_dir, profile={"_": True}))
+    return [s.name for s in registry.subjects
+            if s.name and getattr(s, "who", None) == "pet"
+            and s.status != photo_subjects.STATUS_REJECTED]
+
+
 def declare_pets(pack_dir, names):
     """Each declared animal becomes a subject record with a name and no
     photographs (ADR 0004). -> [(subject_id, name, "created"|"already")].
@@ -2785,7 +2826,7 @@ def page_subjects(html):
     return {k: v for k, v in known.items() if v}
 
 
-def unanswered(asked, answers, submitted):
+def unanswered(asked, answers, submitted, kept=()):
     """-> ["screen: 1170x2532", "away_km", …] for every question the page PUT
     that came back without an answer.
 
@@ -2813,7 +2854,7 @@ def unanswered(asked, answers, submitted):
             if subject not in got:
                 out.append("%s: %s" % (key, subject))
     for key in ("language", "types", "away_km", "pets"):
-        if not str(submitted.get(key) or "").strip():
+        if not str(submitted.get(key) or "").strip() and key not in kept:
             out.append(key)
     return out
 
@@ -2831,10 +2872,25 @@ def apply_page(text, args=None):
     if submitted.get("language"):
         photo_profile.announce_missing_table(submitted["language"],
                                              photo_profile.BUCKET_VOCAB)
+    # HIL-9 — a section-4 answer left blank keeps the pack's own value.
+    pack_dir = getattr(args, "write_pack", None) or getattr(args, "pack", None)
+    held = {}
+    if pack_dir:
+        with io.open(pack_files(pack_dir)[1], encoding="utf-8") as fh:
+            held = pack_answers(json.load(fh))
+    kept = [k for k in ("language", "types", "away_km")
+            if (held.get("away") if k == "away_km" else held.get(k))
+            and not str(submitted.get(k) or "").strip()]
+    if pack_dir and not str(submitted.get("pets") or "").strip() \
+            and pack_pet_names(pack_dir):
+        kept.append("pets")     # a new pet is named on the pet pages
+    if kept:
+        print("\n   kept from the pack: %s (left blank on the page, so the "
+              "pack's own values stay)" % ", ".join(kept))
     missing = unanswered(page_subjects(text),
                          parse_lines("\n".join(submitted.get("lines") or []),
                                      known=page_subjects(text)),
-                         submitted)
+                         submitted, kept)
     if missing:
         print("\n⚠️  %d question(s) came back with no answer: %s"
               % (len(missing), ", ".join(missing)))

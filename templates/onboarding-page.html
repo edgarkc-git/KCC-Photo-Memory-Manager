@@ -641,7 +641,16 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
       + "decides which photos count as taken at home.",
       "language · naming_spec.types · away_km");
     var box = el("div","opt");
-    if(Object.keys(CARRIED).length){
+    /* HIL-9 — a later page quotes the pack's own answers (D.prefill_from_pack). */
+    var FROM_PACK = (D.prefill_from_pack || []).filter(function(k){ return CARRIED[k]; });
+    if(FROM_PACK.length){
+      var cp = el("div","carried");
+      cp.textContent = "From your pack, as you answered before. Nothing changed? "
+        + "Leave these as they are, and the pack's values stay. Change one only to "
+        + "change it for every folder from now on.";
+      box.appendChild(cp);
+    }
+    if(Object.keys(CARRIED).length > FROM_PACK.length){
       var cw = el("div","carried");
       cw.textContent = "Filled in from what you already told the session — "
         + "check each one, they are quotes, not choices.";

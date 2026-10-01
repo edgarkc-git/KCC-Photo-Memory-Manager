@@ -685,6 +685,80 @@ def device_spec_cases(tmp, wd, D_plain, tpl, f3_plain):
           and "Zenith Q1" in refused["not in this collection"], refused)
 
 
+def repeat_page_cases(tmp, wd):
+    """HIL-9 (HIL01) — a 2nd or later onboarding page asked section 4
+    (language, types, away_km) EMPTY although the pack held the answers, and
+    `apply` then warned that the engine default applies, which was false."""
+    def pack_with(name, **values):
+        pack = fresh_pack(tmp, name)
+        path = os.path.join(pack, "photo-profile.json")
+        prof = json.load(io.open(path, encoding="utf-8"))
+        prof.update({k: v for k, v in values.items() if k in ("language", "own_camera_makes")})
+        if "types" in values:
+            prof.setdefault("naming_spec", {})["types"] = values["types"]
+        if "away_km" in values:
+            prof.setdefault("cluster_defaults", {}).update(
+                away_km=values["away_km"], away_km_answered=True)
+        io.open(path, "w", encoding="utf-8").write(json.dumps(prof))
+        return pack
+
+    answered = pack_with("pack-answered", language="en", own_camera_makes=["Lotusphone"],
+                         types=["trip", "dinner"], away_km=5)
+    html = render_to_with(wd, os.path.join(tmp, "repeat.html"), "--profile",
+                          os.path.join(answered, "photo-profile.json"))
+    d = data_of(html)
+    check("HIL-9 a later page carries section 4 in from the pack (REPRODUCTION)",
+          d.get("prefill") == {"language": "en", "types": "trip, dinner", "away": "5"}
+          and sorted(d.get("prefill_from_pack") or []) == ["away", "language", "types"],
+          "%r" % (d.get("prefill"),))
+    check("HIL-9 the page says what a pack-filled answer means (REPRODUCTION)",
+          "D.prefill_from_pack" in html
+          and "Nothing changed? " in html and "Leave these as they are, and the pack" in html)
+    fresh = fresh_pack(tmp, "pack-fresh")
+    d0 = data_of(render_to_with(wd, os.path.join(tmp, "first.html"), "--profile",
+                                os.path.join(fresh, "photo-profile.json")))
+    check("HIL-9 a first page over a fresh pack carries nothing in (GUARD)",
+          d0.get("prefill") == {} and not d0.get("prefill_from_pack"),
+          "%r" % (d0.get("prefill"),))
+    d1 = data_of(render_to_with(wd, os.path.join(tmp, "cli.html"), "--profile",
+                                os.path.join(answered, "photo-profile.json"),
+                                "--prefill", "away=9"))
+    check("HIL-9 a --prefill given on the command line still wins (GUARD)",
+          d1["prefill"]["away"] == "9" and "away" not in d1["prefill_from_pack"])
+
+    block = {"cameras": {"devices": []}, "screens": {"candidates": []},
+             "homes": {"rows": [], "near_misses": []},
+             "submitted": {"lines": ["pets: none"], "pets": "none"}}
+    page = os.path.join(tmp, "blank4.html")
+    io.open(page, "w", encoding="utf-8").write(
+        '<script id="onboard-data" type="application/json">'
+        + json.dumps(block) + '</script>')
+
+    def apply(pack):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            op.main(["apply", page, "--pack", pack])
+        return buf.getvalue()
+
+    said = apply(answered)
+    check("HIL-9 a blank section 4 over an answered pack is not 'no answer' "
+          "(REPRODUCTION)", "came back with no answer" not in said
+          and "kept from the pack: language, types, away_km" in said, said[-300:])
+    said0 = apply(fresh)
+    check("HIL-9 a blank section 4 over a fresh pack still warns (GUARD)",
+          "came back with no answer" in said0 and "types" in said0, said0[-300:])
+    block["submitted"] = {"lines": []}
+    io.open(page, "w", encoding="utf-8").write(
+        '<script id="onboard-data" type="application/json">'
+        + json.dumps(block) + '</script>')
+    op.declare_pets(answered, ["Lotus", "Birk"])
+    said_p = apply(answered)
+    check("HIL-9 a blank pets line over a pack that names pets is kept "
+          "(REPRODUCTION)", "came back with no answer" not in said_p
+          and "kept from the pack: language, types, away_km, pets" in said_p,
+          said_p[-300:])
+
+
 def answer_contract(tmp):
     """W1A: naming-first at SNL, an opt-in pack write, A44's missing writer,
     and a declared animal becoming a subject record."""
@@ -1672,6 +1746,7 @@ def main():
 
         # ---- 14. the answer contract: what the owner answers -> the pack ---
         answer_contract(tmp)
+        repeat_page_cases(tmp, wd)
 
         # ---- 15. U3-06: what the evidence strips withhold, and say ---------
         evidence_cases(tmp)
