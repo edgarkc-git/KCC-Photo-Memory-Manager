@@ -676,6 +676,7 @@ def homes_section(units, with_coords, profile=None):
             "files": home["files"], "units": sorted(set(home["units"])),
             "thumbs": strip, "unreadable": sum(why.values()),
             "withheld": len(held),
+            "country_box": row_country(home["coord"]),
         }
         if home["missed"]:
             row["missed"] = list(home["missed"])
@@ -695,6 +696,35 @@ def homes_section(units, with_coords, profile=None):
             "near_misses_one_day_only": one_day_only,
             "already_listed": listed,
             "coords_withheld": not with_coords}
+
+
+# K20 / H-C C5 — ISO 3166-1 alpha-2, every officially assigned code. A
+# `country:` answer is checked against this at WRITE time: the reader
+# (photo_profile.country) accepts any two letters, and an unknown code would
+# silently turn off the owner's day test.
+ISO2 = frozenset("""
+AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL
+BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV
+CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD
+GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM
+IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK
+LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW
+MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR
+PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS
+ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY
+UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW""".split())
+# The page's short list; any other code is typed. Codes only, no names, so
+# no language is hardcoded (Rule 8).
+COUNTRY_COMMON = ("US", "GB", "CA", "AU", "DE", "FR", "JP", "KR", "SG", "TW",
+                  "HK", "MY")
+
+
+def row_country(coord):
+    """-> the COUNTRY_BOXES row a home's coordinate lies in, else None. A
+    country-level flag, so it may travel on the page; the coordinate never
+    does."""
+    return next((c for c, box in photo_cluster.COUNTRY_BOXES.items()
+                 if photo_cluster.in_box(tuple(coord), box)), None)
 
 
 # The only answers a render may carry in. ⛔ `screens` and `homes` are NOT
@@ -1080,6 +1110,10 @@ def build_data(targets, profile, with_coords, prefill=None, device_specs=None,
         # HIL-9 — a later page quotes the pack's own section-4 answers; a
         # --prefill given on the command line still wins.
         "prefill": dict(pack_answers(pack.profile), **(prefill or {})),
+        # K20 / C5 — known: the country the engine already has for this pack
+        # (declared, or home-01's box), so the page does not ask it again.
+        "country": {"known": photo_cluster.owner_country(pack.profile),
+                    "common": list(COUNTRY_COMMON), "codes": sorted(ISO2)},
         "prefill_from_pack": sorted(k for k in pack_answers(pack.profile)
                                     if k not in (prefill or {})),
         # ⛔ Read off the PACK this page is describing, never hardcoded. The
@@ -1571,6 +1605,19 @@ def sheet_text(data, blocks, photographs, digest, workdirs=()):
                "at all.")
     out.append(">>> pets:")
     out.append("")
+    if not (data.get("country") or {}).get("known"):
+        # K20 / C5 — the page's own question, asked here only as text: the
+        # sheet cannot see which home you will answer "live".
+        boxes = ", ".join(sorted(photo_cluster.COUNTRY_BOXES))
+        out.append("#   country: mark this country as your primary home "
+                   "country? Only if a home")
+        out.append("#     you answer `live` above is OUTSIDE %s: write its "
+                   "two-letter code" % boxes)
+        out.append("#     (ISO 3166-1, e.g. US, JP, NZ). Nothing goes online "
+                   "for this. Left blank,")
+        out.append("#     no day is called abroad.")
+        out.append(">>> country:")
+        out.append("")
     # W1C-5 — the page's closing blocks, verbatim (disclaimer(), NEXT_STEPS).
     out.append(RULE)
     out.append("# DISCLAIMER")
@@ -1636,7 +1683,7 @@ def cmd_sheet(args):
 # over a sheet's own text at write time, so an old sheet still re-digests to
 # the value it stored).
 ANSWER_KEYS = ("make", "makes", "screen", "home", "language", "types",
-               "away_km", "pets")
+               "away_km", "pets", "country")
 
 
 # The words that REJECT a proposed area outright. ⛔ `not a home` is NOT one
@@ -1734,7 +1781,7 @@ def parse_lines(text, known=None):
     known = known or {}
     out = {"lines": [], "makes": {}, "own_camera_makes": [], "screens": {},
            "homes": {}, "language": "", "types": "", "away_km": "",
-           "pets": "", "header": {}, "blank": []}
+           "pets": "", "country": "", "header": {}, "blank": []}
 
     def check(kind, subject):
         pool = known.get(kind)
@@ -1805,6 +1852,15 @@ def parse_lines(text, known=None):
                     "does not fail — it silently files every day trip as a "
                     "day at home." % rest)
             out["away_km"] = rest
+        elif key == "country":
+            code = rest.strip().upper()
+            if code not in ISO2:
+                raise SystemExit(
+                    "country %r is not a two-letter country code (ISO 3166-1, "
+                    "for example TW or US). Left wrong it does not fail — it "
+                    "turns off the test that tells a day abroad from a day at "
+                    "home." % rest)
+            out["country"] = code
         else:
             out[key] = rest
 
@@ -2129,6 +2185,21 @@ def pack_updates(answers, coords, profile, entities, add_screens=frozenset(),
         else:
             plan.append(("photo-profile.json", "language", answers["language"]))
             said("language", "add", answers["language"])
+
+    if answers.get("country"):
+        # K20 / C5 — ONE primary home country per owner (U2-04). Read through
+        # the one reader; a different answer over a declared one is refused.
+        old = photo_profile.country(profile)
+        if old and old != answers["country"]:
+            refuse.append("country is already %r in the pack and the answers "
+                          "say %r. One owner has one home country — fix it "
+                          "by hand if it really changed." % (old, answers["country"]))
+            said("country", "refuse", refuse[-1])
+        elif old:
+            said("country", "already listed", old)
+        else:
+            plan.append(("photo-profile.json", "country", answers["country"]))
+            said("country", "add", answers["country"])
 
     if answers["types"]:
         types = [t.strip() for t in answers["types"].split(",") if t.strip()]

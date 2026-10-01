@@ -271,12 +271,12 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
      translated key renders a page that reads perfectly and writes an answer
      nothing can read. */
   var KEY = {makes:"makes", screen:"screen", home:"home", language:"language",
-             types:"types", away:"away_km", pets:"pets"};
+             types:"types", away:"away_km", pets:"pets", country:"country"};
 
   var LS = "photo-onboard/" + (D.owner || "-") + "/" + (D.units || []).join("+");
   function fresh(){
     return {makes:{}, screens:{}, homes:{}, language:"", types:"",
-            away:"", pets:"", submitted:null};
+            away:"", pets:"", country:"", submitted:null};
   }
   var state;
   try{ state = JSON.parse(localStorage.getItem(LS)) || fresh(); }
@@ -307,6 +307,7 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
   /* A state object saved before `pets` existed has no such key, and every
      reader below calls .trim() on it. Fill it rather than guard each one. */
   if(typeof state.pets !== "string") state.pets = "";
+  if(typeof state.country !== "string") state.country = "";
   function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
 
   function el(tag, cls, txt){
@@ -578,6 +579,19 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
     return o;
   }
 
+  // country:begin
+  /* K20 / H-C C5 — ask "Mark this country as your primary home country?"
+     only after a home answered "I live here", only when the engine does not
+     know the owner's country yet (`known`), and never when a "live" home lies
+     in a country the engine already has a box for: that one is the default. */
+  function countryAsk(known, homes, rows){
+    if(known) return false;
+    var live = rows.filter(function(r){ return (homes[r.id] || {}).kind === "live"; });
+    if(!live.length) return false;
+    return !live.some(function(r){ return r.country_box; });
+  }
+  // country:end
+
   function stepHomes(){
     var st = stepShell(3, "What do you call these places?",
       "Name them in your own words — that name is what the engine puts on the folder, " +
@@ -628,6 +642,46 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
           + "session — the coordinates are on the machine that built this, and "
           + "photo_census.py --all-places prints every place that was left out."));
       }
+    }
+    var allRows = D.homes.rows.concat(near);
+    if(countryAsk((D.country || {}).known, state.homes, allRows)){
+      var cbox = el("div","opt");
+      cbox.appendChild(el("div","opt-title",
+        "Mark this country as your primary home country?"));
+      cbox.appendChild(el("div","consequence",
+        "You said you live at a place above. Pick its country, so days away from it count "
+        + "as abroad. Nothing goes online for this: it is your answer. Leave it blank and "
+        + "no day is called abroad."));
+      var csel = document.createElement("select");
+      [""].concat((D.country || {}).common || [], ["other"]).forEach(function(c){
+        var op = document.createElement("option");
+        op.value = c; op.textContent = c === "" ? "— pick a country —"
+          : c === "other" ? "another country: type its 2 letters" : c;
+        var isOther = c === "other" && state.country
+          && ((D.country || {}).common || []).indexOf(state.country) < 0;
+        if(c === state.country || isOther) op.selected = true;
+        csel.appendChild(op);
+      });
+      var cin = document.createElement("input");
+      cin.type = "text"; cin.maxLength = 2; cin.placeholder = "e.g. NZ";
+      cin.hidden = !(csel.value === "other");
+      cin.value = csel.value === "other" ? state.country : "";
+      csel.addEventListener("change", function(){
+        state.country = this.value === "other" ? "" : this.value;
+        save(); render();
+      });
+      cin.addEventListener("input", function(){
+        var v = this.value.trim().toUpperCase();
+        state.country = ((D.country || {}).codes || []).indexOf(v) >= 0 ? v : "";
+        save(); paintPanel();
+      });
+      var crow = el("div","choice");
+      crow.appendChild(csel); crow.appendChild(cin);
+      cbox.appendChild(crow);
+      st.body.appendChild(cbox);
+    } else if(state.country){
+      state.country = "";       /* the question is gone, so is its answer */
+      save();
     }
     return st.section;
   }
@@ -797,6 +851,7 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
     if(state.types.trim()) out.push(KEY.types + ": " + state.types.trim());
     if(String(state.away).trim()) out.push(KEY.away + ": " + String(state.away).trim());
     if(state.pets.trim()) out.push(KEY.pets + ": " + state.pets.trim());
+    if(state.country) out.push(KEY.country + ": " + state.country);
     return out;
   }
 

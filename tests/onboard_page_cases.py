@@ -685,6 +685,89 @@ def device_spec_cases(tmp, wd, D_plain, tpl, f3_plain):
           and "Zenith Q1" in refused["not in this collection"], refused)
 
 
+def country_cases(tmp, wd):
+    """K20 + H-C C5 (owner ruling 20261001) — after a home answered "I live
+    here", the page asks "Mark this country as your primary home country?",
+    answered from a list, never looked up online, and writes the pack's
+    top-level `country` (ISO2). A home inside a COUNTRY_BOXES row, or a pack
+    whose country is already known, is not asked."""
+    import shutil as _sh
+    import subprocess as _sp
+    ok_box = getattr(op, "row_country", None)
+    check("C5 a home inside the TW box is TW, one outside is unknown "
+          "(REPRODUCTION)", ok_box is not None and ok_box((23.5, 121.0)) == "TW"
+          and ok_box((40.7, -74.0)) is None)
+    d = data_of(render_to(wd, os.path.join(tmp, "country.html"), False))
+    rows = d["homes"]["rows"] + d["homes"]["near_misses"]
+    check("C5 every home row carries its country flag, and no coordinate "
+          "(REPRODUCTION)", rows and all("country_box" in r and "coord" not in r
+                                        for r in rows), "%r" % ([r.get("country_box") for r in rows],))
+    check("C5 the page knows whether the pack's country is known "
+          "(REPRODUCTION)", (d.get("country") or {}).get("known", "x") is None
+          and "US" in (d.get("country") or {}).get("codes", []))
+    got = op.parse_lines("country: us\n")
+    check("C5 a country answer is read as upper-case ISO2 (REPRODUCTION)",
+          got.get("country") == "US", "%r" % (got.get("country"),))
+    for bad in ("ZZ", "USA", "U"):
+        try:
+            op.parse_lines("country: %s\n" % bad)
+            refused = False
+        except SystemExit:
+            refused = True
+        check("C5 %r is refused, never written (GUARD)" % bad, refused)
+    pack = fresh_pack(tmp, "pack-country")
+    ans = os.path.join(tmp, "country.txt")
+    io.open(ans, "w", encoding="utf-8").write("country: US\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = op.main(["apply", ans, "--write-pack", pack])
+    prof = json.load(io.open(os.path.join(pack, "photo-profile.json"), encoding="utf-8"))
+    check("C5 apply --write-pack writes the top-level country (REPRODUCTION)",
+          code == 0 and prof.get("country") == "US"
+          and photo_profile.country(prof) == "US", buf.getvalue()[-300:])
+    io.open(ans, "w", encoding="utf-8").write("country: JP\n")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        try:
+            op.main(["apply", ans, "--write-pack", pack])
+        except SystemExit:
+            pass
+    prof = json.load(io.open(os.path.join(pack, "photo-profile.json"), encoding="utf-8"))
+    check("C5 a different country over a declared one is refused (GUARD)",
+          prof.get("country") == "US" and "country" in buf.getvalue(),
+          buf.getvalue()[-300:])
+
+    tpl = io.open(op.TEMPLATE, encoding="utf-8").read()
+    fn = (tpl.split("// country:begin")[1].split("// country:end")[0]
+          if "// country:begin" in tpl else None)
+    node = _sh.which("node")
+    asked = None
+    if fn and node:
+        script = fn + "\nconsole.log(JSON.stringify(["
+        script += "countryAsk(null, {A:{kind:'live'}}, [{id:'A', country_box:null}]),"
+        script += "countryAsk(null, {A:{kind:'live'}}, [{id:'A', country_box:'TW'}]),"
+        script += "countryAsk('TW', {A:{kind:'live'}}, [{id:'A', country_box:null}]),"
+        script += "countryAsk(null, {A:{kind:'visit'}}, [{id:'A', country_box:null}]),"
+        script += "countryAsk(null, {A:{kind:'live'}, B:{kind:'live'}}, "
+        script += "[{id:'A', country_box:'TW'}, {id:'B', country_box:null}])]));"
+        ran = _sp.run([node, "-e", script], capture_output=True, text=True)
+        asked = json.loads(ran.stdout) if ran.returncode == 0 else ran.stderr
+    check("C5 the page asks only after a 'live' home outside a known box, "
+          "with no country known (REPRODUCTION)",
+          asked == [True, False, False, False, False], "%r" % (asked,))
+    check("C5 the page writes its answer as `country: XX` (REPRODUCTION)",
+          'KEY.country + ": "' in tpl)
+    sheet = op.sheet_text(d, op.sheet_blocks(d), {}, "digest")
+    check("C5 the sheet asks the same question as text (REPRODUCTION)",
+          ">>> country:" in sheet and "primary home country" in sheet)
+    known = dict(d, country=dict(d["country"], known="TW"))
+    check("C5 a pack whose country is known is not asked on the sheet (GUARD)",
+          ">>> country:" not in op.sheet_text(known, op.sheet_blocks(known), {}, "digest"))
+    blank = op.parse_lines(">>> country:\n")
+    check("C5 a blank sheet country line is no answer, not an error (GUARD)",
+          blank["country"] == "" and "country" in blank["blank"])
+
+
 def printed_line_cases(tmp):
     """H-C C4 / H-I (HIL01 obs-15) — a printed next step must run from any
     folder: an absolute interpreter, the script's full path, and the work
@@ -1554,7 +1637,9 @@ def main():
                    for c in D["screens"]["candidates"]]
                 + ["home|%s" % r["id"]
                    for r in D["homes"]["rows"] + D["homes"]["near_misses"]]
-                + ["language", "types", "away_km", "pets"])
+                + ["language", "types", "away_km", "pets"]
+                # K20 / C5 — the page asks it too while the country is unknown.
+                + ([] if D["country"]["known"] else ["country"]))
         check("the sheet asks EVERY question the page asks", stems == want,
               "%d question(s); a second surface that asks less is a second "
               "defect" % len(stems))
@@ -1785,6 +1870,7 @@ def main():
         answer_contract(tmp)
         repeat_page_cases(tmp, wd)
         printed_line_cases(tmp)
+        country_cases(tmp, wd)
 
         # ---- 15. U3-06: what the evidence strips withhold, and say ---------
         evidence_cases(tmp)
