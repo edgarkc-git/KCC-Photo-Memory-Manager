@@ -195,8 +195,9 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
         <button class="primary" id="btn-new" disabled>New group</button>
         <select id="addto" style="width:auto;min-width:140px" disabled></select>
         <button id="btn-loose" disabled>Undecided</button>
-        <button class="danger" id="btn-skip" disabled>Not a subject</button>
+        <button class="danger" id="btn-skip" disabled>Not mine</button>
         <span style="flex:1"></span>
+        <button class="danger" id="btn-none">None of these are mine</button>
         <button id="btn-clear" disabled>Clear selection</button>
         <button id="btn-reset">Start over</button>
       </div>
@@ -256,7 +257,7 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
   <footer id="pet-notes">
     <strong>Nothing starts grouped.</strong> The engine's own clustering is printed under each photo as <code>engine cluster N</code> — what it guessed, shown so you can disagree with it. It is not applied.<br><br>
     <strong>Group numbers are stable.</strong> Once a group has a number it keeps it; deleting a group leaves a gap rather than renumbering the others under you. The numbers are display only — the answer is written in <em>photo</em> numbers, which is what the storage keys on.<br><br>
-    <strong>What happens after.</strong> Each named subject is remembered: next time a photo of it appears it is recognised, not asked about. Only the photos you actually picked are promoted as examples — never a whole cluster. <span id="later-note">Photos left undecided cost nothing and return at a later checkpoint.</span> <strong>Not a subject</strong> is the only irreversible choice, which is why it writes the word <code>confirm</code>.
+    <strong>What happens after.</strong> Each named subject is remembered: next time a photo of it appears it is recognised, not asked about. Only the photos you actually picked are promoted as examples — never a whole cluster. <span id="later-note">Photos left undecided cost nothing and return at a later checkpoint.</span> <strong>Not mine</strong> is the only irreversible choice, which is why it writes the word <code>confirm</code>.
   </footer>
 </div>
 
@@ -403,7 +404,9 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
   document.getElementById("h-batches").textContent = D.batches;
   document.getElementById("h-span").textContent = D.span;
   document.getElementById("h-pack").textContent = D.pack.replace("sha256:","").slice(0,8);
-  document.getElementById("btn-skip").textContent = "Not a " + KIND;
+  document.getElementById("btn-skip").textContent = "Not my " + KIND;
+  document.getElementById("btn-none").textContent = "None of these are my " + KIND + "s";
+  document.getElementById("btn-none").hidden = !pickable().length;
   if(!nums.length){
     document.getElementById("headline").textContent =
       PLACES.length ? "Name a place you visit often"
@@ -518,7 +521,7 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
       shot.className = "shot";
       shot.setAttribute("aria-pressed", sel[n] ? "true" : "false");
       shot.setAttribute("aria-label", "Photo " + n + (isG ? ", in " + pad(g)
-        : g === "skip" ? ", marked not a " + KIND : ", undecided") + ". Click to select.");
+        : g === "skip" ? ", marked not my " + KIND : ", undecided") + ". Click to select.");
       var img = document.createElement("img");
       img.src = f.data; img.alt = "Photo " + n + ", from batch " + f.batch + (f.where ? ", " + f.where : ""); img.loading = "lazy";
       shot.appendChild(img);
@@ -551,7 +554,7 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
       var nm = document.createElement("div"); nm.className = "gname";
       nm.textContent = isG ? groupsOf(n).map(function(x){
                                return pad(x) + (bareName(meta(x).name) ? " · " + bareName(meta(x).name) : " · unnamed"); }).join(" + ")
-                           : (g === "skip" ? ("not a " + KIND) : "undecided");
+                           : (g === "skip" ? ("not my " + KIND) : "undecided");
       if(animalsIn(n) > 1){
         var ab = document.createElement("div"); ab.className = "fwhere";
         ab.textContent = animalsIn(n) + " animals in this photo: add it to one group per animal. It names them, and is never kept as an example of either.";
@@ -584,7 +587,7 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
       opt("", "– undecided", !isG && g !== "skip");
       gnos.forEach(function(x){ opt(String(x), pad(x) + (bareName(meta(x).name) ? " · " + bareName(meta(x).name) : ""), isG && g === x); });
       opt("new", "+ new group");
-      opt("skip", "✕ not a " + KIND, g === "skip");
+      opt("skip", "✕ not my " + KIND, g === "skip");
       sl.addEventListener("change", function(){
         var v = sl.value;
         if(v === "new") assignTo([n], state.next++);
@@ -835,6 +838,30 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
     }).filter(function(r){ return r.photos.length; });
   }
   function skipped(){ return nums.filter(function(n){ return state.assign[n] === "skip"; }); }
+  // answer:begin
+  // HIL-6 — "none of these are mine" is the text form's `skip: 1-6 confirm`:
+  // every photo the owner could pick, never an evidence-only one.
+  function noneOfThese(numbers, evidence){
+    return numbers.filter(function(n){ return !evidence[n]; });
+  }
+  // Q8-c — crops that are not a real animal ride on the same `skip:` row,
+  // as `<photo>.<animal>` with `not-a-subject`.
+  function skipRow(skippedNums, notAnimalKeys){
+    var parts = [];
+    if(skippedNums.length) parts.push(skippedNums.join(",") + " confirm");
+    if(notAnimalKeys.length) parts.push(notAnimalKeys.join(",") + " not-a-subject");
+    return parts.length ? "- skip: " + parts.join(", ") : "";
+  }
+  // A skip or a not-an-animal mark is an answer on its own.
+  function confirmable(c){
+    if(c.dupes || c.openDup) return false;
+    return !!(c.named || c.rechecks || c.places || c.skipped || c.notAnimals);
+  }
+  // answer:end
+  function notAnimals(){
+    return Object.keys(state.notAnimal || {}).filter(function(k){
+      return state.notAnimal[k]; }).sort();
+  }
   function lines(){
     // G6-6 (G4) — a batch page's answer names its page, so `apply` lands it on
     // that page and nowhere else.
@@ -847,15 +874,8 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
       if(r.name && r.dup) nm = nm + " " + r.dup;
       return "- pick: " + r.photos.join(",") + "   who: " + r.who + "   name: " + nm;
     });
-    var sk = skipped();
-    // Q8-c — crops that are not a real animal ride on the same `skip:` row,
-    // as `<photo>.<animal>` with `not-a-subject`.
-    var na = Object.keys(state.notAnimal || {}).filter(function(k){
-      return state.notAnimal[k]; }).sort();
-    var parts = [];
-    if(sk.length) parts.push(sk.join(",") + " confirm");
-    if(na.length) parts.push(na.join(",") + " not-a-subject");
-    if(parts.length) out.push("- skip: " + parts.join(", "));
+    var sr = skipRow(skipped(), notAnimals());
+    if(sr) out.push(sr);
     recheckRows().forEach(function(r){
       out.push("- recheck: " + r.subject_id + " " + r.value);
     });
@@ -890,7 +910,7 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
     var sk = skipped();
     if(sk.length){
       var tr2 = document.createElement("tr");
-      var a = document.createElement("td"); a.textContent = "— not a " + KIND;
+      var a = document.createElement("td"); a.textContent = "— not my " + KIND;
       a.style.color = "var(--warn)";
       var b = document.createElement("td"); b.className="num"; b.textContent = sk.join(", ");
       var c = document.createElement("td"); c.colSpan = 3;
@@ -926,10 +946,11 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
         "different one before confirming.</div>";
     }
     document.getElementById("out").textContent = lines().join("\n") || "Nothing answered yet.";
-    document.getElementById("btn-confirm").disabled =
-      dupes.length > 0 || openDup.length > 0 ||
-      !(answerRows().filter(function(r){ return r.name; }).length || recheckRows().length
-        || placeRows().length);
+    document.getElementById("btn-confirm").disabled = !confirmable({
+      dupes: dupes.length, openDup: openDup.length,
+      named: answerRows().filter(function(r){ return r.name; }).length,
+      rechecks: recheckRows().length, places: placeRows().length,
+      skipped: sk.length, notAnimals: notAnimals().length});
     banner();
   }
 
@@ -958,7 +979,13 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
   document.getElementById("btn-loose").addEventListener("click", function(){
     var s=selected(); if(s.length){ assignTo(s,null); say("left undecided"); } });
   document.getElementById("btn-skip").addEventListener("click", function(){
-    var s=selected(); if(s.length){ assignTo(s,"skip"); say("marked not a "+KIND); } });
+    var s=selected(); if(s.length){ assignTo(s,"skip"); say("marked not my "+KIND); } });
+  document.getElementById("btn-none").addEventListener("click", function(){
+    var ev = {}; nums.forEach(function(n){ if(isEvidence(n)) ev[n] = true; });
+    var all = noneOfThese(nums, ev); if(!all.length) return;
+    state.extra = {}; all.forEach(function(n){ state.assign[n] = "skip"; });
+    sel = {}; save(); render();
+    say(all.length + " photo(s) marked not my " + KIND + " — press Confirm"); });
   document.getElementById("btn-clear").addEventListener("click", function(){ sel={}; render(); });
   document.getElementById("btn-reset").addEventListener("click", function(){
     var keep = state.submitted; state = fresh(); state.submitted = keep;

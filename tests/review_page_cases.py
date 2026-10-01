@@ -718,6 +718,42 @@ A note.
     check("B1 a 2-animal frame keeps the whole photo and both crops (GUARD)",
           f2["data"] == whole2 and [c["animal"] for c in f2["crops"]] == [1, 2])
 
+    # ---- HIL-6 B3 — "none of these are mine" is an answer Confirm can send --
+    # The page's answer helpers are lifted out of the template and RUN (node);
+    # their row then goes through `apply` and `photo_memory`'s own parser.
+    tpl_b3 = io.open(rp.TEMPLATE, encoding="utf-8").read()
+    ans = (tpl_b3.split("// answer:begin")[1].split("// answer:end")[0]
+           if "// answer:begin" in tpl_b3 else None)
+
+    def run_answer(expr):
+        if not (ans and node):
+            return None
+        ran = _subprocess.run([node, "-e", "%s\nconsole.log(JSON.stringify(%s));"
+                               % (ans, expr)], capture_output=True, text=True)
+        return json.loads(ran.stdout) if ran.returncode == 0 else ran.stderr
+
+    every = run_answer('{none: skipRow(noneOfThese([1,2,3], {2:true}), []),'
+                       ' sends: confirmable({skipped: 2}),'
+                       ' marks: confirmable({notAnimals: 1}),'
+                       ' empty: confirmable({}),'
+                       ' broken: confirmable({skipped: 2, dupes: 1})}')
+    ok = isinstance(every, dict)
+    check("HIL-6 Confirm can send an answer of skips alone (REPRODUCTION)",
+          ok and every["sends"] is True and every["marks"] is True,
+          "%r" % (every,))
+    check("HIL-6 'none of these' skips every pickable photo, never an "
+          "evidence one (REPRODUCTION)",
+          ok and every["none"] == "- skip: 1,3 confirm", "%r" % (every,))
+    check("HIL-6 an empty or broken answer still cannot be sent (GUARD)",
+          ok and every["empty"] is False and every["broken"] is False)
+    md_b3 = rp.apply_answer(CROPPED, ["- page: P-B01", "- skip: 1,2 confirm"])
+    blk = pm.parse_review(md_b3)[0]
+    check("HIL-6 the row is the text form's not-mine skip, armed (GUARD)",
+          blk["skip_numbers"] == [1, 2] and blk["skip_armed"]
+          and blk["skip_basis"] == "not-mine", "%r" % (blk["skip_numbers"],))
+    check("HIL-6 the page offers the answer as a button (REPRODUCTION)",
+          'id="btn-none"' in tpl_b3)
+
     print("\n%d/%d review_page cases passed"
           % (len(PASS), len(PASS) + len(FAIL)))
     if FAIL:
