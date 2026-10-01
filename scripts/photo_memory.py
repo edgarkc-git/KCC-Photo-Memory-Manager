@@ -1199,6 +1199,8 @@ def subject_looks(subject):
 CROP_DIR = "review-crops"
 # Q3 — marks the end page's "shown whole" line for photo_review_page.
 WHOLE_MARK = "<!-- whole -->"
+# HIL-4 — marks the two-step lines, which the web page prints verbatim.
+HOWTO_MARK = "<!-- how-to -->"
 
 
 class FrameCrops:
@@ -2685,6 +2687,9 @@ def render_review(workdir, pack, registry, rows, questions, suppressed,
             files=q["files"], batches=len(q["batches"]), span=q["span"]))
         out.append(f"> {q['body']}")
         out.append(f"> {rmsg['review_q_count_why']}")
+        # HIL-4 — named as literals so the dead-key check can see them.
+        out.append(f"> {rmsg['review_howto_step1']} {HOWTO_MARK}")
+        out.append(f"> {rmsg['review_howto_step2']} {HOWTO_MARK}")
         for tile in q["tiles"]:
             out.append("> " + rmsg["review_tile_line"].format(
                 n=tile["tile"], subject=tile["display"], files=tile["files"],

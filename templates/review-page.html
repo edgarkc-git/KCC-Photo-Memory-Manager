@@ -171,6 +171,7 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
     <h1 id="headline"></h1>
     <p class="sub" id="howmany">The engine looked at <span id="h-frames"></span> photographs and will not guess how many <span class="kindw"></span>s they show — a wrong merge mislabels both subjects silently and forever, a wrong split costs one extra question. So it asks you.</p>
     <p class="sub" id="pets" hidden></p>
+    <div class="banner" id="howto" hidden></div>
     <div class="facts">
       <span id="f-files"><b id="h-files"></b> files affected</span>
       <span id="f-batches"><b id="h-batches"></b> batches</span>
@@ -390,6 +391,12 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
     pets.hidden = false;
     pets.textContent = "Your animals: " + KNOWN.map(function(k){ return k.name; }).join(", ") +
       ". Give a group one of these names with its button, or type a new name for an animal that is not on your list.";
+  }
+  // HIL-4 — the two steps, printed verbatim from the text page.
+  if((D.howto || []).length && nums.length){
+    var hw = document.getElementById("howto"); hw.hidden = false;
+    (D.howto || []).forEach(function(s){
+      var p = document.createElement("p"); p.textContent = s; hw.appendChild(p); });
   }
   if(PAGE){
     document.getElementById("later-note").textContent =

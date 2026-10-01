@@ -1661,6 +1661,24 @@ REVIEW_VOCAB = {
                                    "photo that is NOT this one (e.g. not 3) "
                                    "to take just that photo out of its memory "
                                    "and keep the name",
+        # HIL-4 (owner ruling 20261001) — the two steps for a photo holding several
+        # pets, the SAME sentences on the text page and on the web page.
+        # The pick mechanism is unchanged and `pick: N.M` is still refused.
+        "review_howto_step1": "Step 1. Put every photo with your pet in that "
+                              "pet's row (its group on the web page), even "
+                              "when one photo holds several pets: one row per "
+                              "pet, with the same photo number. Name the "
+                              "animal in the picture shown. If the picture "
+                              "shows a different pet than one you know is in "
+                              "the photo, leave the photo out of that pet's "
+                              "row.",
+        "review_howto_step2": "Step 2. Then look at each crop. If a crop is "
+                              "not a real animal (a toy, a cushion, a "
+                              "picture), mark it not-a-subject: tick \"not a "
+                              "real animal\" under it on the web page, or "
+                              "write `skip: 2.1 not-a-subject` in text. An "
+                              "animal that is simply not yours is \"Not my "
+                              "pet\" instead (`skip: 3 confirm`).",
         # Q3 (Lead 20261001) — a re-presented photo no animal index covers
         # is shown whole, and the page says so: never a silent fallback.
         "review_frame_whole_note": "Photo {n} is the whole photo: no animal "

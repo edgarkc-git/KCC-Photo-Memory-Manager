@@ -802,7 +802,47 @@ def case_the_example_typed_as_shown_takes_the_photo_out(tmp):
     assert rc == 0 and ref not in looks_of(subject_of(pack_dir, sid)), said
 
 
+def case_the_two_steps_say_the_same_in_text_and_on_the_web(tmp):
+    """REPRO HIL-4 (owner ruling 20261001) — the page says plainly what to do with a
+    photo holding several pets, in two steps, and the text page and the web
+    page carry the SAME sentences: one source, printed verbatim."""
+    import photo_review_page as rp
+    pack_dir, workdir = pmc.k_batch_run(tmp, 2)
+    page = pmc.review_text(pack_dir, workdir)
+    text = page.read_text()
+    vocab = photo_profile.REVIEW_VOCAB["en"]
+    steps = [vocab["review_howto_step1"], vocab["review_howto_step2"]]
+    assert all(f"> {s} {pm.HOWTO_MARK}" in text for s in steps), text
+    assert "Name the animal in the picture shown." in steps[0], steps
+    assert "not-a-subject" in steps[1] and "toy" in steps[1], steps
+    out = workdir / "page.html"
+    rp.main(["render", str(page), "-o", str(out)])
+    html = out.read_text(encoding="utf-8")
+    key = '<script id="round-data" type="application/json">'
+    data = json.loads(html.split(key, 1)[1].split("</script>", 1)[0]
+                      .replace("<\\/", "</"))
+    assert data.get("howto") == steps, data.get("howto")
+    assert "D.howto" in html, "the web page never prints them"
+
+
+def case_the_examples_in_the_steps_are_never_an_answer(tmp):
+    """GUARD HIL-4 — step 2 quotes `skip: 2.1 not-a-subject` and
+    `skip: 3 confirm`; an untouched page must still answer nothing."""
+    pack_dir, workdir = pmc.k_batch_run(tmp, 2)
+    text = pmc.review_text(pack_dir, workdir).read_text()
+    assert pm.HOWTO_MARK in text, text
+    blocks = pm.parse_review(text)
+    assert all(not b["skip_numbers"] and not b["skip_animals"] and not b["answered"]
+               for b in blocks), blocks
+    rc, said = pmc.confirm(pack_dir, workdir, go=False)
+    assert rc == 0 and "0 change(s) would be written, 0 refused" in said, said
+
+
 CASES = [
+    ("HIL-4: the examples in the steps are never an answer (GUARD)",
+     case_the_examples_in_the_steps_are_never_an_answer),
+    ("HIL-4: the two steps say the same in text and on the web (REPRO)",
+     case_the_two_steps_say_the_same_in_text_and_on_the_web),
     ("HIL-5: the recheck row shows a filled-in example (REPRO)",
      case_the_recheck_row_shows_a_filled_in_example),
     ("HIL-5: the example typed as shown takes the photo out (GUARD)",

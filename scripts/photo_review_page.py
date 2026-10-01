@@ -106,6 +106,8 @@ RE_RE_SUBJ = re.compile(
     r"^>\s*\*\*(.+?)\*\*\s*·\s*(\d+)\s*file\(s\)\s*/\s*(\d+)\s*batch\(es\)\s*$")
 RE_RE_WHY = re.compile(r"^>\s*(shown because .+?)\s*$")
 RE_RECHECK = re.compile(r"^>?\s*-?\s*`?recheck:`?\s*(subj-\d+)")
+# HIL-4 — photo_memory.HOWTO_MARK: the two steps, printed verbatim.
+RE_HOWTO = re.compile(r"^>\s*(.+?)\s*<!-- how-to -->\s*$")
 # Q3 — photo_memory.WHOLE_MARK: "this re-presented photo is shown whole".
 RE_WHOLE = re.compile(r"^>\s*(.+?)\s*<!-- whole -->\s*$")
 
@@ -150,7 +152,7 @@ def parse_review(md_text):
     """-> a dict of everything the page needs, read from the markdown alone."""
     lines = md_text.splitlines()
     out = {"checkpoint": "C1", "owner": "", "unit": "", "files": 0,
-           "batches": 0, "pack": "", "questions": [], "recheck": [],
+           "batches": 0, "pack": "", "questions": [], "recheck": [], "howto": [],
            "no_round": "", "page": "", "batch": None}
     mark = RE_PAGE_MARK.search(md_text)
     if mark:
@@ -204,6 +206,11 @@ def parse_review(md_text):
                      "animals": {}}
                 out["questions"].append(q)
                 tile = None
+                continue
+            m = RE_HOWTO.match(ln)
+            if m:
+                if m.group(1) not in out["howto"]:
+                    out["howto"].append(m.group(1))
                 continue
             if q is None:
                 if "nothing to ask" in ln.lower():
@@ -421,6 +428,7 @@ def build_round_data(rev, q, workdir, max_px, quality, pack_dir):
             # G6-6 — a batch page: its name and batch, and the owner's own
             # animal names offered as the natural choice for a group.
             "page": rev.get("page", ""), "batch": rev.get("batch"),
+            "howto": rev.get("howto", []),
             "places": places,
             "name_suffixes": name_suffixes()}
 
