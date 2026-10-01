@@ -2802,7 +2802,11 @@ def unanswered(asked, answers, submitted):
     that key is answered, so membership is what counts here, never truthiness.
     """
     out = []
-    for key, got in (("make", answers.get("makes") or {}),
+    # obs-14 — the page's Copy lines collapse per-device answers to
+    # `makes: <Make>`, so the keyed parse holds none; the page's own
+    # per-device answers ride in `submitted.makes`.
+    makes = dict(submitted.get("makes") or {}, **(answers.get("makes") or {}))
+    for key, got in (("make", makes),
                      ("screen", answers.get("screens") or {}),
                      ("home", answers.get("homes") or {})):
         for subject in sorted(asked.get(key) or ()):

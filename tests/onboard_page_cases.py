@@ -1107,6 +1107,32 @@ def answer_contract(tmp):
           "came back with no answer" not in said,
           "`false` is an answer; only membership counts, never truthiness")
 
+    # -- obs-14 (HIL01): a camera answered on the page read as unanswered ----
+    # The page's Copy lines collapse per-device answers to `makes: <Make>`,
+    # so the keyed parse holds none; the page's own per-device answers ride in
+    # `submitted.makes`, and that is what was asked.
+    def page_with_cameras(devices, lines, makes, **extra):
+        block = {"cameras": {"devices": [{"make": m, "model": d} for m, d in devices]},
+                 "screens": {"candidates": []},
+                 "homes": {"rows": [], "near_misses": []},
+                 "submitted": dict({"lines": lines, "makes": makes}, **extra)}
+        return write("cams.html",
+                     '<script id="onboard-data" type="application/json">'
+                     + json.dumps(block) + '</script>')
+
+    full = dict(away_km="3", language="en", types="trip", pets="none")
+    code, said = run("apply", page_with_cameras(
+        [("Lotusphone", "One"), ("Birkcam", "Two")], ["makes: Lotusphone"],
+        {"Lotusphone One": True, "Birkcam Two": False}, **full))
+    check("obs-14 a camera answered on the page is not called unanswered "
+          "(REPRODUCTION)", "came back with no answer" not in said, said[-300:])
+    code, said = run("apply", page_with_cameras(
+        [("Lotusphone", "One"), ("Birkcam", "Two")], ["makes: Lotusphone"],
+        {"Lotusphone One": True}, **full))
+    check("obs-14 a camera truly left blank is still named (GUARD)",
+          "make: Birkcam Two" in said and "make: Lotusphone One" not in said,
+          said[-300:])
+
     # -- item 3 / A44: something finally WRITES the flag -----------------
     # ⭐ REPRODUCTION, and answering-3 is THE case. `away_km_answered()` reads
     # three things and nothing else; the template writes `away_km` itself, so
