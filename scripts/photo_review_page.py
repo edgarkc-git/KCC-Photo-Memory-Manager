@@ -85,6 +85,18 @@ RE_TILE = re.compile(
 RE_IMG = re.compile(
     r"^>\s*!\[\]\((.+?)\)\s*\[frame\s+(\d+)\](?:\s*\(animal\s+[\d.]+\))?"
     r"(?:\s*·\s*(.*\S))?")
+# U2-13 — the web word photo_memory.WEB_MARK puts after the text phrase.
+RE_WEB_WHERE = re.compile(r"<!-- web: (.+?) -->")
+
+
+def web_where(phrase):
+    """A web page may be published: it shows only the marked home/away word,
+    never the km or home label the text page carries. A line with no mark
+    (a page written before the mark) shows no place at all."""
+    m = RE_WEB_WHERE.search(phrase or "")
+    return m.group(1).strip() if m else ""
+
+
 # Q8-c — which crop of a shared frame a line shows: `(animal 1.2)`.
 RE_CROP_ANIMAL = re.compile(r"\[frame\s+\d+\]\s*\(animal\s+\d+\.(\d+)\)")
 # HIL-4/5 — a one-animal frame's line is its crop with no `(animal …)`; the
@@ -237,7 +249,7 @@ def parse_review(md_text):
                 if int(m.group(2)) not in tile["frames"]:
                     tile["frames"].append(int(m.group(2)))
                 if m.group(3):
-                    q["where"][int(m.group(2))] = m.group(3)
+                    q["where"][int(m.group(2))] = web_where(m.group(3))
                 crop = RE_CROP_ANIMAL.search(ln)
                 alone = RE_CROP_NAME.search(m.group(1))
                 if crop:
@@ -300,7 +312,7 @@ def parse_review(md_text):
                     rsubj.setdefault("crops", {}).setdefault(n, []).append(
                         (int(crop.group(1)), m.group(1)))
                 if m.group(3):
-                    rsubj["where"][n] = m.group(3)
+                    rsubj["where"][n] = web_where(m.group(3))
                 continue
             m = RE_SHARED.match(ln)
             if m and rsubj["frames"]:

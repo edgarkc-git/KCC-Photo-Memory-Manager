@@ -1572,6 +1572,9 @@ REVIEW_VOCAB = {
         "review_frame_where_away": "taken {km} km from {home}",
         "review_frame_where_away_unlabelled": "taken {km} km from the "
                                               "nearest registered home",
+        # U2-13 — the web page's whole place phrase: no km, no home label.
+        "review_frame_where_web_home": "at home",
+        "review_frame_where_web_away": "away from home",
         "review_frame_where_no_home": "location known, but the pack has no "
                                       "home to measure it from",
         "review_frame_where_none": "no location — this file carries no GPS",

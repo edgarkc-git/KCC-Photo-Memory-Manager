@@ -13,6 +13,7 @@ whose names are not ASCII. That is what shipped on 2026-08-20.
 
 import io
 import json
+import re
 import os
 import shutil
 import sys
@@ -50,7 +51,7 @@ pack snapshot: sha256:00112233445566778899 · 9 file(s)
 **Q1 · Group it — hound** — affects 41 file(s) / 3 batch(es) · 2031-02 → 2031-04
 > 3 group(s) of photos look like a hound. How many hound(s) is this?
 > **1** · an unnamed hound · 20 file(s) / 2 batch(es)
-> ![](classify/batch-01/samples/a.png) [frame 1] · taken at Hôme-Ä
+> ![](classify/batch-01/samples/a.png) [frame 1] · taken at Hôme-Ä <!-- web: at home -->
 > ![](classify/batch-01/samples/b, two.png) [frame 2]
 > **2** · an unnamed hound · 14 file(s) / 1 batch(es)
 > ![](classify/batch-02/samples/c.png) [frame 3]
@@ -68,7 +69,7 @@ pack snapshot: sha256:00112233445566778899 · 9 file(s)
 ### Remembered already — check these are still right
 
 > **Zoë** · 5 file(s) / 2 batch(es)
-> ![](classify/batch-03/samples/e.png) [frame 5] · taken 12.4 km from Hôme-Ä
+> ![](classify/batch-03/samples/e.png) [frame 5] · taken 12.4 km from Hôme-Ä <!-- web: away from home -->
 > shown because this is the photo this subject matches its own memory LEAST well
 > - `recheck:` subj-0009 ______ <!-- hint three -->
 > **Ñandú** · 2 file(s) / 1 batch(es)
@@ -164,10 +165,11 @@ def main():
         check("tiles carry the frame numbers printed beside them",
               [t["frames"] for t in q["tiles"]] == [[1, 2], [3], [4]])
         # F10 — the place is read off the frame's OWN line and nowhere else.
+        # U2-13 — and only its web word: no km, no home label.
         check("F10 a frame's place is parsed off its own line (REPRODUCTION)",
-              q.get("where") == {1: "taken at Hôme-Ä"}, str(q.get("where")))
+              q.get("where") == {1: "at home"}, str(q.get("where")))
         check("F10 a re-presented frame's place is parsed too (REPRODUCTION)",
-              rev["recheck"][0].get("where") == {5: "taken 12.4 km from Hôme-Ä"},
+              rev["recheck"][0].get("where") == {5: "away from home"},
               str(rev["recheck"][0].get("where")))
 
         # ---- 3. the re-presentation half --------------------------------
@@ -197,13 +199,31 @@ def main():
               and d["frames"]["1"]["role"] == "exemplar")
         check("the vec_ref reaches the page as the storage key",
               d["frames"]["1"]["key"] == "aa11bb22")
-        check("F10 the place reaches the page verbatim (REPRODUCTION)",
-              d["frames"]["1"].get("where") == "taken at Hôme-Ä"
-              and d["frames"]["5"].get("where") == "taken 12.4 km from Hôme-Ä",
+        check("U2-13 the web page gets only at home / away from home "
+              "(REPRODUCTION)",
+              d["frames"]["1"].get("where") == "at home"
+              and d["frames"]["5"].get("where") == "away from home",
               str([d["frames"][n].get("where") for n in ("1", "5")]))
         check("F10 a frame with no place line borrows none (GUARD)",
               [d["frames"][n].get("where") for n in ("2", "3", "4", "6")]
               == ["", "", "", ""])
+        check("U2-13 no km and no home label anywhere in the written HTML "
+              "(REPRODUCTION)",
+              not re.search(r"\d\s*km\b", html) and "Hôme-Ä" not in html,
+              str(re.findall(r".{30}\d\s*km\b.{10}", html)[:2]))
+        older = REVIEW.replace(" <!-- web: at home -->", "").replace(
+            " <!-- web: away from home -->", "")
+        rev_old = rp.parse_review(older)
+        import photo_memory as pm
+        check("U2-13 an older page with no web word shows no place (GUARD)",
+              rev_old["questions"][0]["where"] == {1: ""}
+              and rev_old["recheck"][0]["where"] == {5: ""})
+        check("U2-13 the web word changes no answer row (GUARD)",
+              pm.parse_review(REVIEW) == pm.parse_review(older)
+              and rp.apply_answer(REVIEW, ["- skip: 1 confirm"]).replace(
+                  " <!-- web: at home -->", "").replace(
+                  " <!-- web: away from home -->", "")
+              == rp.apply_answer(older, ["- skip: 1 confirm"]))
         # LL-PHO-188 — the JS must PRINT the phrase, not carry its own copy.
         tpl = io.open(rp.TEMPLATE, encoding="utf-8").read()
         check("F10 the page JS prints f.where on both frame surfaces "

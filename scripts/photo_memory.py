@@ -1267,6 +1267,8 @@ HOWTO_MARK = "<!-- how-to -->"
 # W2-7 — the one line beside a question's 2+ animal photo, read by the web
 # page like the how-to lines. Display only: it starts with no field key.
 SEVERAL_MARK = "<!-- several -->"
+# U2-13 — what a web page says for a frame's place: the home/away word only.
+WEB_MARK = "<!-- web: {} -->"
 
 
 class FrameCrops:
@@ -1451,33 +1453,47 @@ class FrameWhere:
         return self.manifests[workdir].get(path)
 
     def phrase(self, frame):
+        return self.place(frame)[0]
+
+    def place(self, frame):
+        """-> (the text page's phrase, the web page's word or "").
+
+        U2-13 — a web page may be published, so it says only "at home" or
+        "away from home", decided by the same `away_km` test; the km and the
+        home label stay on the text page. A phrase with neither is its own
+        web word."""
         rmsg = self.rmsg
         row = self._row(frame.get("path"), frame.get("workdir"))
         if row is None:
-            return rmsg["review_frame_where_unknown"]
+            return (rmsg["review_frame_where_unknown"],) * 2
         point = photo_cluster.parse_gps(row)
         if point is None:
-            return rmsg["review_frame_where_none"]
+            return (rmsg["review_frame_where_none"],) * 2
         when = photo_cluster.parse_date(row)
         near = photo_cluster.nearest_home(
             point, when.strftime("%Y-%m-%d") if when else "", self.homes)
         if near is None:
-            return rmsg["review_frame_where_no_home"]
+            return (rmsg["review_frame_where_no_home"],) * 2
         km, label = near
         if km <= self.away_km:
-            return (rmsg["review_frame_where_home"].format(home=label) if label
-                    else rmsg["review_frame_where_home_unlabelled"])
-        return (rmsg["review_frame_where_away"].format(km=f"{km:.1f}",
-                                                       home=label) if label
-                else rmsg["review_frame_where_away_unlabelled"].format(
-                    km=f"{km:.1f}"))
+            return ((rmsg["review_frame_where_home"].format(home=label) if label
+                     else rmsg["review_frame_where_home_unlabelled"]),
+                    rmsg["review_frame_where_web_home"])
+        return ((rmsg["review_frame_where_away"].format(km=f"{km:.1f}",
+                                                        home=label) if label
+                 else rmsg["review_frame_where_away_unlabelled"].format(
+                     km=f"{km:.1f}")),
+                rmsg["review_frame_where_web_away"])
 
 
 def where_suffix(frame):
     """The F10 phrase as it trails a frame's number on the page. ` · ` is
     what `photo_review_page.RE_IMG` splits on, so the page JS prints the
     phrase this module wrote rather than a second copy of it (LL-PHO-188)."""
-    return f" · {frame['where']}" if frame.get("where") else ""
+    if not frame.get("where"):
+        return ""
+    web = frame.get("where_web")
+    return f" · {frame['where']}" + (f" {WEB_MARK.format(web)}" if web else "")
 
 
 def uncropped_frames(questions, represented):
@@ -1579,7 +1595,7 @@ def tile_frames(subject, sheet, workdir=None, crops=None, where=None):
             frame["crops"] = told["crops"]
             frame["det_count"] = told["det_count"]
         if where is not None:
-            frame["where"] = where.phrase(frame)
+            frame["where"], frame["where_web"] = where.place(frame)
         frames.append(frame)
     return frames, reasons
 
@@ -2276,7 +2292,7 @@ def build_representations(registry, profile, rmsg, workdir=None, crops=None):
             frames, unscored, reasons = worst_frames(registry, subject, wanted,
                                                      workdir)
             for frame in frames:
-                frame["where"] = where.phrase(frame)
+                frame["where"], frame["where_web"] = where.place(frame)
                 # HIL-7 — the crop whose vector the memory holds, never the
                 # whole photo: a wrong example looks right when the photo
                 # holds both animals. `FrameCrops` keeps them apart from

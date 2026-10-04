@@ -7121,7 +7121,21 @@ def where_by_batch(text):
         found = rp.RE_IMG.match(line)
         if found:
             batch = int(_re.search(r"batch-(\d+)", found.group(1)).group(1))
-            out[batch] = found.group(3) if found.lastindex >= 3 else None
+            out[batch] = (_re.sub(r"\s*<!-- web: .*? -->", "", found.group(3))
+                          if found.lastindex >= 3 and found.group(3) else None)
+    return out
+
+
+def web_by_batch(text):
+    """-> {batch number: the web word marked on its frame's line}."""
+    import re as _re
+    import photo_review_page as rp
+    out = {}
+    for line in text.split("### Remembered")[0].splitlines():
+        found = rp.RE_IMG.match(line)
+        if found:
+            batch = int(_re.search(r"batch-(\d+)", found.group(1)).group(1))
+            out[batch] = rp.web_where(found.group(3))
     return out
 
 
@@ -7183,8 +7197,11 @@ def case_a_represented_frame_says_where_too(tmp):
                              for b in (1, 2)})
     text = review_text(pack_dir, workdir, checkpoint=2).read_text()
     shown = rp.parse_review(text)["recheck"]
+    assert rmsg["review_frame_where_away"].format(km="55.6", home="Home-A") \
+        in text.split("### Remembered")[1], text
+    # U2-13 — the web page reads only the home/away word.
     assert list(shown[0].get("where", {}).values()) == \
-        [rmsg["review_frame_where_away"].format(km="55.6", home="Home-A")], shown
+        [rmsg["review_frame_where_web_away"]], shown
 
 
 # =============================================================== F11 ========
@@ -8210,6 +8227,57 @@ def case_w27_an_older_page_keeps_its_sentence(tmp):
             'of either.")') in tpl, "the web badge lost its fallback"
 
 
+def case_u213_a_web_page_says_only_home_or_away(tmp):
+    """⭐ REPRO U2-13 — a web page may be published, so a crop's place is
+    only "at home" or "away from home" there, decided by the same away_km
+    test; the km and the home label stay on the text page. The written
+    HTML file is checked whole."""
+    import re as _re
+    import photo_review_page as rp
+    pack_dir, workdir, _ids = four_drafts(tmp, rendered=4)
+    add_homes(pack_dir, HOMES_F10)
+    write_manifest(workdir, {str(workdir / "B1_C0_000.JPG"): "10.0010 20.0010",
+                             str(workdir / "B2_C0_000.JPG"): "11.0010 21.0000",
+                             str(workdir / "B3_C0_000.JPG"): "10.5000 20.0000",
+                             str(workdir / "B4_C0_000.JPG"): "0 0"})
+    page = review_text(pack_dir, workdir)
+    text = page.read_text()
+    rmsg = photo_profile.REVIEW_VOCAB["en"]
+    assert "taken 55.6 km from Home-A" in text, text
+    assert web_by_batch(text) == {1: "at home", 2: "at home",
+                                  3: "away from home",
+                                  4: rmsg["review_frame_where_none"]}, \
+        web_by_batch(text)
+    # This fixture's refs are not hex, so the web page embeds no frame; the
+    # web words are read through the page parser the render uses, and the
+    # embedded-frame HTML is checked in review_page_cases.
+    wheres = rp.parse_review(text)["questions"][0]["where"]
+    assert sorted(wheres.values()) == sorted(
+        ["at home", "at home", "away from home",
+         rmsg["review_frame_where_none"]]), wheres
+    out = workdir / "page.html"
+    rp.main(["render", str(page), "-o", str(out)])
+    html = out.read_text(encoding="utf-8")
+    assert not _re.search(r"\d\s*km\b", html), \
+        _re.findall(r".{40}\d\s*km\b.{10}", html)[:3]
+    assert "Home-A" not in html, "a home label reached the web page"
+
+
+def case_u213_a_pack_away_km_decides_the_web_word(tmp):
+    """GUARD U2-13 — no new threshold: the pack's away_km beats 3 for the web
+    word exactly as it does for the text phrase."""
+    pack_dir, workdir, _ids = four_drafts(tmp, rendered=4)
+    add_homes(pack_dir, HOMES_F10)
+    path = Path(pack_dir) / "photo-profile.json"
+    profile = json.loads(path.read_text())
+    profile.setdefault("cluster_defaults", {})["away_km"] = 60
+    path.write_text(json.dumps(profile, indent=1))
+    write_manifest(workdir, {str(workdir / "B3_C0_000.JPG"): "10.5000 20.0000"})
+    text = review_text(pack_dir, workdir).read_text()
+    assert where_by_batch(text)[3] == "taken at Home-A", where_by_batch(text)
+    assert web_by_batch(text)[3] == "at home", web_by_batch(text)
+
+
 CASES = [
     ("F22 — a frame whose crop cannot be made is refused (REPRODUCTION)",
      case_a_frame_whose_crop_cannot_be_made_is_refused),
@@ -8597,6 +8665,10 @@ CASES = [
      case_w27_the_several_line_is_never_an_answer),
     ("W2-7 — an older page keeps its sentence (GUARD)",
      case_w27_an_older_page_keeps_its_sentence),
+    ("U2-13 — a web page says only home or away (REPRODUCTION)",
+     case_u213_a_web_page_says_only_home_or_away),
+    ("U2-13 — a pack away_km decides the web word (GUARD)",
+     case_u213_a_pack_away_km_decides_the_web_word),
 ]
 
 
