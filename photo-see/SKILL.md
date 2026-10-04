@@ -63,6 +63,13 @@ there is no route back from that name to the source path for any file type.
 Read `selected[]`, and take `path` and `sample` from the SAME entry: `sample`
 says which picture to look at, `path` is what you key the decision on.
 
+⛔ **Write each photo's label right after you view it.** Never view a whole
+batch first and label it afterwards. A long session can silently drop the
+images it opened earlier, and a label written from memory then describes a
+photo you can no longer see. Start a fresh Claude Code session for each big
+unit (a dump of many batches): everything is on disk, and `photo_run.py
+status` shows where to resume.
+
 ⛔ `--apply` **refuses** a key that is not on the see-list rather than guessing
 which file you meant. If it names a key it recognises as a sample name, it
 tells you the correct `path` — use that, do not rename the sample.
