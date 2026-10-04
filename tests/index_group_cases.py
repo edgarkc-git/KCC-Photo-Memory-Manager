@@ -632,12 +632,40 @@ def check_warns_on_an_animal_what_beside_a_who_and_set_what_clears_it():
         _c, cleared, _e = run("check", wd)
         f1b = folders(tmp)["F001"]
     return (f1["validation"]["what_animal_files"] == 1 and code == 0
-            and "`sofa nap` was picked from 1 frame(s)" in warned
+            and "F001 `20241101_Ford_Lotus_sofa nap` ([what] `sofa nap`, 1 "
+                "frame(s))" in warned
             and "1 warning(s)" in warned and fz == 0 and "frozen" in fout
-            and "was picked" not in cleared and "0 warning(s)" in cleared
+            and "R7:" not in cleared and "0 warning(s)" in cleared
             and f1b["rendered"] == "20241101_Ford_Lotus_an afternoon at home"
             and photo_index.what_animal_warning(f1b) is None), \
         f"f1={f1['validation']} warned={warned[-300:]!r} freeze={fz} {ferr[-200:]!r} cleared={cleared[-300:]!r}"
+
+
+@case
+def check_says_r7_once_for_every_folder_it_names():
+    """REPRODUCTION (W2-8). ⛔ FAILS on 8743143: R7 printed one warning per
+    folder, each with its own command, and it fires on frames, never on words
+    (a [what] may never be checked against a list) — so a clean name drew the
+    same alarm as a bad one. Two folders, each with a confirmed pet and a
+    [what] picked from its frames: ONE line names both, says when a change is
+    worth making, carries the command once, and check still passes."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, pack = ix.g3_dump(tmp)
+        reg = pack / "photo-subjects" / "subjects.json"
+        data = json.loads(reg.read_text(encoding="utf-8"))
+        data["subjects"] = [ix.subject("subj-0001", "Lotus"),
+                            ix.subject("subj-0002", "Birk", "dog")]
+        reg.write_text(json.dumps(data), encoding="utf-8")
+        must(run("init", wd), "init")
+        must(run("render", wd), "render")
+        code, warned, _e = run("check", wd)
+    lines = [l for l in warned.splitlines() if "frame(s)" in l]
+    return (code == 0 and len(lines) == 1 and lines[0].count("R7:") == 1
+            and "F001 `" in lines[0] and "F002 `" in lines[0]
+            and "Change it only if the keywords describe the pet itself; "
+                "keywords about the place or activity are fine" in lines[0]
+            and warned.count("set-what") == 1 and "1 warning(s)" in warned), \
+        warned[-600:]
 
 
 @case

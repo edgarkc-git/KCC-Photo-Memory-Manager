@@ -2380,6 +2380,7 @@ def run_check(workdir, pack, index):
     if not rendered:
         return ["the index has not been rendered — run `photo_index.py render`"], []
     problems, warnings = [], page_row_warnings(index)
+    r7 = []
     problems += agent_view_problems(workdir, pack, index)
     if rendered["pack_fingerprint"] != pack_id(pack):
         problems.append("the owner pack changed since render (a confirm, a rename "
@@ -2472,7 +2473,7 @@ def run_check(workdir, pack, index):
                             "relabel moved it (R8)")
         said = what_animal_warning(fo)
         if said:
-            warnings.append(said)
+            r7.append(said)
         path = f"{PLACEHOLDER_ROOT}/{rel}"
         if fo["kind"] in PARENTS:
             legs = {leg["id"]: leg for leg in legs_of(index, fo["id"])}
@@ -2490,6 +2491,9 @@ def run_check(workdir, pack, index):
             problems.append(f"{fo['id']} `{name}`: {', '.join(u['names'])} — no "
                             "file copied into this folder shows a CONFIRMED "
                             "subject of that name at viewed-image: (F12)")
+    said = what_animal_summary(r7)
+    if said:
+        warnings.append(said)
     return problems, warnings
 
 
@@ -2535,16 +2539,29 @@ def agent_view_problems(workdir, pack, index):
 
 def what_animal_warning(fo):
     """R7 (owner ruling) — a folder carries a [who] and its [what] was picked
-    from frames in which the see stage found an animal. -> the warning, or
-    None. A WARNING only, never a refusal: nothing is dropped and freeze is
-    not blocked. The agent's own [what] (set-what) never warns."""
+    from frames in which the see stage found an animal. -> this folder's entry
+    on the one R7 line (`what_animal_summary()`), or None. A WARNING only,
+    never a refusal: nothing is dropped and freeze is not blocked. The agent's
+    own [what] (set-what) never warns."""
     v = fo.get("validation") or {}
     if not v.get("who") or not v.get("what_animal_files") or agent_what(fo):
         return None
-    return (f"{fo['id']} `{fo['rendered']}`: the [what] `{v['what_pick']}` was picked "
-            f"from {v['what_animal_files']} frame(s) that show an animal, beside the "
-            "[who] — if it re-describes the animal, give the folder its own: "
-            f"`photo_index.py group set-what <work dir> {fo['id']} \"...\" --reason \"...\"`")
+    return (f"{fo['id']} `{fo['rendered']}` ([what] `{v['what_pick']}`, "
+            f"{v['what_animal_files']} frame(s))")
+
+
+def what_animal_summary(entries):
+    """W2-8 — ONE line for every R7 folder, with the command once. Per folder
+    it fired on clean names: it keys on FRAMES, never on words, because a
+    [what] may never be checked against a list (D-F11) — so the line says
+    when a change is worth making instead of implying every one is wrong."""
+    if not entries:
+        return None
+    return (f"R7: {len(entries)} folder(s) carry a [who] and a [what] picked from "
+            f"frames that show the animal: {'; '.join(entries)}. Change it only if "
+            "the keywords describe the pet itself; keywords about the place or "
+            "activity are fine. To change one: `photo_index.py group set-what "
+            "<work dir> <folder id> \"...\" --reason \"...\"`")
 
 
 def cmd_check(args):
