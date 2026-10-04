@@ -928,6 +928,62 @@ A note.
               str(rc).startswith("refused: this answer is for page P-B02")
               and after == CROPPED, "%r" % (rc,))
 
+    # ---- W2-4 / U2-3 — a row wrapped in one pair of backticks is read ------
+    with tempfile.TemporaryDirectory() as tmpw4:
+        def run_w4(page, rows):
+            md = os.path.join(tmpw4, "page.md")
+            io.open(md, "w", encoding="utf-8").write(page)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    rc = rp.main(["apply", md, "--answer", _write(tmpw4, rows)])
+            except SystemExit as e:
+                rc = "refused: %s" % e
+            return rc, io.open(md, encoding="utf-8").read()
+
+        rc, after = run_w4(CROPPED, ["page: P-B01",
+                                     "`pick: 1,2   who: pet   name: Lotus`"])
+        blk = pm.parse_review(after)[0]
+        check("W2-4 a backticked pick row is applied (REPRODUCTION)",
+              rc == 0 and blk["picks"] and blk["picks"][0]["numbers"] == [1, 2]
+              and blk["picks"][0]["name"] == "Lotus", "%r" % (rc,))
+        rc, after = run_w4(CROPPED, ["page: P-B01", "- `skip: 1 confirm`"])
+        blk = pm.parse_review(after)[0]
+        check("W2-4 a backticked skip row is applied, still armed (REPRODUCTION)",
+              rc == 0 and blk["skip_numbers"] == [1] and blk["skip_armed"],
+              "%r" % (rc,))
+        rc, after = run_w4(remembered_md, ["`recheck: subj-0002 Birk`"])
+        rows_w4 = pm.parse_representations(after)
+        check("W2-4 a backticked recheck row keeps A20: leftover text is a new "
+              "name, with no backtick on it (REPRODUCTION)",
+              rc == 0 and len(rows_w4) == 1 and rows_w4[0]["name"] == "Birk",
+              "%r %r" % (rc, rows_w4))
+        rc, after = run_w4(CROPPED, ["page: P-B01", "hello there"])
+        check("W2-4 a row that matches nothing shows one plain example row "
+              "(REPRODUCTION)",
+              str(rc).startswith("refused: nothing changed")
+              and "\n  pick: 1,2   who: pet   name: Lotus" in str(rc)
+              and after == CROPPED, "%r" % (rc,))
+    kept = ["- pick: 1   who: pet   name: Lo`tus",
+            "`pick: 1` who: pet name: Lotus",
+            "> - `pick:` 1   `who:` pet   `name:` Lotus",
+            "``pick: 1 who: pet name: Lotus``"]
+    check("W2-4 only ONE pair around the WHOLE row is taken off (GUARD)",
+          [rp.unwrap_row(r) for r in kept] == kept
+          and rp.unwrap_row("- `skip: 3 confirm`") == "- skip: 3 confirm",
+          "%r" % ([rp.unwrap_row(r) for r in kept],))
+    hand = pm.parse_representations("> - `recheck: subj-0002 Birk`\n")
+    check("W2-4 a hand-typed backticked recheck row in the Markdown names "
+          "Birk, not Birk` (REPRODUCTION)",
+          [r["name"] for r in hand] == ["Birk"], "%r" % (hand,))
+    a20 = pm.parse_representations(
+        "> - `recheck:` subj-0002 Birk\n"
+        "> - `recheck:` subj-0003 not 5\n"
+        "> - `recheck:` subj-0004 Lotus`\n")
+    check("W2-4 an unwrapped recheck row reads as before: name, `not`, and a "
+          "backtick typed inside a name kept (GUARD)",
+          [(r["name"], r["not_frames"]) for r in a20]
+          == [("Birk", []), (None, [5]), ("Lotus`", [])], "%r" % (a20,))
+
     print("\n%d/%d review_page cases passed"
           % (len(PASS), len(PASS) + len(FAIL)))
     if FAIL:

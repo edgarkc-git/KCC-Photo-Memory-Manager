@@ -3265,10 +3265,16 @@ def parse_representations(text):
     is not."""
     out = []
     for line in re.sub(r"<!--.*?-->", "", text, flags=re.S).splitlines():
-        found = RECHECK_LINE.match(line.lstrip("> ").rstrip())
+        body = line.lstrip("> ").rstrip()
+        found = RECHECK_LINE.match(body)
         if not found:
             continue
         value = found.group(1)
+        # W2-4 — a row typed inside one pair of backticks keeps the closing
+        # one on its value; left there it would end a new name (A20).
+        if (value.endswith("`") and "`" not in value[:-1]
+                and re.match(rf"[-*\s]*`{RECHECK_KEY}\s*:\s*[^`\s]", body)):
+            value = value[:-1].rstrip()
         # Q8-b — taken out FIRST, so neither the numbers nor the word can be
         # read as part of a name.
         not_frames = [int(n) for m in NOT_FRAMES.findall(value)

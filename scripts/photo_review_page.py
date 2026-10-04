@@ -515,6 +515,18 @@ def read_answer(raw):
     return [l for l in raw.splitlines() if l.strip()]
 
 
+RE_WRAPPED_ROW = re.compile(r"^(>?\s*-?\s*)`([^`]+)`\s*$")
+EXAMPLE_ROW = "pick: 1,2   who: pet   name: Lotus"
+
+
+def unwrap_row(line):
+    """W2-4 — an agent copies the page's code formatting and sends the whole
+    row inside ONE pair of backticks. Only that pair, and only around the whole
+    row, is taken off; a row with any other backtick is left as it is."""
+    m = RE_WRAPPED_ROW.match(line.strip())
+    return m.group(1) + m.group(2).strip() if m else line
+
+
 def apply_answer(md_text, answer_lines):
     """Splice the owner's rows into the markdown -> the new text. See
     `apply_answer_report()`."""
@@ -708,7 +720,7 @@ def cmd_apply(args):
         md_text = fh.read()
     raw = (sys.stdin.read() if args.answer == "-"
            else io.open(args.answer, encoding="utf-8").read())
-    answer_lines = read_answer(raw)
+    answer_lines = [unwrap_row(l) for l in read_answer(raw)]
     # G6-6 (G4) — an answer is tied to its page. A batch page's answer names
     # its page on a `page:` line, and lands only on the Markdown carrying that
     # page's mark; a checkpoint page's answer names none, and lands only on a
@@ -753,7 +765,9 @@ def cmd_apply(args):
               "nothing written" % md_path)
         return 0
     if new_text == md_text:
-        raise SystemExit("nothing changed — no answer row matched %s" % md_path)
+        raise SystemExit(
+            "nothing changed — no answer row matched %s. A row is typed plain, "
+            "with no backticks, for example:\n  %s" % (md_path, EXAMPLE_ROW))
     if not args.dry_run:
         with io.open(md_path, "w", encoding="utf-8") as fh:
             fh.write(new_text)
