@@ -37,7 +37,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kcc-photo-manager"
-version = "2.0.1"
+version = "2.0.2"
 description = "Screen, classify and organise a photo library into dated Trip / Event / Other folders, copy-only."
 readme = "README.md"
 license = "Apache-2.0"
