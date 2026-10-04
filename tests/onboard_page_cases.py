@@ -938,6 +938,110 @@ def repeat_page_cases(tmp, wd):
           said_p[-300:])
 
 
+def answered_pack(root, name, language, types, away_km):
+    """A pack an onboarding has already answered, made off the shipped
+    template the way `fresh_pack` makes one."""
+    pack = fresh_pack(root, name)
+    path = os.path.join(pack, "photo-profile.json")
+    prof = json.load(io.open(path, encoding="utf-8"))
+    prof.update(language=language, own_camera_makes=["Lotusphone"])
+    prof.setdefault("naming_spec", {})["types"] = types
+    prof.setdefault("cluster_defaults", {}).update(away_km=away_km,
+                                                    away_km_answered=True)
+    io.open(path, "w", encoding="utf-8").write(json.dumps(prof))
+    return pack
+
+
+def sheet_pack_cases(tmp, wd):
+    """W2-19 — HIL-9's pre-fill reached the web page only: a later unit's TEXT
+    sheet asked section 4 empty although the pack held the answers, and
+    `apply` warned "left blank … the engine's own default applies", which was
+    false. Not `en`/3: those are the defaults and cannot show a loss.
+
+    ⛔ The pack reaches `sheet` by three routes (LL-PHO-132): one case each."""
+    WANT = ["#   in your pack: fr — leave blank to keep it",
+            "#   in your pack: trip, dinner — leave blank to keep it",
+            "#   in your pack: 12 — leave blank to keep it"]
+
+    def above(sheet):
+        lines = sheet.splitlines()
+        return [lines[lines.index(">>> %s:" % k) - 1]
+                for k in ("language", "types", "away_km")]
+
+    def sheet_of(out_dir, *extra, env=None):
+        old = os.environ.get("PHOTO_PROFILE")
+        if env:
+            os.environ["PHOTO_PROFILE"] = env
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                op.main(["sheet", *extra, "--out-dir", out_dir])
+        finally:
+            os.environ.pop("PHOTO_PROFILE", None)
+            if old is not None:
+                os.environ["PHOTO_PROFILE"] = old
+        return io.open(os.path.join(out_dir, "answers.txt"),
+                       encoding="utf-8").read()
+
+    answered = answered_pack(tmp, "pack-sheet", "fr", ["trip", "dinner"], 12)
+    prof = os.path.join(answered, "photo-profile.json")
+    by_flag = sheet_of(os.path.join(tmp, "sheet-flag"), wd, "--profile", prof)
+    check("W2-19 the sheet shows the pack's section 4, route --profile "
+          "(REPRODUCTION)", above(by_flag) == WANT, "%r" % above(by_flag))
+    by_env = sheet_of(os.path.join(tmp, "sheet-env"), wd, env=prof)
+    check("W2-19 the sheet shows the pack's section 4, route $PHOTO_PROFILE "
+          "(REPRODUCTION)", above(by_env) == WANT, "%r" % above(by_env))
+    coll = os.path.join(tmp, "coll-route")
+    cwd = os.path.join(coll, "unit-alpha")
+    os.makedirs(cwd)
+    shutil.copy(os.path.join(wd, "manifest.csv"), cwd)
+    answered_pack(os.path.join(coll, "photo-memory"), "lotusowner", "fr",
+                  ["trip", "dinner"], 12)
+    io.open(os.path.join(coll, "collection.json"), "w", encoding="utf-8").write(
+        json.dumps({"collection": "lotus-2031", "owner": "lotusowner"}))
+    by_coll = sheet_of(os.path.join(tmp, "sheet-coll"), cwd)
+    check("W2-19 the sheet shows the pack's section 4, route collection.json "
+          "(REPRODUCTION)", above(by_coll) == WANT, "%r" % above(by_coll))
+    asks = [l for l in by_flag.splitlines() if l.startswith(">>>")]
+    check("W2-19 every answer row still ships blank: a quote is never an "
+          "answer (GUARD)",
+          bool(asks) and all(l.rstrip().endswith(("=", ":")) for l in asks)
+          and op.question_stems(by_flag) == op.question_stems(
+              sheet_of(os.path.join(tmp, "sheet-plain"), wd)))
+
+    fresh = fresh_pack(tmp, "pack-sheet-fresh")
+    first = sheet_of(os.path.join(tmp, "sheet-first"), wd, "--profile",
+                     os.path.join(fresh, "photo-profile.json"))
+    check("W2-19 a first sheet over a fresh pack shows nothing from it (GUARD)",
+          "in your pack:" not in first)
+
+    def apply(sheet_dir, pack, *extra):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            op.main(["apply", os.path.join(sheet_dir, "answers.txt"),
+                     "--pack", pack, *extra])
+        return buf.getvalue()
+
+    said = apply(os.path.join(tmp, "sheet-flag"), answered)
+    warned = [l for l in said.splitlines() if "question(s) left blank" in l]
+    check("W2-19 a blank section 4 over an answered pack is not 'left blank' "
+          "(REPRODUCTION)",
+          "kept from the pack: language, types, away_km (left blank on the "
+          "sheet" in said
+          and not any(k in w for w in warned
+                      for k in (" language", " types", " away_km")), said[-400:])
+    said0 = apply(os.path.join(tmp, "sheet-first"), fresh)
+    check("W2-19 a blank section 4 over a fresh pack still warns (GUARD)",
+          "question(s) left blank" in said0 and "away_km" in said0
+          and "kept from the pack" not in said0, said0[-400:])
+    op.declare_pets(answered, ["Lotus", "Birk"])
+    said_p = apply(os.path.join(tmp, "sheet-flag"), answered)
+    check("W2-19 a blank pets row over a pack that names pets is kept "
+          "(REPRODUCTION)",
+          "kept from the pack: language, types, away_km, pets" in said_p
+          and not any("pets" in l for l in said_p.splitlines()
+                      if "question(s) left blank" in l), said_p[-400:])
+
+
 def answer_contract(tmp):
     """W1A: naming-first at SNL, an opt-in pack write, A44's missing writer,
     and a declared animal becoming a subject record."""
@@ -1928,6 +2032,7 @@ def main():
         # ---- 14. the answer contract: what the owner answers -> the pack ---
         answer_contract(tmp)
         repeat_page_cases(tmp, wd)
+        sheet_pack_cases(tmp, wd)
         printed_line_cases(tmp)
         country_cases(tmp, wd)
         nothing_new_cases(tmp, wd)

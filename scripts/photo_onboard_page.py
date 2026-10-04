@@ -1503,6 +1503,18 @@ def withheld_stanza(data):
              "table.", ""])
 
 
+def in_your_pack(data, key):
+    """W2-19 — the pack's own section-4 value, as a `#` line above its row.
+
+    ⛔ Never written INTO the `>>>` row: on the sheet that row is the owner's
+    answer, so a value there would turn a quote into an answer. A blank row
+    writes nothing, and the pack keeps this value."""
+    if key not in (data.get("prefill_from_pack") or ()):
+        return []
+    return ["#   in your pack: %s — leave blank to keep it"
+            % data["prefill"][key]]
+
+
 def sheet_text(data, blocks, photographs, digest, workdirs=()):
     out = [SHEET_PREAMBLE.replace("{APPLY}", cli("photo_onboard_page.py")
                                   + " apply")] + withheld_stanza(data)
@@ -1606,6 +1618,7 @@ def sheet_text(data, blocks, photographs, digest, workdirs=()):
                "when it does.")
     # W1C-3 — the page's own sentence, verbatim (language_note()).
     out.append("#     %s" % data["language_note"])
+    out.extend(in_your_pack(data, "language"))
     out.append(">>> language:")
     out.append("")
     out.append("#   types: the kinds of folder you sort by, comma separated.")
@@ -1619,6 +1632,7 @@ def sheet_text(data, blocks, photographs, digest, workdirs=()):
                "named above:")
     for row in data["type_defaults"]:
         out.append("#       %-6s %s" % (row["code"], ", ".join(row["words"])))
+    out.extend(in_your_pack(data, "types"))
     out.append(">>> types:")
     out.append("")
     out.append("#   away_km: how far from home is still 'home', in km. "
@@ -1628,6 +1642,7 @@ def sheet_text(data, blocks, photographs, digest, workdirs=()):
     out.append("#     every day trip you take is filed as a day at home and "
                "whole weeks")
     out.append("#     merge into one folder.")
+    out.extend(in_your_pack(data, "away"))
     out.append(">>> away_km:")
     out.append("")
     out.append("#   pets: your pets, the ones that live with you, comma "
@@ -2994,6 +3009,26 @@ def unanswered(asked, answers, submitted, kept=()):
     return out
 
 
+def kept_from_pack(args, filled, surface):
+    """HIL-9 / W2-19 — the section-4 keys left blank that the pack already
+    holds, printed once. Blank keeps the pack's own value, so these are not
+    "no answer". One reader for the page and the sheet, so they cannot drift."""
+    pack_dir = getattr(args, "write_pack", None) or getattr(args, "pack", None)
+    if not pack_dir:
+        return []
+    with io.open(pack_files(pack_dir)[1], encoding="utf-8") as fh:
+        held = pack_answers(json.load(fh))
+    kept = [k for k in ("language", "types", "away_km")
+            if (held.get("away") if k == "away_km" else held.get(k))
+            and not filled(k)]
+    if not filled("pets") and pack_pet_names(pack_dir):
+        kept.append("pets")     # a new pet is named on the pet pages
+    if kept:
+        print("\n   kept from the pack: %s (left blank on the %s, so the "
+              "pack's own values stay)" % (", ".join(kept), surface))
+    return kept
+
+
 def apply_page(text, args=None):
     submitted = read_submitted(text)
     if not submitted:
@@ -3007,21 +3042,8 @@ def apply_page(text, args=None):
     if submitted.get("language"):
         photo_profile.announce_missing_table(submitted["language"],
                                              photo_profile.BUCKET_VOCAB)
-    # HIL-9 — a section-4 answer left blank keeps the pack's own value.
-    pack_dir = getattr(args, "write_pack", None) or getattr(args, "pack", None)
-    held = {}
-    if pack_dir:
-        with io.open(pack_files(pack_dir)[1], encoding="utf-8") as fh:
-            held = pack_answers(json.load(fh))
-    kept = [k for k in ("language", "types", "away_km")
-            if (held.get("away") if k == "away_km" else held.get(k))
-            and not str(submitted.get(k) or "").strip()]
-    if pack_dir and not str(submitted.get("pets") or "").strip() \
-            and pack_pet_names(pack_dir):
-        kept.append("pets")     # a new pet is named on the pet pages
-    if kept:
-        print("\n   kept from the pack: %s (left blank on the page, so the "
-              "pack's own values stay)" % ", ".join(kept))
+    kept = kept_from_pack(args, lambda k: str(submitted.get(k) or "").strip(),
+                          "page")
     missing = unanswered(page_subjects(text),
                          parse_lines("\n".join(submitted.get("lines") or []),
                                      known=page_subjects(text)),
@@ -3123,9 +3145,11 @@ def apply_answers(path, text, args=None):
               "record of which rows were put to the owner. Fine when they "
               "came off the page's own Copy button; not fine when they were "
               "typed from the census table.")
-    if answers["blank"]:
+    kept = kept_from_pack(args, lambda k: k not in answers["blank"], "sheet")
+    blank = [k for k in answers["blank"] if k not in kept]
+    if blank:
         print("\n⚠️  %d question(s) left blank: %s"
-              % (len(answers["blank"]), ", ".join(answers["blank"])))
+              % (len(blank), ", ".join(blank)))
         print("    Blank is not a no. Nothing above answers them, and the "
               "engine's own default applies in silence to every one.")
     workdirs = sheet_workdirs(header)
