@@ -110,6 +110,8 @@ RE_RECHECK = re.compile(r"^>?\s*-?\s*`?recheck:`?\s*(subj-\d+)")
 RE_HOWTO = re.compile(r"^>\s*(.+?)\s*<!-- how-to -->\s*$")
 # photo_memory.SHARED_MARK: "a photo the pet is in, holding 2+ animals".
 RE_SHARED = re.compile(r"^>\s*(.+?)\s*<!-- shared -->\s*$")
+# photo_memory.SEVERAL_MARK: what the name on a 2+ animal photo attaches to.
+RE_SEVERAL = re.compile(r"^>\s*(.+?)\s*<!-- several -->\s*$")
 # Q3 — photo_memory.WHOLE_MARK: "this re-presented photo is shown whole".
 RE_WHOLE = re.compile(r"^>\s*(.+?)\s*<!-- whole -->\s*$")
 
@@ -155,6 +157,7 @@ def parse_review(md_text):
     lines = md_text.splitlines()
     out = {"checkpoint": "C1", "owner": "", "unit": "", "files": 0,
            "batches": 0, "pack": "", "questions": [], "recheck": [], "howto": [],
+           "several": "",
            "no_round": "", "page": "", "batch": None}
     mark = RE_PAGE_MARK.search(md_text)
     if mark:
@@ -213,6 +216,10 @@ def parse_review(md_text):
             if m:
                 if m.group(1) not in out["howto"]:
                     out["howto"].append(m.group(1))
+                continue
+            m = RE_SEVERAL.match(ln)
+            if m:
+                out["several"] = m.group(1)
                 continue
             if q is None:
                 if "nothing to ask" in ln.lower():
@@ -436,6 +443,7 @@ def build_round_data(rev, q, workdir, max_px, quality, pack_dir):
             # animal names offered as the natural choice for a group.
             "page": rev.get("page", ""), "batch": rev.get("batch"),
             "howto": rev.get("howto", []),
+            "several": rev.get("several", ""),
             "places": places,
             "name_suffixes": name_suffixes()}
 

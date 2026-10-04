@@ -8163,6 +8163,53 @@ def case_k24_a_filed_skip_without_confirm_is_still_refused(tmp):
     assert psub.load(pack=open_pack(pack_dir)).get_literal(dog).is_draft, said
 
 
+def case_w27_a_several_animal_photo_says_what_the_name_is_for(tmp):
+    """⭐ REPRO W2-7 — beside a 2+ animal photo the page says, in one plain
+    line, that the name is logged for the photo and never teaches the pet's
+    look (D-24); the web page gets the same sentence. Only that frame."""
+    import photo_review_page as rp
+    _pack, workdir, page, text, _shared = shared_frame_page(tmp)
+    line = ("Several animals: your name is logged for this photo, but it is "
+            "never used to teach the pet's look.")
+    assert text.count(line) == 1, text
+    assert f"> {line} <!-- several -->" in text, text
+    out = workdir / "page.html"
+    rp.main(["render", str(page), "-o", str(out)])
+    html = out.read_text(encoding="utf-8")
+    key = '<script id="round-data" type="application/json">'
+    data = json.loads(html.split(key, 1)[1].split("</script>", 1)[0]
+                      .replace("<\\/", "</"))
+    assert data.get("several") == line, data.get("several")
+
+
+def case_w27_the_several_line_is_never_an_answer(tmp):
+    """GUARD W2-7 — the marked line is display: neither `parse_review` nor
+    `apply` reads it as an answer row, and an untouched page answers
+    nothing."""
+    import photo_review_page as rp
+    _pack, _workdir, _page, text, _shared = shared_frame_page(tmp)
+    assert "<!-- several -->" in text, text
+    assert all(not b["answered"] and not b["picks"] and not b["skip_numbers"]
+               for b in pm.parse_review(text)), pm.parse_review(text)
+    line = [ln for ln in text.splitlines() if "<!-- several -->" in ln][0]
+    assert not rp.RE_ANSWER_ROW.match(line), line
+    assert rp.apply_answer(text, [line]) == text
+    assert not pm.parse_representations(text)
+
+
+def case_w27_an_older_page_keeps_its_sentence(tmp):
+    """GUARD W2-7 — a page written before the line has no `several`, and the
+    web badge falls back to the sentence it was published with."""
+    import photo_review_page as rp
+    _pack, _workdir, _page, text, _shared = shared_frame_page(tmp)
+    older = "\n".join(ln for ln in text.splitlines()
+                      if "<!-- several -->" not in ln)
+    assert rp.parse_review(older).get("several") == ""
+    tpl = Path(rp.TEMPLATE).read_text(encoding="utf-8")
+    assert ('(D.several || "It names them, and is never kept as an example '
+            'of either.")') in tpl, "the web badge lost its fallback"
+
+
 CASES = [
     ("F22 — a frame whose crop cannot be made is refused (REPRODUCTION)",
      case_a_frame_whose_crop_cannot_be_made_is_refused),
@@ -8544,6 +8591,12 @@ CASES = [
      case_k24_a_skip_under_its_own_question_is_unchanged),
     ("K24 — a filed skip without confirm is still refused (GUARD)",
      case_k24_a_filed_skip_without_confirm_is_still_refused),
+    ("W2-7 — a several-animal photo says what the name is for (REPRODUCTION)",
+     case_w27_a_several_animal_photo_says_what_the_name_is_for),
+    ("W2-7 — the several line is never an answer (GUARD)",
+     case_w27_the_several_line_is_never_an_answer),
+    ("W2-7 — an older page keeps its sentence (GUARD)",
+     case_w27_an_older_page_keeps_its_sentence),
 ]
 
 

@@ -1264,6 +1264,9 @@ WHOLE_MARK = "<!-- whole -->"
 SHARED_MARK = "<!-- shared -->"
 # HIL-4 — marks the two-step lines, which the web page prints verbatim.
 HOWTO_MARK = "<!-- how-to -->"
+# W2-7 — the one line beside a question's 2+ animal photo, read by the web
+# page like the how-to lines. Display only: it starts with no field key.
+SEVERAL_MARK = "<!-- several -->"
 
 
 class FrameCrops:
@@ -2794,6 +2797,7 @@ def render_review(workdir, pack, registry, rows, questions, suppressed,
                                   f"{int(crop.group(1)) + 1})" if crop else "")
                                + where_suffix(frame))
                 if shared:
+                    out.append(f"> {rmsg['review_frame_several']} {SEVERAL_MARK}")
                     out.append("> " + rmsg["review_frame_shared"].format(
                         n=frame["det_count"], frame=frame["n"]))
                     first = CROP_FILE.search(str(images[-1]))

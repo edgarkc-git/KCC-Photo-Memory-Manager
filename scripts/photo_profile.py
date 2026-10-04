@@ -1558,6 +1558,11 @@ REVIEW_VOCAB = {
                                "example of what either one LOOKS like, "
                                "because one photograph cannot stand for two "
                                "different animals.",
+        # W2-7 (D-24) — what the name on a 2+ animal photo attaches to, the
+        # SAME sentence on the text page and on the web page.
+        "review_frame_several": "Several animals: your name is logged for "
+                                "this photo, but it is never used to teach "
+                                "the pet's look.",
         # F10 — where each FRAME was taken, never the batch's place: a batch
         # is a day, and the evening at home rides along with the day out.
         # A label and a distance only; a coordinate never reaches the page.
