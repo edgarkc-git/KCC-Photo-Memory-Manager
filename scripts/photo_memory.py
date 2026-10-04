@@ -2979,6 +2979,69 @@ def tile_numbers(value):
     return out
 
 
+def file_skips_by_frame(blocks, text):
+    """K24 (U2-5/9) — frame numbers run through the whole page, so a `skip:`
+    number typed under the wrong question is FILED under the question whose
+    `frames:` map holds it, with the row's own words (`confirm`, the basis),
+    and said out loud by `cmd_confirm`. Crop refs `N.M` move the same way.
+
+    Not moved, and refused by `cmd_confirm` instead: a number two or more
+    other questions hold, and one whose target question has its own `skip:`
+    row saying something different. A number no question holds stays where it
+    was typed and is refused there, as before."""
+    shown = {int(n) for m in map(SHOWN_LINE.search, text.splitlines()) if m
+             for n in re.findall(r"(\d+)\s*=", m.group(2))}
+    for block in blocks:
+        block["skip_filed"], block["skip_ambiguous"] = [], []
+        block["skip_conflict"], block["page_shown"] = [], shown
+        block.setdefault("skip_animals_armed_refs", [])
+    for block in blocks:
+        def owners(n):
+            return [b for b in blocks if b is not block and n in b["frames"]]
+
+        for n in list(block["skip_numbers"]):
+            if n in block["frames"] or not block["frames"] or not owners(n):
+                continue
+            block["skip_numbers"].remove(n)
+            found = owners(n)
+            if len(found) > 1:
+                block["skip_ambiguous"].append((n, [b["n"] for b in found]))
+                continue
+            target = found[0]
+            if target["skip_numbers"] and (
+                    target["skip_armed"] != block["skip_armed"]
+                    or target["skip_basis"] != block["skip_basis"]):
+                block["skip_conflict"].append((n, target["n"]))
+                continue
+            if not target["skip_numbers"]:
+                target["skip_armed"] = block["skip_armed"]
+                target["skip_basis"] = block["skip_basis"]
+            target["skip_numbers"].append(n)
+            target["skip_filed"].append((str(n), block["n"]))
+        for n, a in list(block["skip_animals"]):
+            if n in block["frames"] or not block["frames"] or not owners(n):
+                continue
+            block["skip_animals"].remove((n, a))
+            ref = f"{n}.{a}"
+            found = owners(n)
+            if len(found) > 1:
+                block["skip_ambiguous"].append((ref, [b["n"] for b in found]))
+                continue
+            target = found[0]
+            armed = (n, a) in block["skip_animals_armed_refs"]
+            if target["skip_animals"] and target["skip_animals_armed"] != armed:
+                block["skip_conflict"].append((ref, target["n"]))
+                continue
+            if not target["skip_animals"]:
+                target["skip_animals_armed"] = armed
+            target["skip_animals"].append((n, a))
+            if armed:
+                target["skip_animals_armed_refs"].append((n, a))
+            target["skip_filed"].append((ref, block["n"]))
+        block["skip_animals_armed"] = (
+            bool(block["skip_animals"]) and block["skip_animals_armed"])
+
+
 def parse_review(text):
     """-> list of answered/unanswered question blocks.
 
@@ -3093,6 +3156,7 @@ def parse_review(text):
                          for n, a in CROP_REF.findall(m)]
                 current["skip_animals_armed"] = bool(
                     current["skip_animals"]) and armed == current["skip_animals"]
+                current["skip_animals_armed_refs"] = armed
                 # What is left is the whole-photo half, read on its own — the
                 # crops' word must not become the frames' basis (U2-10).
                 value = CROP_REF.sub(" ", CROP_ARMED.sub(" ", value))
@@ -3132,6 +3196,7 @@ def parse_review(text):
                 current[key] = value.strip("_").strip() or None
     if current:
         blocks.append(current)
+    file_skips_by_frame(blocks, text)
     for block in blocks:
         tiles, frames = block["tiles"], block["frames"]
         block["obs_by_id"] = {tiles[t]: n for t, n in block["obs_by_tile"].items()
@@ -3444,7 +3509,8 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
             frame = block["frames"].get(n)
             if not frame:
                 refusals.append(f"Q{block['n']}: `skip:` {n}.{a} — there is no "
-                                f"frame {n} on this question. Nothing was marked.")
+                                f"frame {n} on any question of this page. "
+                                "Nothing was marked.")
                 continue
             wanted.append((block["n"], n, a, frame.get("ref")))
     if not wanted:
@@ -5243,6 +5309,24 @@ def cmd_confirm(args):
         mark_not_animals(workdir, args.profile, parse_review(text), refusals,
                          changes, by, path.name, args.go)
         for block in parse_review(text):
+            for ref, was in block["skip_filed"]:
+                notes.append(f"skip {ref} was under Question {was}; frame "
+                             f"{ref.split('.')[0]} is in Question {block['n']}"
+                             " — filed there.")
+            refusals.about = []
+            for number, qs in block["skip_ambiguous"]:
+                refusals.append(
+                    f"Q{block['n']}: `skip:` names frame {number}, which is in "
+                    + " and ".join(f"Question {q}" for q in qs)
+                    + " — it cannot be told which one was meant, so nothing "
+                    "was rejected for it. Type it on that question's `skip:` "
+                    "row.")
+            for number, q in block["skip_conflict"]:
+                refusals.append(
+                    f"Q{block['n']}: `skip:` names frame {number}, which is in "
+                    f"Question {q}, and Question {q}'s own `skip:` row says "
+                    "something different — nothing was rejected for it. Type "
+                    f"it on Question {q}'s `skip:` row.")
             if not block["answered"]:
                 continue
             # G6-6d — FIRST, before any row is judged or U-3 notes a pick.
@@ -5310,9 +5394,11 @@ def cmd_confirm(args):
                 refusals.append(
                     f"Q{block['n']}: `skip:` names frame {number}, which this "
                     "question never rendered — nothing was rejected for it. "
-                    "Frame numbers run through the whole page: a frame in the "
-                    "remembered section is checked on its own "
-                    f"`{RECHECK_KEY}:` row, not skipped here")
+                    + (("Frame numbers run through the whole page: a frame in "
+                        "the remembered section is checked on its own "
+                        f"`{RECHECK_KEY}:` row, not skipped here")
+                       if number in block.get("page_shown", ())
+                       else f"Frame {number} is on no question of this page"))
             refusals.about = list(block["skip_ids"])
             if block["skip_numbers"] and not block["skip_armed"]:
                 # Refused out loud, never honoured quietly and never dropped

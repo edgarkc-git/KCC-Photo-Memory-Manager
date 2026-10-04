@@ -8006,6 +8006,163 @@ def case_u26_a_join_that_splits_nothing_is_not_rewritten(tmp):
     assert rc == 0, said
 
 
+# ============================================================ K24 ======
+
+def k24_page(tmp, q1_skip=None, q2_skip=None, q2_pick=None, extra=""):
+    """A two-question page: Q1 a cat draft (frames 1-3), Q2 a dog draft
+    (frames 4-6). Each question's `skip:` row (and Q2's first `pick:` row)
+    filled as given. -> (pack dir, work dir, the dog draft id)."""
+    pack_dir, workdir = a_split_and_a_share(tmp)
+    reg = psub.load(pack=open_pack(pack_dir))
+    dog = reg.drafts[1].subject_id
+    reg.get_literal(dog).record["kind"] = "dog"
+    reg.save()
+    pm.cmd_review(argparse.Namespace(
+        workdir=str(workdir), profile=str(pack_dir / "photo-profile.json"),
+        checkpoint=1, out=None))
+    path = workdir / "memory-review_C1.md"
+    q1, q2 = path.read_text().split("**Q2 ·", 1)
+    q2 = "**Q2 ·" + q2
+    blocks = pm.parse_review(path.read_text())
+    assert [sorted(b["frames"]) for b in blocks] == [[1, 2, 3], [4, 5, 6]], \
+        [sorted(b["frames"]) for b in blocks]
+    if q1_skip:
+        q1 = q1.replace("> - `skip:` ______", "> - `skip:` " + q1_skip, 1)
+    if q2_skip:
+        q2 = q2.replace("> - `skip:` ______", "> - `skip:` " + q2_skip, 1)
+    if q2_pick:
+        q2 = q2.replace("> - `pick:` ______   `who:` ______   `name:` ______",
+                        "> - `pick:` " + q2_pick, 1)
+    if extra:
+        q2 = q2.replace("\n```\nLeaving", "\n" + extra + "\n```\nLeaving", 1)
+    path.write_text(q1 + q2)
+    return pack_dir, workdir, dog
+
+
+def case_k24_a_skip_under_the_wrong_question_is_filed_by_frame(tmp):
+    """⭐ REPRO K24 (U2-5/9) — frame numbers run through the whole page; a
+    `skip:` row typed under Q1 naming Q2's frames was refused. It is filed
+    under Q2, the question that owns the frames, and said in the dry run and
+    under --go alike."""
+    pack_dir, workdir, dog = k24_page(tmp, q1_skip="4,5,6 confirm")
+    said_line = ("skip 4 was under Question 1; frame 4 is in Question 2 — "
+                 "filed there.")
+    rc_dry, dry = confirm(pack_dir, workdir, go=False)
+    assert rc_dry == 0 and said_line in dry, dry
+    assert psub.load(pack=open_pack(pack_dir)).get_literal(dog).is_draft, dry
+    rc, said = confirm(pack_dir, workdir, go=True)
+    assert rc == 0 and said_line in said, said
+    assert "never rendered" not in said, said
+    assert psub.load(pack=open_pack(pack_dir)).get_literal(dog).status \
+        == psub.STATUS_REJECTED, said
+
+
+def case_k24_a_crop_skip_under_the_wrong_question_is_filed_by_frame(tmp):
+    """⭐ REPRO K24 — a crop skip `N.M not-a-subject` under the wrong
+    question was refused "there is no frame N on this question"; it is filed
+    under the question that owns frame N, said in the dry run and --go."""
+    pack_dir, workdir, _dog = k24_page(tmp, q1_skip="4.1 not-a-subject")
+    blocks = pm.parse_review((workdir / "memory-review_C1.md").read_text())
+    assert blocks[0]["skip_animals"] == [], blocks[0]["skip_animals"]
+    assert blocks[1]["skip_animals"] == [(4, 1)] \
+        and blocks[1]["skip_animals_armed"], blocks[1]["skip_animals"]
+    said_line = ("skip 4.1 was under Question 1; frame 4 is in Question 2 — "
+                 "filed there.")
+    for go in (False, True):
+        _rc, said = confirm(pack_dir, workdir, go=go)
+        assert said_line in said, said
+        assert "there is no frame 4" not in said, said
+
+
+def case_k24_a_frame_on_no_question_is_refused_without_the_recheck_hint(tmp):
+    """⭐ REPRO K24 — the token-benchmark refusal sent the owner to the
+    remembered section for a frame that was not there. A number on no
+    question is still refused, and now says so."""
+    pack_dir, workdir, dog = k24_page(tmp, q1_skip="99 confirm")
+    rc, said = confirm(pack_dir, workdir, go=True)
+    assert rc == 1, said
+    assert "Frame 99 is on no question of this page" in said, said
+    assert "remembered section" not in said, said
+    assert psub.load(pack=open_pack(pack_dir)).get_literal(dog).is_draft, said
+
+
+def case_k24_a_remembered_frame_keeps_the_recheck_hint(tmp):
+    """GUARD K24 — a skip naming a frame shown in the remembered section
+    still points at its `recheck:` row and is not filed anywhere."""
+    pack_dir, workdir, _dog = k24_page(
+        tmp, q1_skip="7 confirm", extra="> `shown:` subj-0009 7=9-9-9")
+    rc, said = confirm(pack_dir, workdir, go=False)
+    assert rc == 1 and "remembered section" in said, said
+    assert "filed there" not in said, said
+
+
+def case_k24_a_frame_two_questions_hold_is_refused(tmp):
+    """GUARD K24 — a number held by two or more other questions is not
+    moved: it cannot be told which was meant, and the refusal names them."""
+    page = ("**Q1 · Group it — Cat**\n"
+            "> `frames:` 1=subj-0001 aa classify/a.jpg\n"
+            "> - `skip:` 9 confirm\n\n"
+            "**Q2 · Group it — Dog**\n"
+            "> `frames:` 9=subj-0002 bb classify/b.jpg\n\n"
+            "**Q3 · Group it — Dog**\n"
+            "> `frames:` 9=subj-0003 cc classify/c.jpg\n")
+    blocks = pm.parse_review(page)
+    assert blocks[0]["skip_ambiguous"] == [(9, [2, 3])], blocks[0]
+    assert all(9 not in b["skip_numbers"] for b in blocks), blocks
+    assert blocks[0]["answered"] is False or blocks[0]["skip_ambiguous"]
+    pack_dir, workdir, dog = k24_page(tmp, q1_skip="4 confirm")
+    path = workdir / "memory-review_C1.md"
+    text = path.read_text()
+    q3 = "**Q3 · Group it — Dog**\n> `frames:` 4=subj-0002 x classify/x.jpg\n\n"
+    path.write_text(text.replace("```\nLeaving", q3 + "```\nLeaving", 1))
+    rc, said = confirm(pack_dir, workdir, go=False)
+    assert rc == 1 and "which is in Question 2 and Question 3" in said, said
+    assert "filed there" not in said, said
+
+
+def case_k24_a_skip_that_disagrees_with_the_target_row_is_refused(tmp):
+    """GUARD K24 — Q2's own `skip:` row says not-mine; a number filed from
+    Q1 saying not-a-subject would change its meaning, so it is refused and
+    Q2's own row stands."""
+    pack_dir, workdir, _dog = k24_page(
+        tmp, q1_skip="4 confirm not-a-subject", q2_skip="5 confirm")
+    rc, said = confirm(pack_dir, workdir, go=False)
+    assert rc == 1, said
+    assert ("which is in Question 2, and Question 2's own `skip:` row says "
+            "something different") in said, said
+    assert "filed there" not in said, said
+
+
+def case_k24_a_filed_skip_and_a_pick_on_one_frame_are_both_refused(tmp):
+    """GUARD K24 — a filed skip lands beside Q2's pick on the same frame:
+    the existing pick+skip contradiction refuses both rows, in Q2."""
+    pack_dir, workdir, dog = k24_page(
+        tmp, q1_skip="4 confirm", q2_pick="4,5,6   `who:` pet   `name:` Birk")
+    rc, said = confirm(pack_dir, workdir, go=True)
+    assert rc == 1 and "Q2: frame(s) 4 are named on a `pick:` row AND on the " \
+        "`skip:` row" in said, said
+    assert psub.load(pack=open_pack(pack_dir)).get_literal(dog).is_draft, said
+
+
+def case_k24_a_skip_under_its_own_question_is_unchanged(tmp):
+    """GUARD K24 — a skip under the question that owns its frames is read
+    exactly as before: no notice, rejected."""
+    pack_dir, workdir, dog = k24_page(tmp, q2_skip="4,5,6 confirm")
+    rc, said = confirm(pack_dir, workdir, go=True)
+    assert rc == 0 and "filed there" not in said, said
+    assert psub.load(pack=open_pack(pack_dir)).get_literal(dog).status \
+        == psub.STATUS_REJECTED, said
+
+
+def case_k24_a_filed_skip_without_confirm_is_still_refused(tmp):
+    """GUARD K24 — filing carries the row's own words: with no `confirm`,
+    Q2 refuses it the way it refuses its own unarmed row."""
+    pack_dir, workdir, dog = k24_page(tmp, q1_skip="4,5,6")
+    rc, said = confirm(pack_dir, workdir, go=True)
+    assert rc == 1 and "Q2: `skip:` names frame(s) 4,5,6 without" in said, said
+    assert psub.load(pack=open_pack(pack_dir)).get_literal(dog).is_draft, said
+
+
 CASES = [
     ("F22 — a frame whose crop cannot be made is refused (REPRODUCTION)",
      case_a_frame_whose_crop_cannot_be_made_is_refused),
@@ -8369,6 +8526,24 @@ CASES = [
      case_a_batch_page_whose_pack_moved_is_refused_whole),
     ("G6-1 — a page confirmed under another name is refused (REPRODUCTION)",
      case_a_page_confirmed_under_another_name_is_refused),
+    ("K24 — a skip under the wrong question is filed by frame (REPRODUCTION)",
+     case_k24_a_skip_under_the_wrong_question_is_filed_by_frame),
+    ("K24 — a crop skip under the wrong question is filed by frame "
+     "(REPRODUCTION)", case_k24_a_crop_skip_under_the_wrong_question_is_filed_by_frame),
+    ("K24 — a frame on no question is refused without the recheck hint "
+     "(REPRODUCTION)", case_k24_a_frame_on_no_question_is_refused_without_the_recheck_hint),
+    ("K24 — a remembered frame keeps the recheck hint (GUARD)",
+     case_k24_a_remembered_frame_keeps_the_recheck_hint),
+    ("K24 — a frame two questions hold is refused (GUARD)",
+     case_k24_a_frame_two_questions_hold_is_refused),
+    ("K24 — a skip that disagrees with the target row is refused (GUARD)",
+     case_k24_a_skip_that_disagrees_with_the_target_row_is_refused),
+    ("K24 — a filed skip and a pick on one frame are both refused (GUARD)",
+     case_k24_a_filed_skip_and_a_pick_on_one_frame_are_both_refused),
+    ("K24 — a skip under its own question is unchanged (GUARD)",
+     case_k24_a_skip_under_its_own_question_is_unchanged),
+    ("K24 — a filed skip without confirm is still refused (GUARD)",
+     case_k24_a_filed_skip_without_confirm_is_still_refused),
 ]
 
 
