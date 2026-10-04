@@ -194,6 +194,12 @@ missing — there is no second list to keep in step.
    it writes `see-report.json` and no `see-labels.json`, exits 0, and `render`
    then refuses the batch as unseen. The look in between is yours, and
    `--apply` is what records it (`--memorize` needs an owner pack).
+   ⛔ **Write each photo's label right after you view it.** Never view a whole
+   batch first and label it afterwards. A long session can silently drop the
+   images it opened earlier, and a label written from memory then describes a
+   photo you can no longer see. Start a fresh Claude Code session for each big
+   unit (a dump of many batches): everything is on disk, and `photo_run.py
+   status` shows where to resume.
    ⛔ **A decision never names a pet.** `--apply` refuses a `subject_id` in
    `decisions.json`; write `subject_kind`. `--memorize` records what it saw as
    draft observations — no exemplar, no name. Names come only from the owner's
@@ -296,6 +302,9 @@ missing — there is no second list to keep in step.
    - `no` for a stranger — recognition scores look-alike street cats inside a
      pet's own range, so the view is the only guard;
    - `unsure` when you cannot tell.
+   Write each verdict right after you view that photo, never after viewing
+   them all: a long session can silently drop images it opened earlier (the
+   same rule as step 2).
    The views file IS the answer form. Write the verdict at the end of each row:
    replace `______` after `verdict:` with `agree`, `no` or `unsure`, and change
    nothing else on the row. Any other word refuses the whole file. A row looks
