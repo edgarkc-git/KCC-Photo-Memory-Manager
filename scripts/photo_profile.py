@@ -1217,6 +1217,13 @@ def messages(profile):
     return {**table, **named}
 
 
+# C10 hint (v2.0.2) — the per-animal "not mine" is v2.1; until then the
+# owner leaves a stranger's animal out. Step 2 and the `skip: N.M` refusal
+# say this one sentence.
+STRANGER_ANIMAL = ("An animal that is not yours, beside your pet in one "
+                   "photo, is left out: give it no row and no skip; nothing "
+                   "is recorded for it.")
+
 # Every sentence the MEMORY REVIEW TABLE puts in front of a human (VS-4 /
 # Phase C). Separate from MESSAGE_VOCAB for one reason worth stating: the
 # review table is a NEW artifact, so unlike a plan CSV it has no shipped
@@ -1678,7 +1685,8 @@ REVIEW_VOCAB = {
                               "real animal\" under it on the web page, or "
                               "write `skip: 2.1 not-a-subject` in text. An "
                               "animal that is simply not yours is \"Not my "
-                              "pet\" instead (`skip: 3 confirm`).",
+                              "pet\" instead (`skip: 3 confirm`). "
+                              + STRANGER_ANIMAL,
         # Q3 (Lead 20261001) — a re-presented photo no animal index covers
         # is shown whole, and the page says so: never a silent fallback.
         "review_frame_whole_note": "Photo {n} is the whole photo: no animal "

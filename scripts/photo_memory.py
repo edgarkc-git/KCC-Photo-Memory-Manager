@@ -3503,7 +3503,8 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
                 f"Q{block['n']}: `skip:` {refs} names one animal in a photo, "
                 f"which only means *not a real animal* — put "
                 f"`{BASIS_NOT_A_SUBJECT}` right after those numbers, e.g. "
-                f"`skip: {refs} {BASIS_NOT_A_SUBJECT}`. Nothing was marked.")
+                f"`skip: {refs} {BASIS_NOT_A_SUBJECT}`. Nothing was marked. "
+                + photo_profile.STRANGER_ANIMAL)
             continue
         for n, a in block["skip_animals"]:
             frame = block["frames"].get(n)

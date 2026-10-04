@@ -852,6 +852,41 @@ def case_the_examples_in_the_steps_are_never_an_answer(tmp):
     assert rc == 0 and "0 change(s) would be written, 0 refused" in said, said
 
 
+def case_c10_a_strangers_animal_is_left_out_on_the_page(tmp):
+    """REPRO C10 hint (v2.0.2) — step 2 tells the owner that an animal not
+    theirs, beside their pet in one photo, gets no row and nothing is
+    recorded for it: on the text page AND the web page, one sentence."""
+    import photo_review_page as rp
+    said = ("An animal that is not yours, beside your pet in one photo, is "
+            "left out: give it no row and no skip; nothing is recorded for it.")
+    pack_dir, workdir = pmc.k_batch_run(tmp, 2)
+    page = pmc.review_text(pack_dir, workdir)
+    step2 = [ln for ln in page.read_text().splitlines()
+             if ln.startswith("> Step 2.")]
+    assert step2 and all(said in ln for ln in step2), step2
+    out = workdir / "page.html"
+    rp.main(["render", str(page), "-o", str(out)])
+    html = out.read_text(encoding="utf-8")
+    key = '<script id="round-data" type="application/json">'
+    data = json.loads(html.split(key, 1)[1].split("</script>", 1)[0]
+                      .replace("<\\/", "</"))
+    assert any(said in h for h in data.get("howto") or []), data.get("howto")
+
+
+def case_c10_the_crop_skip_refusal_says_the_same(tmp):
+    """REPRO C10 hint (v2.0.2) — the `skip: N.M` refusal carries the same
+    sentence, so an owner who tried to skip a stranger's crop learns to
+    leave it out."""
+    block = {"n": 1, "skip_animals": [(1, 2)], "skip_animals_armed": False,
+             "frames": {1: {"ref": "abc"}}}
+    refusals, changes = pm.RefusalChannel(), []
+    pm.mark_not_animals(tmp, None, [block], refusals, changes, "T",
+                        "P-B01.md", True)
+    assert any("beside your pet in one photo, is left out" in r
+               and "nothing is recorded for it" in r for r in refusals), \
+        list(refusals)
+
+
 CASES = [
     ("HIL-4: the examples in the steps are never an answer (GUARD)",
      case_the_examples_in_the_steps_are_never_an_answer),
@@ -899,6 +934,10 @@ CASES = [
     ("Q8-c: the owner marks a crop on the page (REPRO)",
      case_the_owner_marks_a_crop_on_the_page),
     ("Q8-c: a crop skip needs not-a-subject (GUARD)", case_a_crop_skip_needs_not_a_subject),
+    ("C10 hint: a stranger's animal is left out, said on the page (REPRO)",
+     case_c10_a_strangers_animal_is_left_out_on_the_page),
+    ("C10 hint: the crop skip refusal says the same (REPRO)",
+     case_c10_the_crop_skip_refusal_says_the_same),
     ("Q8-c: a labelled crop still parses on the HTML page (GUARD)",
      case_a_labelled_crop_still_parses_on_the_html_page),
     ("Q8-c: a crop mark does not set the photo's basis (REPRO)",
