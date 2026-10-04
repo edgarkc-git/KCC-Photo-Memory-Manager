@@ -1047,6 +1047,43 @@ def sheet_pack_cases(tmp, wd):
                       if "question(s) left blank" in l), said_p[-400:])
 
 
+def no_home_sheet_cases(tmp, wd):
+    """U2-12 / W2-9 — a first small unit proposes no home (the bar is 5
+    separate days, 3 of them after dark) and the sheet said nothing about it,
+    which reads as "you have no home". The sheet now says why, in the bar's
+    own words, and that more folders give the census more days."""
+    small = os.path.join(tmp, "unit-small")
+    os.makedirs(small)
+    rows = []
+    for d in range(1, 4):
+        path = os.path.join(tmp, "src-small", "s%02d.jpg" % d)
+        jpg(path)
+        rows.append(row(path, os.path.basename(path),
+                        when="2031:04:%02d 21:30:00" % d, gps=HOME_1,
+                        make="Zenith", model="Q1"))
+    with io.open(os.path.join(small, "manifest.csv"), "w", encoding="utf-8",
+                 newline="") as fh:
+        wr = csv.DictWriter(fh, fieldnames=COLS)
+        wr.writeheader()
+        wr.writerows(rows)
+
+    def sheet(target, name):
+        out_dir = os.path.join(tmp, name)
+        with contextlib.redirect_stdout(io.StringIO()):
+            op.main(["sheet", target, "--out-dir", out_dir])
+        return io.open(os.path.join(out_dir, "answers.txt"),
+                       encoding="utf-8").read()
+
+    said = sheet(small, "sheet-small")
+    check("U2-12 a sheet with no home proposal says why, in the bar's own "
+          "words (REPRODUCTION)",
+          "NO HOME PROPOSED YET" in said
+          and all(w in said for w in op.photo_census.MISSED_WORDS.values())
+          and "all your photo folders at once" in said, said[:600])
+    check("U2-12 a sheet that proposes a home does not say it (GUARD)",
+          "NO HOME PROPOSED" not in sheet(wd, "sheet-homes"))
+
+
 def answer_contract(tmp):
     """W1A: naming-first at SNL, an opt-in pack write, A44's missing writer,
     and a declared animal becoming a subject record."""
@@ -2038,6 +2075,7 @@ def main():
         answer_contract(tmp)
         repeat_page_cases(tmp, wd)
         sheet_pack_cases(tmp, wd)
+        no_home_sheet_cases(tmp, wd)
         printed_line_cases(tmp)
         country_cases(tmp, wd)
         nothing_new_cases(tmp, wd)

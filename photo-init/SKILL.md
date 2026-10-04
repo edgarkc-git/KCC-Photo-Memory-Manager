@@ -126,7 +126,7 @@ proposals with the **photographs beside them**, and pre-selects nothing, so
 clicking straight through submits an empty answer instead of a wrong guess:
 
 ```bash
-<repo>/.venv/bin/python3 <scripts>/photo_onboard_page.py render "<work dir>" --out page.html
+<repo>/.venv/bin/python3 <scripts>/photo_onboard_page.py render "<work dir>" --out page.html --coords-out onboard/coords.txt
 # the owner fills it in and saves it, then (apply needs no .venv):
 python3 <scripts>/photo_onboard_page.py apply page.html --pack "<pack dir>"
 ```
@@ -170,10 +170,23 @@ file and writes **the same photographs beside it as image files**, so the owner
 still looks; they look in an image viewer instead of a browser:
 
 ```bash
-<repo>/.venv/bin/python3 <scripts>/photo_onboard_page.py sheet "<work dir>" --out-dir onboard/
+<repo>/.venv/bin/python3 <scripts>/photo_onboard_page.py sheet "<work dir>" --out-dir onboard/ --coords-out onboard/coords.txt
 # open onboard/photographs/<question>/ , answer onboard/answers.txt, then:
 python3 <scripts>/photo_onboard_page.py apply onboard/answers.txt --pack "<pack dir>"
 ```
+
+⛔ **Always pass `--coords-out`.** Without it the home answers cannot be
+written: `apply` needs that file as `--coords-in` (below), and a sheet made
+without it has to be made again.
+
+⭐ **Several photo folders? Make the FIRST sheet from all of them at once.**
+`sheet` (and `render`) take several work dirs:
+`sheet "<work dir 1>" "<work dir 2>" ... --out-dir onboard/ --coords-out onboard/coords.txt`.
+A place is proposed as a home only after enough separate days, enough of them
+after dark, and one small folder rarely holds that many, so a first sheet made
+from one folder often proposes no home at all. The sheet then says so and names
+the bar (`NO HOME PROPOSED YET`). The bar is the same either way; all the folders
+together give it more days to see.
 
 Every block names its own photographs and every answer line ships **blank** —
 returning it untouched answers nothing, exactly like clicking through the page.

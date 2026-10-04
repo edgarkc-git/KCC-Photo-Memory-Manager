@@ -1590,6 +1590,18 @@ def sheet_text(data, blocks, photographs, digest, workdirs=()):
         out.append("# ALREADY IN YOUR PACK — not asked again: "
                    + "; ".join(listed) + ".")
         out.append("")
+    if not homes.get("rows") and not homes.get("already_listed"):
+        # U2-12 / W2-9 — a first small unit proposes no home, and a sheet that
+        # is silent about it reads as "you have no home". The bar's own words
+        # (photo_census.MISSED_WORDS), never a second copy of it.
+        out.append(RULE)
+        out.append("# NO HOME PROPOSED YET — a place is proposed only when it "
+                   "clears both tests;")
+        out.append("#   every place in these folders %s."
+                   % ", or ".join(photo_census.MISSED_WORDS.values()))
+        out.append("#   More folders give it more days: make this sheet from "
+                   "all your photo folders at once.")
+        out.append("")
     cut = []
     if homes.get("near_misses_over_cap"):
         cut.append("%d more place(s) that missed a home test"
