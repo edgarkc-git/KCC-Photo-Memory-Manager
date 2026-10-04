@@ -10,9 +10,13 @@ Words used here:
   `photo-*` folders. Download it from the GitHub **Releases** page: the
   latest release's **Source code (zip)**, `KCC-Photo-Memory-Manager-<version>.zip`
   (for release `v2.0.1` the `<version>` is `2.0.1`), which holds ONE folder,
-  `KCC-Photo-Memory-Manager-<version>` (that name is not measured yet). The
+  `KCC-Photo-Memory-Manager-<version>` (measured for 2.0.1 on macOS and on
+  Windows 11: `KCC-Photo-Memory-Manager-2.0.1`). The
   green **Code** button's zip is `KCC-Photo-Memory-Manager-main` instead: it
   works the same, but it is whatever was last pushed, not a tested release.
+  Cloning works too: clone the repository into the product folder, then check
+  out the newest release TAG (`git checkout v<version>`), never `main`.
+  `doctor` then names the build as `… (a git clone)`.
   Step 1 unzips it and renames it to `photo-manager`, so the product folder is
   `~/photo-manager` (macOS) or `C:\photo-manager` (Windows). Write its full
   path wherever this guide says `<product folder>`.
@@ -133,8 +137,9 @@ Downloads holds the folder instead of the zip, skip the unzip line.
 
 Both columns were measured with the earlier folder name (macOS on a scratch
 copy; Windows by a test agent, with `Expand-Archive` and `Move-Item`). The
-`-main` name was measured on macOS only (HIL01); a release's `-<version>`
-name, and the Windows lines with either name, are not measured yet. On Windows you can also right-click
+`-main` name was measured on macOS only (HIL01). A release's `-<version>`
+name was measured for 2.0.1 on macOS and on Windows 11; the Windows lines with
+the `-main` name are not measured yet. On Windows you can also right-click
 the zip, choose **Extract All…**, then **Browse** to `C:\` before you press
 Extract: its default is a folder next to the zip, which is often inside a
 synced folder. Then rename the extracted `KCC-Photo-Memory-Manager-<version>` folder
@@ -208,7 +213,8 @@ stay in it):
 Its second line, `build: v2.0.1 (commit abc1234, 2026-10-01)`, says which
 build you have: a release download names its tag; the Code button's zip
 names its commit, and says `untagged` when that commit is not a release; a
-folder with neither says `unknown`. Give that line with any report. (Measured
+folder with neither says `unknown`; a clone says `(a git clone)` after the
+tag it describes. Give that line with any report. (Measured
 with `git archive` on this Mac; a zip made by GitHub itself is not measured
 yet.)
 
