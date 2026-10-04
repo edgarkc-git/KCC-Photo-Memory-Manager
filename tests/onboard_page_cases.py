@@ -1008,11 +1008,16 @@ def sheet_pack_cases(tmp, wd):
           and op.question_stems(by_flag) == op.question_stems(
               sheet_of(os.path.join(tmp, "sheet-plain"), wd)))
 
+    check("W2-19 the types hint says a blank keeps the pack's list, not the "
+          "language's set (REPRODUCTION)",
+          "keeps the list in your pack" in by_flag
+          and "uses the set for the language" not in by_flag)
     fresh = fresh_pack(tmp, "pack-sheet-fresh")
     first = sheet_of(os.path.join(tmp, "sheet-first"), wd, "--profile",
                      os.path.join(fresh, "photo-profile.json"))
     check("W2-19 a first sheet over a fresh pack shows nothing from it (GUARD)",
-          "in your pack:" not in first)
+          "in your pack:" not in first
+          and "uses the set for the language" in first)
 
     def apply(sheet_dir, pack, *extra):
         buf = io.StringIO()

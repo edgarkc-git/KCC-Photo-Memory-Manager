@@ -1628,8 +1628,12 @@ def sheet_text(data, blocks, photographs, digest, workdirs=()):
                "kinds, not a")
     out.append("#     sentence: no \"a\"/\"an\", one word or hyphenated "
                "phrase each.")
-    out.append("#     Left blank this run uses the set for the language you "
-               "named above:")
+    if "types" in (data.get("prefill_from_pack") or ()):
+        out.append("#     Left blank this run keeps the list in your pack "
+                   "(below). Each language's set:")
+    else:
+        out.append("#     Left blank this run uses the set for the language "
+                   "you named above:")
     for row in data["type_defaults"]:
         out.append("#       %-6s %s" % (row["code"], ", ".join(row["words"])))
     out.extend(in_your_pack(data, "types"))
