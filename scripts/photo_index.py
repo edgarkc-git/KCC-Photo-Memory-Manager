@@ -895,10 +895,25 @@ def nearest_home(point, day, homes):
     return min(near, key=lambda x: x[0])[1] if near else None
 
 
-def backed_subjects(members, cells):
+def who_order(key):
+    """H-D (K25, owner ruling 20261003) — a pet's place in `[who]`: the order
+    the registry minted its id, which is the order the owner named it on the
+    `pets:` line, else the order it was first seen. Never the file count: that
+    differs per folder, so two pets swapped places between folders. A subject
+    with no id (keyed by name) has no mint time and goes after every id, by
+    name. Digits compare as a number: ids are `subj-` + 4 OR MORE digits."""
+    import photo_subjects
+    m = photo_subjects.SUBJECT_ID_PATTERN.match(key or "")
+    return (0, int(key[5:]), "") if m else (1, 0, key or "")
+
+
+def backed_subjects(members, cells, keep=()):
     """F12 — who a folder may be named after: a CONFIRMED subject at a bare
-    `viewed-image:`, on a file copied INTO it. -> [(key, name, kind, files)],
-    most files first, then name (the order `who_evidence()` uses)."""
+    `viewed-image:`, on a file copied INTO it. -> [(key, name, kind, files)].
+
+    Order: `keep` first — an ALREADY-COPIED folder's own earlier [who], so its
+    name on the drive never needs a rename for the order alone ("new folders
+    only", owner 20261004) — then every other subject by `who_order()`."""
     counts, names, kinds = {}, {}, {}
     for f in members:
         seen = set()
@@ -912,7 +927,8 @@ def backed_subjects(members, cells):
             seen.add(key)
             counts[key] = counts.get(key, 0) + 1
             names[key], kinds[key] = s["name"], s.get("kind")
-    order = sorted(counts, key=lambda k: (-counts[k], names[k]))
+    kept = [k for k in dict.fromkeys(keep) if k in counts]
+    order = kept + sorted((k for k in counts if k not in kept), key=who_order)
     return [(k, names[k], kinds[k], counts[k]) for k in order]
 
 
@@ -938,7 +954,7 @@ def agent_what(fo):
 
 
 def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
-                  parent_words=None, own=None):
+                  parent_words=None, own=None, keep=()):
     """-> (name, validation) for a day folder, or for a leg when
     `parent_words` (its parent's place words) is given: a leg names its place
     only when it differs from the parent's (D-I13). `own` is the members
@@ -954,7 +970,7 @@ def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
         # creates no folder nothing lands in.
         start, end = min(s[0] for s in spans), max(s[1] for s in spans)
     where, unknown = where_words(fo, labels)
-    backed = backed_subjects(own, cells)
+    backed = backed_subjects(own, cells, keep)
     who = (photo_plan.render_who([b[1] for b in backed], [b[2] for b in backed],
                                  cap, profile, rmsg) if backed else "")
     mine = {f["source"]: cells[f["source"]] for f in own if cells.get(f["source"])}
@@ -1096,7 +1112,8 @@ def why_renamed(was, now, old_name, grouped=()):
         said.append("[who] drops " + ", ".join(dropped))
     if not (renamed or added or dropped) and \
             [k for k, _n in now["who"]] != [k for k, _n in was["who"]]:
-        said.append("[who] order — the pets' photo counts changed")
+        said.append("[who] order — the pets now go in the order they were "
+                    "first named")
     if now["what"] != was["what"]:
         said.append(f"[what] {was['what'] or '(none)'} -> {now['what'] or '(none)'}")
     return "; ".join(said) or ("the same files, place, pets and [what] — the "
@@ -1252,9 +1269,15 @@ def cmd_render(args):
         with open(workdir / "manifest.csv", newline="", encoding="utf-8") as fh:
             gps = {r["SourceFile"]: photo_cluster.gps_point(r.get("GPSPosition") or "")
                    for r in csv.DictReader(fh)}
+    copied = set(photo_execute.verified_anywhere(workdir / "plan"))
     for fo in held:
         members = [f for f in files.values()
                    if f["folder"] == fo["id"] and f["route"] == ROUTE_COPY]
+        # H-D — a folder already on the drive keeps its [who] order; a
+        # missing earlier [who] (an older index) keeps nothing.
+        keep = ([w.get("subject_id") for w in
+                 (fo.get("validation") or {}).get("who") or []]
+                if any(f["source"] in copied for f in members) else ())
         spans = ([(min(owned[fo["id"]]), max(owned[fo["id"]]))] if fo.get("days")
                  else [(by_number[b]["from"], by_number[b]["to"])
                        for b in fo["batches"] if b in by_number])
@@ -1262,7 +1285,7 @@ def cmd_render(args):
         fo["rendered"], fo["validation"] = render_holder(
             fo, members, cells, spans, labels, budget, cap, profile, rmsg,
             parent_words=where_words(parent, labels)[0] if parent else None,
-            own=at_own_place(members, fo, parent, gps, homes))
+            own=at_own_place(members, fo, parent, gps, homes), keep=keep)
     grouped = parents(index)
     for p in grouped:
         legs = {leg["id"] for leg in legs_of(index, p["id"])}

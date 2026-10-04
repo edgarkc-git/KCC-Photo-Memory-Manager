@@ -1481,6 +1481,152 @@ def a_folder_merged_after_its_copy_is_refused_and_writes_nothing():
             and before == after), f"code={code} same={before == after} err={err[-400:]!r}"
 
 
+# ---- H-D (K25) — two pets keep ONE order: the order they were first named --
+
+def two_pet_dump(tmp, day1, day2=("subj-0001", "subj-0002")):
+    """g3_dump with two CONFIRMED pets — Lotus = subj-0001 and Birk = subj-0002,
+    so name order and id order disagree. `day1` is the subjects on IMG_0101
+    and on IMG_0102 (two tuples); `day2` the subjects on IMG_0201."""
+    wd, pack = g3_dump(tmp)
+    reg = pack / "photo-subjects" / "subjects.json"
+    data = json.loads(reg.read_text(encoding="utf-8"))
+    data["subjects"] = [subject("subj-0001", "Lotus"),
+                        subject("subj-0002", "Birk", "dog")]
+    reg.write_text(json.dumps(data), encoding="utf-8")
+    base = Path(tmp).resolve() / "raw" / "dump-a"
+
+    def ids(sids):
+        return [{"subject_id": s} for s in sids]
+    write_see(wd, 1, [see_label(base, "IMG_0101.jpg", ids(day1[0]), "sofa nap"),
+                      see_label(base, "IMG_0102.jpg", ids(day1[1]), "sofa nap"),
+                      see_label(base, WORD, what="a document")])
+    write_see(wd, 2, [see_label(base, "IMG_0201.jpg", ids(day2), "harbour walk"),
+                      see_label(base, SHOT, what="a chat")])
+    return wd, pack
+
+
+LOTUS_FIRST = (("subj-0001", "subj-0002"), ("subj-0001",))   # Lotus 2, Birk 1
+BIRK_MORE = (("subj-0001", "subj-0002"), ("subj-0002",))     # Birk 2, Lotus 1
+
+
+@case
+def two_pets_keep_one_order_in_every_folder():
+    """⭐ REPRODUCTION (H-D, K25). ⛔ FAILS on 8743143: [who] went most files
+    first, then by name, so the order followed each folder's counts — Lotus
+    led one folder and Birk the next. Owner ruling 20261003/04: the order the
+    pets were first named (registry mint order), in every folder."""
+    with tempfile.TemporaryDirectory() as tmp, no_env():
+        wd, _pack = two_pet_dump(tmp, LOTUS_FIRST)
+        run("init", wd)
+        code, _out, err = run("render", wd)
+        f = folders_of(index_of(tmp)[0])
+    return (code == 0 and f["F001"]["rendered"] == "20241101_Ford_Lotus+Birk_sofa nap"
+            and f["F002"]["rendered"] == "20241102_Harbour_Lotus+Birk_harbour walk"), \
+        f"code={code} {f['F001']['rendered']!r} {f['F002']['rendered']!r} {err[-200:]!r}"
+
+
+@case
+def the_pet_with_more_photos_does_not_move_ahead():
+    """REPRODUCTION (H-D). ⛔ FAILS on 8743143 (Birk+Lotus): the count no
+    longer sets the order; Lotus was named first and stays first."""
+    with tempfile.TemporaryDirectory() as tmp, no_env():
+        wd, _pack = two_pet_dump(tmp, BIRK_MORE)
+        run("init", wd)
+        run("render", wd)
+        f1 = folders_of(index_of(tmp)[0])["F001"]
+    return (f1["rendered"] == "20241101_Ford_Lotus+Birk_sofa nap"
+            and [w["files"] for w in f1["validation"]["who"]] == [1, 2]), \
+        f"{f1['rendered']!r} {f1['validation']['who']}"
+
+
+def copied_two_pets(tmp, prior, old_name):
+    """Init, render, freeze; pretend P1 was copied into `old_name` with its
+    earlier [who] keys `prior` (None = no who field at all, an older index);
+    unfreeze, render again and freeze again. -> (render code, freeze code,
+    freeze output, plans.json, folders, folder-renames.md exists)."""
+    wd, _pack = two_pet_dump(tmp, LOTUS_FIRST, day2=("subj-0001", "subj-0002"))
+    for cmd in ("init", "render", "freeze"):
+        code, _o, err = run(cmd, wd)
+        assert code == 0, (cmd, err)
+    plans = json.loads((wd / "plans.json").read_text())
+    root = Path(plans["dest_root"])
+    folder = [p for p in plans["plans"] if "Ford" in p["dest"]["path"]][0]
+    rows = [r for r in csv_rows(wd, f"plan/plan_P{folder['plan']}-files.csv")
+            if r["action"] == "copy" and r["destination"] == folder["dest"]["path"]]
+    (wd / "plan" / "execute-state_P1.json").write_text(json.dumps(
+        {"plan": 1, "verified": {r["SourceFile"]: {
+            "dest": str(root / old_name / r["FileName"]), "sha256": "x",
+            "status": "copied"} for r in rows}}))
+    assert run("unfreeze", wd, "--reason", "a later render")[0] == 0
+    index, _v, target = index_of(tmp)
+    for fo in index["folders"]:
+        if fo["id"] in ("F001", "F002") and prior is None:
+            fo.get("validation", {}).pop("who", None)
+        elif fo["id"] in ("F001", "F002"):
+            fo["validation"]["who"] = [{"subject_id": k, "name": "x", "files": 1}
+                                       for k in prior]
+    (target / "index.json").write_text(json.dumps(index))
+    rcode, _o, rerr = run("render", wd)
+    fcode, fout, ferr = run("freeze", wd)
+    return (rcode, fcode, fout + ferr + rerr,
+            json.loads((wd / "plans.json").read_text()),
+            folders_of(index_of(tmp)[0]),
+            (wd / "plan" / "folder-renames.md").is_file())
+
+
+@case
+def a_copied_folder_keeps_its_who_order_and_lists_no_rename():
+    """⭐ REPRODUCTION (H-D, owner 20261004 "new folders only"). ⛔ FAILS on
+    8743143: a folder copied as `Birk+Lotus` re-rendered by count as
+    `Lotus+Birk` and the re-lock listed a rename for the order alone. A copied
+    folder keeps its earlier order — no plans.json `renames`, no
+    plan/folder-renames.md — while F002, never copied, takes the id order."""
+    old = "20241101_Ford_Birk+Lotus_sofa nap"
+    with tempfile.TemporaryDirectory() as tmp, no_env():
+        rcode, fcode, said, plans, f, md = copied_two_pets(
+            tmp, ["subj-0002", "subj-0001"], old)
+    return (rcode == 0 and fcode == 0 and f["F001"]["rendered"] == old
+            and not plans.get("renames") and not md
+            and f["F002"]["rendered"] == "20241102_Harbour_Lotus+Birk_harbour walk"), \
+        f"r={rcode} f={fcode} {f['F001']['rendered']!r} {f['F002']['rendered']!r} renames={plans.get('renames')} md={md} {said[-300:]!r}"
+
+
+@case
+def a_copied_folder_with_no_earlier_who_falls_back_to_the_id_order():
+    """GUARD. An index whose copied folder has no `who` field (rendered before
+    it existed, or edited by hand) does not crash: it takes the id order. If
+    the copy carried another order, that is a real rename and is listed."""
+    old = "20241101_Ford_Birk+Lotus_sofa nap"
+    with tempfile.TemporaryDirectory() as tmp, no_env():
+        rcode, fcode, said, plans, f, md = copied_two_pets(tmp, None, old)
+    return (rcode == 0 and fcode == 0
+            and f["F001"]["rendered"] == "20241101_Ford_Lotus+Birk_sofa nap"
+            and plans.get("renames") == [{"old": old,
+                                          "new": "20241101_Ford_Lotus+Birk_sofa nap"}]
+            and md), \
+        f"r={rcode} f={fcode} {f['F001']['rendered']!r} renames={plans.get('renames')} {said[-300:]!r}"
+
+
+@case
+def who_order_is_mint_order_then_names_and_keeps_a_copied_order():
+    """GUARD (H-D). Ids compare as numbers (`subj-10000` after `subj-9999`);
+    a subject with no id has no mint time and goes after every id, by name; a
+    copied folder's kept keys come first and a newly backed pet follows them
+    in id order; a kept key no longer backed is dropped, never invented."""
+    seen = photo_evidence.VIEWED
+    cells = {"a": {photo_plan.WHO_SUBJECTS: [
+        {"subject_id": sid, "name": n, "confirmed": True, "provenance": seen}
+        for sid, n in (("subj-10000", "Birk"), ("subj-9999", "Lotus"),
+                       (None, "Moss"), ("subj-0003", "Fern"))]}}
+    members = [{"source": "a"}]
+    plain = [b[0] for b in photo_index.backed_subjects(members, cells)]
+    kept = [b[0] for b in photo_index.backed_subjects(
+        members, cells, keep=["subj-10000", "subj-0042", "subj-9999"])]
+    return (plain == ["subj-0003", "subj-9999", "subj-10000", "Moss"]
+            and kept == ["subj-10000", "subj-9999", "subj-0003", "Moss"]), \
+        f"plain={plain} kept={kept}"
+
+
 @case
 def a_refusal_after_the_plan_files_are_written_puts_them_back():
     """GUARD. A refusal from photo_plan or the export comparison comes after
