@@ -142,7 +142,7 @@ def refused(tmp, r):
     # absent from this print.
     return (r.returncode == STALE and not copied(tmp)
             and "nothing was copied" in r.stdout
-            and all(f"photo_index.py {c}" in r.stdout
+            and all(f'photo_index.py" {c}' in r.stdout
                     for c in ("unfreeze", "render", "check", "freeze")))
 
 

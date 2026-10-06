@@ -966,7 +966,7 @@ def cmd_prep(args):
         # RS5: exiftool is where every date comes from, so a scan without it
         # is not a degraded run but a wrong one. It used to be a warning.
         sys.exit(f"⛔ prep stops: {', '.join(missing)} missing (see above). "
-                 f"`{photo_platform.owner_python()} {HERE / 'photo_run.py'} doctor` "
+                 f"`{photo_platform.run_line(photo_platform.owner_python(), HERE / 'photo_run.py')} doctor` "
                  "lists everything this machine needs, and how to install each item.")
     preview_check()
     if not Path(args.source).is_dir():
@@ -988,7 +988,7 @@ def cmd_prep(args):
         run("photo_census.py", workdir)
         print("\n--- prep done: scanned, NOT clustered (--no-cluster) ---")
         print("next: onboarding (photo-init), `apply --write-pack`, then:")
-        print(f"  {PY} {HERE / 'photo_run.py'} cluster \"{workdir}\"")
+        print(f"  {photo_platform.run_line(PY, HERE / 'photo_run.py')} cluster \"{workdir}\"")
         return
     cluster = ["photo_cluster.py", workdir]
     if args.force:
@@ -1133,11 +1133,11 @@ def freeze_gate(args, workdir, when):
           # FIX7 (F5-b): render lifts a STALE freeze by itself, so the three
           # steps are the whole recipe here — but a freeze that still holds
           # refuses them, and the recipe used to say nothing about it.
-          f"     {PY} {tool} unfreeze \"{workdir}\" --reason \"...\"   "
+          f"     {photo_platform.run_line(PY, tool)} unfreeze \"{workdir}\" --reason \"...\"   "
           "# only if render says the freeze still holds\n"
-          f"     {PY} {tool} render \"{workdir}\"\n"
-          f"     {PY} {tool} check \"{workdir}\"\n"
-          f"     {PY} {tool} freeze \"{workdir}\"")
+          f"     {photo_platform.run_line(PY, tool)} render \"{workdir}\"\n"
+          f"     {photo_platform.run_line(PY, tool)} check \"{workdir}\"\n"
+          f"     {photo_platform.run_line(PY, tool)} freeze \"{workdir}\"")
     if not args.go and not args.skip_memory:
         # A dry run never reaches the pages or the views, so it cannot know
         # whether they are done; freezing before them locks names they add.
@@ -1194,7 +1194,7 @@ def print_screen_checkpoint(workdir, profile=None):
     print("  To add one: make the onboarding sheet for this work dir and "
           "answer its screen: line — its dry run counts what the size moves "
           "before the owner says yes:\n"
-          f"      {PY} {Path(__file__).resolve().parent}/photo_onboard_page.py "
+          f"      {photo_platform.run_line(PY, HERE / 'photo_onboard_page.py')} "
           f"sheet \"{workdir}\" --out-dir <folder>")
     print(f"  Full proposal: {path}")
 
@@ -1339,7 +1339,7 @@ def pre_plan_checkpoint(args, workdir):
         print("\n⛔ STOPPED BEFORE COPYING — nothing was written.\n"
               "   A naming round was just put to the owner. Answer the review "
               f"page (memory-review_C{checkpoint}.md), then:\n"
-              f"     {PY} {HERE / 'photo_memory.py'} confirm \"{workdir}\" "
+              f"     {photo_platform.run_line(PY, HERE / 'photo_memory.py')} confirm \"{workdir}\" "
               f"--checkpoint {checkpoint} --go\n"
               "   then re-run this command. A subject confirmed now is named "
               "INTO the folder; a subject confirmed after the copy is not, "
@@ -1419,13 +1419,13 @@ def batch_page_checkpoint(workdir, pack=None):
                  if rc == PAGE_WRITTEN_RC else
                  f"   {name} is still waiting for its answer.\n")
               + "   Make the owner's web page for it:\n"
-              f"     {VENV_PYTHON} {HERE / 'photo_review_page.py'} render "
+              f"     {photo_platform.run_line(VENV_PYTHON, HERE / 'photo_review_page.py')} render "
               f"\"{Path(workdir) / name}\" --workdir \"{workdir}\""
               + (f" --pack \"{pack.dir}\"" if pack is not None and pack.dir else "")
               + "\n   Answer it, then run these two lines:\n"
-              f"     {PY} {HERE / 'photo_memory.py'} confirm \"{workdir}\" "
+              f"     {photo_platform.run_line(PY, HERE / 'photo_memory.py')} confirm \"{workdir}\" "
               f"--page {page} --go\n"
-              f"     {PY} {HERE / 'photo_index.py'} apply-page \"{workdir}\" "
+              f"     {photo_platform.run_line(PY, HERE / 'photo_index.py')} apply-page \"{workdir}\" "
               f"{page} --go\n"
               "   then re-run this command: it writes the next page, or goes on "
               "to the copy when none is due. A name confirmed now is named INTO "
@@ -1438,7 +1438,7 @@ def batch_page_checkpoint(workdir, pack=None):
     if rc != 0:
         stage_failed(
             "the batch page", rc,
-            f"{VENV_PYTHON} {HERE / 'photo_memory.py'} review \"{workdir}\" --next-page",
+            f"{photo_platform.run_line(VENV_PYTHON, HERE / 'photo_memory.py')} review \"{workdir}\" --next-page",
             note="" if VENV_PYTHON.is_file() else
             f"There is no repo virtualenv at {VENV_PYTHON}: a place page checks its "
             "photos for documents with CLIP and needs it (photo-init sets it up).")
@@ -1473,16 +1473,16 @@ def identify_checkpoint(workdir):
         if freeze_holds(workdir):
             # FIX9 F10: a freeze that holds refuses `identify --answers --go`
             # (D-I16) — after a correction made past the copy it always holds.
-            route = (f"     {PY} {tool} unfreeze \"{workdir}\" --reason \"...\"   "
+            route = (f"     {photo_platform.run_line(PY, tool)} unfreeze \"{workdir}\" --reason \"...\"   "
                      "(the freeze locks the names)\n"
-                     f"     {PY} {tool} identify \"{workdir}\" --answers \"{views}\" --go\n"
-                     f"     {PY} {tool} render \"{workdir}\"\n"
-                     f"     {PY} {tool} check \"{workdir}\"\n"
-                     f"     {PY} {tool} freeze \"{workdir}\"\n")
+                     f"     {photo_platform.run_line(PY, tool)} identify \"{workdir}\" --answers \"{views}\" --go\n"
+                     f"     {photo_platform.run_line(PY, tool)} render \"{workdir}\"\n"
+                     f"     {photo_platform.run_line(PY, tool)} check \"{workdir}\"\n"
+                     f"     {photo_platform.run_line(PY, tool)} freeze \"{workdir}\"\n")
         else:
-            route = (f"     {PY} {tool} identify \"{workdir}\" "
+            route = (f"     {photo_platform.run_line(PY, tool)} identify \"{workdir}\" "
                      f"--answers \"{views}\" --go\n"
-                     f"     {PY} {tool} render \"{workdir}\"   "
+                     f"     {photo_platform.run_line(PY, tool)} render \"{workdir}\"   "
                      "(then check and freeze)\n")
         print("\n⛔ STOPPED BEFORE COPYING — no name was applied.\n"
               f"   Recognition proposes pet names on photos: {views}.\n"
@@ -1496,7 +1496,7 @@ def identify_checkpoint(workdir):
         return True
     if rc != 0:
         stage_failed("agent identification", rc,
-                     f"{PY} {HERE / 'photo_index.py'} identify \"{workdir}\" --new-only")
+                     f"{photo_platform.run_line(PY, HERE / 'photo_index.py')} identify \"{workdir}\" --new-only")
     return False
 
 

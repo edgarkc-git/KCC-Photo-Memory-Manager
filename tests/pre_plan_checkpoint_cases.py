@@ -526,7 +526,7 @@ def a_page_stop_prints_the_line_that_makes_its_web_page():
         with conductor(rc=photo_run.PAGE_WRITTEN_RC) as (_rec, buf):
             photo_run.pre_plan_checkpoint(Args(str(workdir)), workdir)
         out = buf.getvalue()
-    return ("photo_review_page.py render" in out
+    return ('photo_review_page.py" render' in out
             and f'"{workdir / "P-B03.md"}" --workdir "{workdir}"' in out
             and f'--pack "' in out and Path(pack_dir).name in out), out[-600:]
 

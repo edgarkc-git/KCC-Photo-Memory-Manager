@@ -572,6 +572,31 @@ def planning_an_unseen_batch_is_refused_and_the_message_says_why():
 
 
 @case
+def a_printed_command_survives_spaces_in_both_paths():
+    """⭐ REPRODUCTION (K3). The refusal's commands printed the interpreter and
+    the script unquoted, so a product folder with a space broke the line when
+    it was copied. Run from a copy of the scripts under `my product/`, on a
+    work dir under `my dumps/`: every path in the printed command is quoted."""
+    import shutil
+    with tempfile.TemporaryDirectory() as tmp:
+        prod = Path(tmp).resolve() / "my product"
+        shutil.copytree(SCRIPTS, prod / "scripts",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        wd, pack = runnable_workdir(Path(tmp).resolve() / "my dumps", {})
+        env = dict(os.environ)
+        env[photo_profile.ENV_VAR] = str(pack / "photo-profile.json")
+        r = subprocess.run(
+            [sys.executable, str(prod / "scripts" / "photo_plan.py"), str(wd),
+             "--plan", "1"], capture_output=True, text=True, env=env)
+        text = r.stdout + r.stderr
+        see = [ln.strip() for ln in text.splitlines() if "photo_see.py" in ln]
+        want = f'"{prod / "scripts" / "photo_see.py"}" "{wd}" --batch <N>'
+        return (r.returncode != 0 and len(see) == 1
+                and see[0].startswith('"') and see[0].endswith(want)), \
+            f"rc={r.returncode} see={see!r}"
+
+
+@case
 def planning_a_seen_batch_still_renders():
     """The guard on the other side: the gate must not block the ordinary path.
     A CSV that now carries the WHO/WHAT columns is the whole point of R1."""

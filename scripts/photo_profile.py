@@ -497,7 +497,7 @@ def announce_place_ids(problems):
     import photo_platform
     print("⚠️ owner pack: " + "; ".join(fresh) + ". A place with no usable "
           "id is still suppressed and named as before, but an index cannot "
-          f"refer to it. `{photo_platform.owner_python()} {BACKFILL_IDS_COMMAND}` "
+          f"refer to it. `{photo_platform.quoted(photo_platform.owner_python())} {BACKFILL_IDS_COMMAND}` "
           "gives a missing id "
           "(a dry run; --go writes). A shared or malformed id is fixed by hand "
           "— the backfill never renumbers one.", file=sys.stderr)

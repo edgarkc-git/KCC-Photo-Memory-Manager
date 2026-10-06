@@ -70,6 +70,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import photo_platform  # noqa: E402
 import photo_profile  # noqa: E402
 import photo_settings  # noqa: E402
 
@@ -483,7 +484,7 @@ def waiting_for_owner(collection_dir, schmsg, profile=None):
                 out.append(schmsg["sched_waiting_screens"].format(
                     n=len(sizes), where=workdir.name,
                     sizes=", ".join("%sx%s" % tuple(d) for d in sizes),
-                    command=f'python3 {HERE}/photo_onboard_page.py sheet '
+                    command=f'{photo_platform.run_line("python3", HERE / "photo_onboard_page.py")} sheet '
                             f'"{workdir}" --out-dir <folder>'))
         # LL-PHO-94: these are globbed wider than they are parsed, so this
         # counts pages and never tries to read one. Both page shapes: a
@@ -694,7 +695,7 @@ def cmd_status(args, pack, schmsg):
                 print(f"  - {item}")
             print()
             print("  " + schmsg["sched_morning_next_step"].format(
-                command=f"python3 {HERE}/photo_run.py finish <dump> --go"))
+                command=f"{photo_platform.run_line('python3', HERE / 'photo_run.py')} finish <dump> --go"))
         else:
             print(schmsg["sched_hil_waiting_none"])
     return 0

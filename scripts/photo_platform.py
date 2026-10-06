@@ -124,12 +124,17 @@ def powershell_call(line, os_name=None):
     return line
 
 
+def quoted(word):
+    """K3 — a path in a printed command, in double quotes when it holds a
+    slash or a space, so a copied line still runs. Never `shlex.quote`: its
+    single quotes do not quote on Windows."""
+    word = str(word)
+    return f'"{word}"' if any(c in word for c in "/\\ ") else word
+
+
 def run_line(python, script, os_name=None):
     """F03 — `<python> <script>` for a printed next step, each quoted when it
     is a path, so a folder name with a space still runs."""
-    def quoted(word):
-        word = str(word)
-        return f'"{word}"' if any(c in word for c in "/\\ ") else word
     return powershell_call(f"{quoted(python)} {quoted(script)}", os_name)
 
 

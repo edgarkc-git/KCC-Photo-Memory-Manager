@@ -93,6 +93,34 @@ def missing_exiftool_stops_prep():
         photo_run.preview_check = saved
 
 
+@case
+def the_prep_stop_quotes_a_product_path_with_a_space():
+    """⭐ REPRODUCTION (K3). The doctor line `prep` prints when it stops was
+    `<python> <scripts>/photo_run.py doctor` with no quotes, so a product
+    folder with a space broke it when copied. Both paths are quoted now."""
+    import photo_platform
+    import photo_run
+    args = argparse.Namespace(source=str(ROOT), workdir_root=None,
+                              no_recursive=False, no_cluster=False, force=False,
+                              profile=None)
+    saved = (photo_run.HERE, photo_platform.owner_python)
+    photo_run.HERE = Path("/opt/my product/scripts")
+    photo_platform.owner_python = lambda: "/opt/my env/bin/python3"
+    restore = no_exiftool_offline()
+    try:
+        with redirect_stdout(io.StringIO()):
+            photo_run.cmd_prep(args)
+        return False, "prep returned"
+    except SystemExit as exc:
+        said = str(exc.code)
+        want = ('`"/opt/my env/bin/python3" "/opt/my product/scripts/'
+                'photo_run.py" doctor`')
+        return want in said, said
+    finally:
+        restore()
+        photo_run.HERE, photo_platform.owner_python = saved
+
+
 # ---------------------------------------------------------------------------
 # Facts in, items out. facts() is a healthy machine; each case breaks one fact.
 # ---------------------------------------------------------------------------

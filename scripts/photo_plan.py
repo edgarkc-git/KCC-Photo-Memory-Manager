@@ -1424,10 +1424,10 @@ def main():
               "nothing downstream would report the loss.\n"
               "  Run the visual pass first:\n"
             + ("" if (workdir / "embed" / "embeddings.npy").exists() else
-               f"    {photo_platform.venv_python()} {Path(__file__).resolve().parent}"
-               f"/photo_embed.py \"{workdir}\"        # no embed/ yet\n")
-            + f"    {photo_platform.venv_python()} {Path(__file__).resolve().parent}"
-              f"/photo_see.py \"{workdir}\" --batch <N>\n"
+               f"    {photo_platform.run_line(photo_platform.venv_python(), Path(__file__).resolve().parent / 'photo_embed.py')}"
+               f" \"{workdir}\"        # no embed/ yet\n")
+            + f"    {photo_platform.run_line(photo_platform.venv_python(), Path(__file__).resolve().parent / 'photo_see.py')}"
+              f" \"{workdir}\" --batch <N>\n"
               "  ...then re-run this plan.\n"
               "  --no-vision plans anyway, giving up WHO/WHAT for these "
               "batches.")
