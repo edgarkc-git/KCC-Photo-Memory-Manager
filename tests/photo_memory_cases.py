@@ -8229,9 +8229,9 @@ def case_w27_an_older_page_keeps_its_sentence(tmp):
 
 def case_u213_a_web_page_says_only_home_or_away(tmp):
     """⭐ REPRO U2-13 — a web page may be published, so a crop's place is
-    only "at home" or "away from home" there, decided by the same away_km
-    test; the km and the home label stay on the text page. The written
-    HTML file is checked whole."""
+    only "at a home you named" (U3-3) or "away from home" there, decided by
+    the same away_km test; the km and the home label stay on the text page.
+    The written HTML file is checked whole."""
     import re as _re
     import photo_review_page as rp
     pack_dir, workdir, _ids = four_drafts(tmp, rendered=4)
@@ -8244,7 +8244,7 @@ def case_u213_a_web_page_says_only_home_or_away(tmp):
     text = page.read_text()
     rmsg = photo_profile.REVIEW_VOCAB["en"]
     assert "taken 55.6 km from Home-A" in text, text
-    assert web_by_batch(text) == {1: "at home", 2: "at home",
+    assert web_by_batch(text) == {1: WEB_HOME, 2: WEB_HOME,
                                   3: "away from home",
                                   4: rmsg["review_frame_where_none"]}, \
         web_by_batch(text)
@@ -8253,7 +8253,7 @@ def case_u213_a_web_page_says_only_home_or_away(tmp):
     # embedded-frame HTML is checked in review_page_cases.
     wheres = rp.parse_review(text)["questions"][0]["where"]
     assert sorted(wheres.values()) == sorted(
-        ["at home", "at home", "away from home",
+        [WEB_HOME, WEB_HOME, "away from home",
          rmsg["review_frame_where_none"]]), wheres
     out = workdir / "page.html"
     rp.main(["render", str(page), "-o", str(out)])
@@ -8275,7 +8275,62 @@ def case_u213_a_pack_away_km_decides_the_web_word(tmp):
     write_manifest(workdir, {str(workdir / "B3_C0_000.JPG"): "10.5000 20.0000"})
     text = review_text(pack_dir, workdir).read_text()
     assert where_by_batch(text)[3] == "taken at Home-A", where_by_batch(text)
-    assert web_by_batch(text)[3] == "at home", web_by_batch(text)
+    assert web_by_batch(text)[3] == WEB_HOME, web_by_batch(text)
+
+
+# U3-3 (owner's words) — one phrase for every registered home.
+WEB_HOME = "at a home you named"
+
+
+def case_u33_a_visited_home_says_a_home_you_named(tmp):
+    """⭐ REPRO U3-3 — a home the owner only VISITS (`home_range: false`) is a
+    registered home too: the web page says "at a home you named" for it, and
+    "at home" for no frame at all, labelled home or not."""
+    import photo_review_page as rp
+    pack_dir, workdir, _ids = four_drafts(tmp, rendered=4)
+    add_homes(pack_dir, [{"label": "Home-A", "lat": 10.0, "lon": 20.0},
+                         {"label": "Visited-B", "lat": 12.0, "lon": 22.0,
+                          "home_range": False},
+                         {"lat": 11.0, "lon": 21.0}])
+    write_manifest(workdir, {str(workdir / "B1_C0_000.JPG"): "10.0010 20.0010",
+                             str(workdir / "B2_C0_000.JPG"): "12.0010 22.0000",
+                             str(workdir / "B3_C0_000.JPG"): "11.0010 21.0000",
+                             str(workdir / "B4_C0_000.JPG"): "10.5000 20.0000"})
+    text = review_text(pack_dir, workdir).read_text()
+    assert where_by_batch(text)[2] == "taken at Visited-B", where_by_batch(text)
+    assert web_by_batch(text) == {1: WEB_HOME, 2: WEB_HOME, 3: WEB_HOME,
+                                  4: "away from home"}, web_by_batch(text)
+    wheres = rp.parse_review(text)["questions"][0]["where"]
+    assert "at home" not in wheres.values(), wheres
+
+
+def case_u33_an_older_page_still_renders_and_applies(tmp):
+    """GUARD U3-3 — a page written by v2.0.2 carries the old `at home` mark.
+    The mark is display only: the web page shows it as written, and the
+    answered page confirms exactly as a new one does."""
+    import photo_review_page as rp
+    pack_dir, workdir, _ids = four_drafts(tmp, rendered=4)
+    add_homes(pack_dir, HOMES_F10)
+    write_manifest(workdir, {str(workdir / "B1_C0_000.JPG"): "10.0010 20.0010",
+                             str(workdir / "B2_C0_000.JPG"): "11.0010 21.0000"})
+    page = review_text(pack_dir, workdir)
+    text = page.read_text()
+    new_mark = f"<!-- web: {WEB_HOME} -->"
+    assert text.count(new_mark) >= 2, text
+    older = text.replace(new_mark, "<!-- web: at home -->")
+    wheres = rp.parse_review(older)["questions"][0]["where"]
+    assert sorted(wheres.values())[:2] == ["at home", "at home"], wheres
+    page.write_text(fill_pick(older, [1], name="Lotus"))
+    out = workdir / "page.html"
+    # This fixture's refs are not hex, so the HTML embeds no frame (see the
+    # U2-13 case); the render must still accept the older page.
+    assert rp.main(["render", str(page), "-o", str(out)]) in (None, 0)
+    assert out.is_file()
+    rc, said = confirm(pack_dir, workdir)
+    assert rc == 0, said
+    names = [s.record.get("name") for s in psub.load(
+        pack=open_pack(pack_dir)).subjects]
+    assert "Lotus" in names, (names, said)
 
 
 CASES = [
@@ -8669,6 +8724,10 @@ CASES = [
      case_u213_a_web_page_says_only_home_or_away),
     ("U2-13 — a pack away_km decides the web word (GUARD)",
      case_u213_a_pack_away_km_decides_the_web_word),
+    ("U3-3 — a visited home says a home you named (REPRODUCTION)",
+     case_u33_a_visited_home_says_a_home_you_named),
+    ("U3-3 — an older page still renders and applies (GUARD)",
+     case_u33_an_older_page_still_renders_and_applies),
 ]
 
 

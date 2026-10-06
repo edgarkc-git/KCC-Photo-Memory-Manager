@@ -1458,10 +1458,11 @@ class FrameWhere:
     def place(self, frame):
         """-> (the text page's phrase, the web page's word or "").
 
-        U2-13 — a web page may be published, so it says only "at home" or
-        "away from home", decided by the same `away_km` test; the km and the
-        home label stay on the text page. A phrase with neither is its own
-        web word."""
+        U2-13 — a web page may be published, so it says only "at a home you
+        named" or "away from home", decided by the same `away_km` test; the
+        km and the home label stay on the text page. U3-3 — the home words are
+        the same for every registered home, lived in or visited, labelled or
+        not. A phrase with neither is its own web word."""
         rmsg = self.rmsg
         row = self._row(frame.get("path"), frame.get("workdir"))
         if row is None:
