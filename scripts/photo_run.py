@@ -361,6 +361,11 @@ def verdict(items):
 # switch back.
 SWITCH_BACK = ("If you switched to manual mode for setup, you can switch back "
                "to auto now.")
+VISION_NOT_READY = (
+    "⚠️  A normal run is NOT ready yet: it needs the vision stages too, and "
+    "it stops at the preview check without them.\n"
+    "   Do docs/INSTALL.md step 4 (the .venv with all its packages, and "
+    "ffmpeg), then run doctor again.")
 
 
 def render_items(items, platform):
@@ -399,7 +404,12 @@ def render_items(items, platform):
     lines.append("ready to start: " + ("yes" if v["ready_to_start"] else "NO")
                  + " · vision stages: " + ("ready" if v["ready_for_vision"]
                                            else "not ready"))
-    if v["ready_to_start"]:
+    if v["ready_to_start"] and not v["ready_for_vision"]:
+        # K1 — "ready to start: yes" alone read as ready to run; a normal run
+        # stops later at the preview check. Wording only: the exit code still
+        # follows `verdict()`.
+        lines.append(VISION_NOT_READY)
+    elif v["ready_to_start"]:
         lines.append(SWITCH_BACK)
     return "\n".join(lines)
 

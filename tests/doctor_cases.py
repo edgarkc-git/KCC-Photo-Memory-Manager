@@ -358,6 +358,23 @@ def a_ready_doctor_ends_with_the_switch_back_line():
             and SWITCH_BACK_LINE not in blocked), ready[-200:]
 
 
+@case
+def a_doctor_without_the_vision_stages_says_a_run_needs_them():
+    """REPRODUCTION (K1). Ready to start, vision stages not ready: doctor
+    ended on "ready to start: yes" and the switch-back line, and the run
+    stopped later at the preview check. The last lines now say a normal run
+    needs step 4. Wording only: the exit code is still 0 (GUARD)."""
+    code, said = run_doctor(facts(preview=None))
+    tail = said.rstrip().splitlines()[-2:]
+    full_code, full = run_doctor(facts())
+    return (code == 0 and full_code == 0
+            and "ready to start: yes · vision stages: not ready" in said
+            and tail[0].startswith("⚠️  A normal run is NOT ready yet")
+            and "docs/INSTALL.md step 4" in tail[1] and "ffmpeg" in tail[1]
+            and SWITCH_BACK_LINE not in said
+            and "A normal run is NOT ready" not in full), said[-400:]
+
+
 STEP_0 = "## Step 0: if your agent refuses to run this product"
 DOCTOR_STEP = "## 3. Ask the machine: `doctor`"
 STEP_0_LINK = "docs/INSTALL.md#step-0-if-your-agent-refuses-to-run-this-product"
