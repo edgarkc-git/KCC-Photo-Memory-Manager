@@ -65,7 +65,9 @@ permission.
 time it asks to run a product command, answer **"Yes, and don't ask again"**.
 That answer covers that EXACT command only, so expect a prompt for each new
 command during setup (one measured setup gave 11). When `doctor` says
-`ready to start: yes`, switch back to auto mode.
+`ready to start: yes`, switch back to auto mode. `ready to start: yes` alone is
+not enough: switch back once `doctor` no longer shows the line *"A normal run
+is NOT ready yet"*, which means step 4 is still to do.
 
 **Path B: paste allow rules, then stay in auto.** Add this block to your OWN
 project settings (`.claude/settings.local.json` in the folder you start the
@@ -225,10 +227,11 @@ for torch and the model weights. Exit 0 means everything needed to start is
 there. Install what it names (step 4), then run it again.
 
 Its summary line reads `ready to start: yes` or `no`, then
-`vision stages: ready` or `not ready`. When it says **`ready to start: yes`**,
-its last line is *"If you switched to manual mode for setup, you can switch
-back to auto now."* (measured on a fresh unzip on macOS, and on Windows 11,
-both with the vision stages not yet installed).
+`vision stages: ready` or `not ready`. `ready to start: yes` alone is not
+enough for a normal run: while the vision stages are `not ready`, its last
+lines say *"A normal run is NOT ready yet"* and point to step 4. When both are
+ready, its last line is *"If you switched to manual mode for setup, you can
+switch back to auto now."*
 
 `photo_run.py prep` runs the start half of `doctor` before any real work: it
 stops when exiftool is missing, and when no preview backend can make a still.
