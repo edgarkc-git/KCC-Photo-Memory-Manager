@@ -2417,6 +2417,7 @@ def render_representations(represented, rmsg):
                     out.append("> " + rmsg["review_frame_shared_remembered"].format(
                         n=frame["n"], count=frame["det_count"],
                         subject=record["display"]) + f" {SHARED_MARK}")
+                    out += not_mine_lines(frame, rmsg)
                 if frame.get("whole"):
                     # Q3 — its own line, so the where-phrase stays the
                     # where-phrase; the ASCII mark is what the web page reads
@@ -2694,6 +2695,34 @@ def render_name_taken(registry, profile, rmsg):
         example=names[0], same=SAME_TOKEN, distinct=DISTINCT_TOKEN), ""]
 
 
+def tag_not_mine(workdir, pack, questions, represented):
+    """C10 — `frame["not_mine"]` = the animals (det_index) of a shared photo
+    this dump's index records as not the owner's, so the page says so rather
+    than asking again. Only this dump's marks: a frame from another dump is
+    left as it was."""
+    embed = Path(workdir) / "embed"
+    marks = photo_identity.not_mine_marks(embed, pack)
+    if not marks:
+        return
+    by_file, _space = photo_identity.load_detections(embed, pack)
+    by_sha = {}
+    for sha, det_index in photo_identity.not_mine_keys(by_file, marks):
+        by_sha.setdefault(sha, []).append(det_index)
+    frames = [f for q in questions for t in q.get("tiles") or []
+              for f in t.get("frames") or []]
+    frames += [f for r in represented.get("remembered") or []
+               for f in r.get("frames") or []]
+    for frame in frames:
+        if frame.get("vec_ref") in by_sha:
+            frame["not_mine"] = sorted(by_sha[frame["vec_ref"]])
+
+
+def not_mine_lines(frame, rmsg):
+    return ["> " + rmsg["review_frame_not_mine"].format(
+        n=frame["n"], ref=f"{frame['n']}.{d + 1}")
+        for d in frame.get("not_mine") or []]
+
+
 def render_review(workdir, pack, registry, rows, questions, suppressed,
                   represented, checkpoint, threshold, depending, round_state,
                   round_deferred=0, page=None, places=()):
@@ -2701,6 +2730,7 @@ def render_review(workdir, pack, registry, rows, questions, suppressed,
     rmsg = photo_profile.review_messages(profile)
     snapshot = pack.snapshot() or {"id": "(no pack files)", "files": 0}
     number_frames(questions, represented)
+    tag_not_mine(workdir, pack, questions, represented)
 
     for q in questions:
         for row in rows:
@@ -2825,6 +2855,7 @@ def render_review(workdir, pack, registry, rows, questions, suppressed,
                     out.append("> " + rmsg["review_frame_not_animal"].format(
                         ref=f"{frame['n']}."
                             f"{int(first.group(1)) + 1 if first else 2}"))
+                    out += not_mine_lines(frame, rmsg)
                 if named.get(frame["image"]):
                     out.append("> " + rmsg["review_frame_named"].format(
                         n=frame["n"], names=" + ".join(named[frame["image"]])))

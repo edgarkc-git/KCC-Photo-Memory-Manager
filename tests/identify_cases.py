@@ -400,6 +400,69 @@ def a_skip_on_a_two_animal_photo_suppresses_neither_animal():
         f"code={code} rows={got} err={err[-200:]!r}"
 
 
+def two_animals_keyed(tmp, frames):
+    """id_dump, with the identity rows carrying the file's sha and one box
+    per animal, as a real index does. -> (work dir, pack)."""
+    wd, pack, _ = id_dump(tmp, frames)
+    path = wd / "embed" / "identity.csv"
+    with open(path, newline="") as fh:
+        got = list(csv.DictReader(fh))
+    for r in got:
+        r["sha256"] = "sha256:" + Path(r["SourceFile"]).name
+        d = int(r["det_index"] or 0)
+        r["box"] = "%d,0,%d,10" % (10 * d, 10 * d + 10)
+    with open(path, "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=photo_identity.CSV_FIELDS)
+        w.writeheader()
+        w.writerows(got)
+    return wd, pack
+
+
+def owner_not_mine(wd, pack, name, det_index, box, page="P-B09"):
+    """The dump index as `skip: N.M confirm` leaves it (C10)."""
+    ipack, target, index = photo_index.load(wd, pack)
+    index.setdefault("not_mine", []).append(
+        {"sha256": f"sha256:{name}", "det_index": det_index, "box": box,
+         "file": name, "by": "owner", "source": f"{page}.md Q1 3.{det_index + 1}",
+         "at": "2024-11-30 10:00"})
+    photo_index.save(target, ipack, index)
+
+
+@case
+def one_animal_the_owner_said_is_not_theirs_is_not_offered():
+    """REPRODUCTION (C10). ⛔ FAILS on 6059fc5: a `not_mine` mark on animal 2
+    of a two-animal photo was not read, so identify still offered that
+    animal's name. Now that ONE animal is listed with the reason, and the
+    other animal in the same photo is still offered."""
+    two = ("TWO_3.jpg", 3, [e(0), e(1)], True, None)
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, pack = two_animals_keyed(tmp, [two])
+        owner_not_mine(wd, pack, "TWO_3.jpg", 1, "10,0,20,10")
+        code, out, err = ix.run("identify", wd)
+        got = rows(wd)
+    return (code == photo_index.EXIT_VIEWS_WANTED
+            and [r["subject_id"] for r in got] == [LOTUS]
+            and "the owner said this animal is not theirs on P-B09" in out), \
+        f"code={code} rows={got} out={out[-300:]!r} err={err[-200:]!r}"
+
+
+@case
+def a_stale_not_mine_mark_is_never_applied_to_another_animal():
+    """GUARD (C10). The photo was detected again and animal 2's box moved:
+    the mark is stale, said, and holds out NOTHING — never the animal now
+    numbered 2."""
+    two = ("TWO_3.jpg", 3, [e(0), e(1)], True, None)
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, pack = two_animals_keyed(tmp, [two])
+        owner_not_mine(wd, pack, "TWO_3.jpg", 1, "55,0,99,10")
+        code, out, err = ix.run("identify", wd)
+        got = rows(wd)
+    return (code == photo_index.EXIT_VIEWS_WANTED
+            and sorted(r["subject_id"] for r in got) == sorted([LOTUS, JUNIPER])
+            and "is stale" in out + err), \
+        f"code={code} rows={got} out={out[-300:]!r} err={err[-200:]!r}"
+
+
 @case
 def a_revived_skip_is_offered_again():
     """GUARD — `--revive` takes the rejection back, so the row comes back."""

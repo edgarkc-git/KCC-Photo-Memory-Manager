@@ -2067,6 +2067,11 @@ def identify_proposals(workdir, pack, decided=()):
                                                           pack)
     decided = set(decided)
     skipped_on = owner_skipped(registry)
+    # C10 — one animal of a shared photo the owner said is not theirs.
+    mine_marks = photo_identity.not_mine_marks(workdir / "embed", pack)
+    not_mine = photo_identity.not_mine_keys(detections, mine_marks)
+    said_on = {(m.get("sha256"), int(m.get("det_index") or 0)):
+               (m.get("source") or "a page").split(" ")[0] for m in mine_marks}
     offered, not_offered = [], []
     for bdir in sorted((workdir / "classify").glob("batch-*")):
         report_path, labels_path = bdir / "see-report.json", bdir / "see-labels.json"
@@ -2106,11 +2111,13 @@ def identify_proposals(workdir, pack, decided=()):
                 det_count = int(count) if count not in (None, "") else len(boxes)
                 scored = [(int(r.get("det_index") or 0), v)
                           for (r, _v), v in zip(boxes, verdicts)]
+                sha = boxes[0][0].get("sha256")
             else:
                 verdicts = registry.match(index[path][1][None, :].astype(np.float32),
                                           [when], identity)
                 det_count = 0 if path in detections else None
                 scored = [(None, verdicts[0])]
+                sha = None
             best = {}
             for det_index, v in scored:
                 if (not v or not v.get("subject_id")
@@ -2123,6 +2130,11 @@ def identify_proposals(workdir, pack, decided=()):
                        "score": v.get("score"), "lead": v.get("lead"),
                        "runner_up": v.get("runner_up"), "det_index": det_index,
                        "det_count": det_count}
+                if (sha, det_index) in not_mine:
+                    row["reason"] = ("the owner said this animal is not theirs "
+                                     f"on {said_on[(sha, det_index)]}")
+                    not_offered.append(row)
+                    continue
                 if not (v["verdict"] == photo_subjects.VERDICT_ACCEPT
                         and v.get("space") == "identity"):
                     not_offered.append(row)
@@ -2131,9 +2143,10 @@ def identify_proposals(workdir, pack, decided=()):
                 # SKIPPED on a page is `rejected`, basis not-mine — "this is
                 # not my animal". A one-animal photo IS that animal: never
                 # offered, listed with the reason. A photo with 2+ animals is
-                # still offered PER ANIMAL (D-24 / G6-6): the skip was recorded
-                # per photo (vec_ref, no det_index — C10), so it cannot say
-                # which animal was meant, and the row says so instead.
+                # still offered PER ANIMAL (D-24 / G6-6): a whole-photo skip
+                # cannot say which animal was meant, and the row says so
+                # instead. One animal the owner named on `skip: N.M confirm`
+                # (C10) is held out above.
                 page = skipped_on.get(path)
                 if page and det_count == 1:
                     row["reason"] = f"the owner skipped this animal on {page}"

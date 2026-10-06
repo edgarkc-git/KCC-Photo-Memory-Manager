@@ -1044,6 +1044,38 @@ def case_c10_the_end_page_takes_the_same_row(tmp):
     c10_assert_one_animal_not_mine(got)
 
 
+def case_c10_a_recorded_animal_is_said_not_asked(tmp):
+    """REPRO C10 — once animal 2 of a shared photo is recorded as not the
+    owner's, the end page re-presenting that photo says so, under that photo,
+    and names no other animal."""
+    import photo_identity
+    saved = photo_identity.not_mine_marks
+    holder = {}
+
+    def marks(_embed, _pack=None):
+        look = holder["looks"][0]
+        return [{"sha256": look["vec_ref"], "det_index": 1,
+                 "box": "20,0,40,20", "source": "P-B01.md Q1 1.2"}]
+    photo_identity.not_mine_marks = marks
+    try:
+        pack_dir, workdir, sid, refs = pmc.two_looks_apart(tmp, frames=2)
+        holder["looks"] = [l for e in subject_of(pack_dir, sid).record["evidence"]
+                           for l in e["looks"]]
+        index_looks(workdir, holder["looks"], 2)
+        import identify_cases as idc
+        import photo_embed
+        thumb = photo_embed.convert_to_thumbnail
+        photo_embed.convert_to_thumbnail = idc.thumbnail_stub()
+        try:
+            text = pmc.review_text(pack_dir, workdir).read_text()
+        finally:
+            photo_embed.convert_to_thumbnail = thumb
+    finally:
+        photo_identity.not_mine_marks = saved
+    said = [l for l in text.splitlines() if "recorded as not your animal" in l]
+    assert len(said) == 1 and ", animal " in said[0] and ".2:" in said[0], said
+
+
 def case_c10_a_one_animal_photo_takes_the_whole_photo_row(tmp):
     """GUARD C10 — `skip: N.M confirm` on a photo with ONE animal is refused
     and points at `skip: N confirm`; nothing is marked."""
@@ -1139,6 +1171,8 @@ CASES = [
      case_c10_one_animal_not_mine_and_the_pet_keeps_its_name),
     ("C10: the end page takes the same row (REPRO)",
      case_c10_the_end_page_takes_the_same_row),
+    ("C10: a recorded animal is said, not asked (REPRO)",
+     case_c10_a_recorded_animal_is_said_not_asked),
     ("C10: a one-animal photo takes the whole-photo row (GUARD)",
      case_c10_a_one_animal_photo_takes_the_whole_photo_row),
     ("C10: both words on one crop are refused (GUARD)",
