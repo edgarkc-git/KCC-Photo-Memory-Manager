@@ -4119,12 +4119,18 @@ def partition_picks(registry, block, accepted, refusals, changes, by, src,
             dead += rows
             continue
         if splitting and not go:
+            # U3-1 — one line per line `--go` prints: each unnamed child, then
+            # the parent. The children's ids are minted only by `--go`.
+            for kind, refs in extra:
+                changes.append(
+                    f"{subject_id} -> would split off a new subject, rejected"
+                    if kind == "rejected" else
+                    f"{subject_id} -> would split off the {len(refs)} frame(s) "
+                    "you neither picked nor skipped, kept as a draft and "
+                    "asked about again")
             changes.append(
                 f"{subject_id} -> would be superseded by a split into "
-                f"{len(groups)} subject(s)"
-                + (", one of them rejected" if skipped else "")
-                + (", one holding the frames you left alone"
-                   if len(extra) > 1 else ""))
+                f"{len(groups)} subject(s)")
             continue
         if not go:
             continue
@@ -4883,11 +4889,16 @@ def apply_promotion(registry, target, members, refs, by, src, prefix, go, out):
         # FIX7 (U7-3) — the lines --go prints, one per draft and one for the
         # target, so the two counts agree (UAT01-7: 4 predicted, 7 written).
         for subject in members:
+            # U3-1 — counted in LOOKS, the unit `--go` reports, by the same
+            # read-only copy `attach_draft_to_subject()` counts.
+            looks = sum(len(entry.get("looks") or [])
+                        for entry in registry._inherit_evidence(
+                            subject.record,
+                            set(refs.get(subject.subject_id) or [])))
             out["changes"].append(
                 f"{subject.subject_id} -> would join {target.subject_id} "
-                f"({target.who}/{target.name}); "
-                f"{len(refs.get(subject.subject_id) or [])} picked frame(s) "
-                "carried across, and the draft stops being asked about. "
+                f"({target.who}/{target.name}); {looks} look(s) carried "
+                "across, and the draft stops being asked about. "
                 f"Withdrawing {target.name!r} releases it again")
         out["changes"].append(
             f"{target.subject_id} -> {picked} picked frame(s) would be offered "
@@ -7043,9 +7054,6 @@ def cmd_confirm(args):
         would_record += [rel for rel, _name, draft, _n in shared_logs
                          if draft not in refusals.ids]
         if would_record:
-            print(f"  would record {len(would_record)} owner-picked frame(s) "
-                  "into see-labels.json — the name each one's folder takes at "
-                  "render, per photo (its name now -> after):")
             typed = {}
             for rel, draft, _ref, name, distinct in picked_frames:
                 if draft not in refusals.ids:
@@ -7057,17 +7065,28 @@ def cmd_confirm(args):
                     typed.setdefault(rel, []).append((logged_name, True))
             import photo_see
             held = photo_see.subjects_held(workdir, list(typed))
+            lines, renamed = [], 0
             for rel in sorted(typed, key=lambda r: Path(held.get(r, (r,))[0]).name):
                 if rel not in held:
                     continue
                 source, ids = held[rel]
                 names = list(dict.fromkeys(n for n, _ in typed[rel]))
-                same = (len(ids) == 1 and names == [names_before.get(ids[0])]
-                        and not any(d for _, d in typed[rel]))
-                print("    " + displaced_line(
-                    source, [names_before.get(i) or i for i in ids],
-                    names, add=rel in added or len(ids) > 1 or len(names) > 1,
-                    same=same))
+                now = [names_before.get(i) or i for i in ids]
+                add = rel in added or len(ids) > 1 or len(names) > 1
+                # U3-1 — a photo that already holds every typed name is
+                # unchanged, one name or several: `--go` writes nothing there.
+                same = ((len(ids) == 1 and names == [names_before.get(ids[0])]
+                         and not any(d for _, d in typed[rel]))
+                        or (add and bool(ids) and set(names) <= set(now)))
+                renamed += not same
+                lines.append("    " + displaced_line(source, now, names,
+                                                     add=add, same=same))
+            # U3-1 — PHOTOS that take a new name, the unit `--go` reports.
+            print(f"  would give {renamed} photo(s) a new name in "
+                  "see-labels.json — the name each one's folder takes at "
+                  "render, per photo (its name now -> after):")
+            for line in lines:
+                print(line)
         print(f"dry run — {len(changes)} change(s) would be written, "
               f"{len(refusals)} refused. Re-run with --go.")
         return 1 if refusals else 0
@@ -7156,30 +7175,37 @@ def cmd_confirm(args):
                                 "workdir": str(workdir), "by": by,
                                 "reason": review_src,
                                 "at": datetime.now().strftime("%Y-%m-%d")})
-            if recorded["written"]:
-                print(f"  recorded {len(recorded['written'])} owner-picked "
-                      "frame(s) into see-labels.json — those files can now "
-                      "carry the subject's NAME in a plan, instead of its "
-                      "class word. Per photo (its name before -> now):")
+            if recorded["written"] or any(rel in held for rel, _ in confirmed):
+                # U3-1 — PHOTOS that took a new name, the dry run's unit.
+                renamed = len({source for source, _ in recorded["written"]})
+                print(f"  gave {renamed} photo(s) a new name in "
+                      "see-labels.json — those files can now carry the "
+                      "subject's NAME in a plan, instead of its class word. "
+                      "Per photo (its name before -> now):")
             # FIX8 F8-1 — which name each write displaced, from the writer's
             # own report: `replaced` is a swap, anything else written is an add.
             new_by_source = {}
             for source, sid in recorded["written"]:
                 new_by_source.setdefault(source, []).append(sid)
             swapped = {row["path"] for row in recorded.get("replaced") or []}
+            shown = set()
             for rel, sid in confirmed:
                 if rel not in held:
                     continue
                 source, ids = held[rel]
                 if source in new_by_source:
                     new = new_by_source.pop(source)
+                    shown.add(source)
                     print("    " + displaced_line(
                         source, [names_before.get(i) or i for i in ids],
                         [subject_name(registry, s) for s in new],
                         add=bool(ids) and source not in swapped))
-                elif ids == [sid]:
-                    name = names_before.get(sid) or sid
-                    print("    " + displaced_line(source, [name], [name], same=True))
+                elif sid in ids and source not in shown:
+                    # U3-1 — every unchanged photo is listed, as the dry run
+                    # lists it, a 2-name photo included.
+                    shown.add(source)
+                    now = [names_before.get(i) or i for i in ids]
+                    print("    " + displaced_line(source, now, now, same=True))
             for path in recorded["skipped_multi_subject"]:
                 print(f"  ⚠️  {path} names more than one subject, so which one "
                       "you picked cannot be told from the frame — left as it "

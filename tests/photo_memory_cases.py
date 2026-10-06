@@ -3063,8 +3063,8 @@ def case_a_subset_skip_splits_before_it_rejects(tmp):
     path.write_text(fill_skip(path.read_text(), None, frames="2"))
     snapshot = open_pack(pack_dir).snapshot()["id"]
     rc, said = confirm(pack_dir, workdir, checkpoint=1, go=False)
-    assert rc == 0 and "one of them rejected" in said, said
-    assert "frames you left alone" in said, \
+    assert rc == 0 and "would split off a new subject, rejected" in said, said
+    assert "you neither picked nor skipped, kept as a draft" in said, \
         "the dry run did not say the leftover frames keep their own record"
     assert open_pack(pack_dir).snapshot()["id"] == snapshot, \
         "the dry run moved the pack — the split ran without --go"
@@ -7241,7 +7241,7 @@ def case_split_children_keep_their_picked_frames(tmp):
     got = {n: recorded(n) for n in nums}
     assert got == {nums[0]: [held["Name-A"]], nums[1]: [held["Name-B"]],
                    nums[2]: [held["Name-A"]], nums[3]: []}, got
-    assert "recorded 3 owner-picked frame(s)" in said, said
+    assert "gave 3 photo(s) a new name in see-labels.json" in said, said
 
 
 def case_a_confirm_audits_the_id_it_replaced(tmp):
@@ -7436,13 +7436,13 @@ def case_a_join_dry_run_says_what_go_writes(tmp):
     rc, dry = confirm(pack_dir, later, checkpoint=1, go=False)
     assert rc == 0, dry
     assert f"{draft} -> would join {target}" in dry, dry
-    assert "would record 1 owner-picked frame(s) into see-labels.json" in dry, dry
+    assert "would give 1 photo(s) a new name in see-labels.json" in dry, dry
     rc, said = confirm(pack_dir, later, checkpoint=1, go=True)
     assert rc == 0, said
     n_dry = int(re.findall(r"(\d+) change\(s\)", dry)[-1])
     n_go = int(re.findall(r"(\d+) change\(s\)", said)[-1])
     assert n_dry == n_go, (n_dry, n_go, dry, said)
-    assert "recorded 1 owner-picked frame(s)" in said, said
+    assert "gave 1 photo(s) a new name in see-labels.json" in said, said
 
 
 def case_the_near_name_measure_is_script_neutral_and_list_free(tmp):
@@ -7685,7 +7685,7 @@ def case_joined_frames_reach_see_labels(tmp):
     got = labelled_ids(workdir)
     assert got == {"batch-01": [declared], "batch-02": [declared],
                    "batch-03": [declared], "batch-04": []}, got
-    assert "recorded 3 owner-picked frame(s)" in said, said
+    assert "gave 3 photo(s) a new name in see-labels.json" in said, said
 
     other = tmp / "fold"
     other.mkdir()
@@ -8358,6 +8358,49 @@ def case_w220b_a_copied_work_dir_says_once_what_was_kept(tmp):
         [s.record for s in named]
 
 
+def case_u31_the_dry_run_counts_what_go_prints(tmp):
+    """⭐ REPRO U3-1 — the dry run's numbers ARE the numbers `--go` prints, on
+    one page that splits a draft (a picked frame, a skipped frame, a frame
+    left alone), joins the picked part to a named subject, and records the
+    picked photo. UAT3: "15 change(s)" then "wrote 17" (a split was one line
+    dry, three under --go), "picked frame(s)" against "look(s)", and "would
+    record 10 frames" against "recorded 1"."""
+    import re as _re
+    pack_dir, workdir = k_batch_run(tmp, 2)
+    target, rc = answer_the_question(pack_dir, workdir, name="Name-Shared")
+    assert rc == 0
+    for batch in (3, 4, 5):
+        later, _summary = photograph_again(
+            tmp, pack_dir, name="dump2", batch=batch, vec=basis(11),
+            month=f"2030-0{batch}")
+    page = review_text(pack_dir, later)
+    block = pm.parse_review(page.read_text())[0]
+    [draft] = block["subject_ids"]
+    nums = sorted(block["frames_by_subject"][draft])
+    assert len(nums) == 3, nums
+    text = fill_pick(page.read_text(), None, frames=str(nums[0]),
+                     name=f"Name-Shared {pm.SAME_TOKEN}")
+    page.write_text(fill_skip(text, None, frames=str(nums[1])))
+
+    def counts(said, go):
+        changes = int(_re.search(r"(\d+) change\(s\)", said.splitlines()[-1])
+                      .group(1))
+        looks = [int(n) for n in _re.findall(r"(\d+) look\(s\) carried", said)]
+        photos = _re.findall(r"(?:would give|gave) (\d+) photo\(s\) a new "
+                             r"name in see-labels\.json", said)
+        rows = len([ln for ln in said.splitlines() if ln.startswith("    ")
+                    and ".JPG: " in ln])
+        return changes, looks, photos, rows
+
+    rc_dry, dry = confirm(pack_dir, later, go=False)
+    rc_go, said = confirm(pack_dir, later, go=True)
+    assert rc_dry == rc_go == 0, (dry, said)
+    got_dry, got_go = counts(dry, False), counts(said, True)
+    assert got_dry == got_go, (got_dry, got_go, dry, said)
+    assert got_go[0] == 5 and got_go[1] == [1] and got_go[2] == ["1"], said
+    assert "kept as a draft and asked about again" in dry + said
+
+
 CASES = [
     ("F22 — a frame whose crop cannot be made is refused (REPRODUCTION)",
      case_a_frame_whose_crop_cannot_be_made_is_refused),
@@ -8755,6 +8798,8 @@ CASES = [
      case_u33_an_older_page_still_renders_and_applies),
     ("W2-20b — a copied work dir says once what was kept (REPRODUCTION)",
      case_w220b_a_copied_work_dir_says_once_what_was_kept),
+    ("U3-1 — the dry run counts what --go prints (REPRODUCTION)",
+     case_u31_the_dry_run_counts_what_go_prints),
 ]
 
 

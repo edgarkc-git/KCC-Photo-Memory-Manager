@@ -404,8 +404,8 @@ missing — there is no second list to keep in step.
    `photo_memory.py confirm "<work dir>" --checkpoint N` (a dry run) and
    `--go`. **Read the confirm's per-photo lines before `--go`** — each picked
    photo with the name it holds and the name it takes. The dry run prints
-   `would record N owner-picked frame(s) into see-labels.json — the name each one's folder takes at render, per photo (its name now -> after):`
-   and `--go` prints `(its name before -> now)`, then one line per photo:
+   `would give N photo(s) a new name in see-labels.json — the name each one's folder takes at render, per photo (its name now -> after):`
+   and `--go` prints `gave N photo(s) a new name … (its name before -> now)` with the same N, then one line per photo:
 
    | line | means |
    |---|---|
