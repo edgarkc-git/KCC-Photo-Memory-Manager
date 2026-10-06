@@ -1379,6 +1379,24 @@ def answer_contract(tmp):
           "10.5" not in said and "20.25" not in said and "Ford" in said,
           "the label and the count say what landed; the coordinate does not")
 
+    # U2-11 — GUARD. The write lists what it wrote, one line per key, and on
+    # stdout AND stderr no number has the shape of a coordinate (a decimal).
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        op.main(["apply", os.path.join(root, "answers.txt"), "--write-pack",
+                 fresh_pack(tmp, "pack-listed"), "--coords-in", coords])
+    written = out.getvalue().split("✅ Written to", 1)[-1]
+    keys = [ln.split()[1] for ln in written.splitlines()[1:]
+            if ln.startswith("   photo-")]
+    check("U2-11 the write lists each key it wrote (GUARD)",
+          {"naming_spec.types", "own_camera_makes", "cluster_defaults.away_km",
+           "home_locations", "frequent_places"} <= set(keys)
+          and "2 home(s): Ford (home-01), Bay [travel-to] (home-02)" in written,
+          keys)
+    check("U2-11 no coordinate-shaped number on stdout or stderr (GUARD)",
+          not re.search(r"\d+\.\d+", out.getvalue() + err.getvalue()),
+          re.findall(r".{30}\d+\.\d+.{10}", out.getvalue() + err.getvalue())[:3])
+
     homes = photo_profile.labelled_home_points(profile)
     check("a home is registered by coordinate, with its label",
           len(homes) == 2 and homes[0][4] == "Ford"
