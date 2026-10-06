@@ -855,6 +855,23 @@ A note.
     check("HIL-6 the row is the text form's not-mine skip, armed (GUARD)",
           blk["skip_numbers"] == [1, 2] and blk["skip_armed"]
           and blk["skip_basis"] == "not-mine", "%r" % (blk["skip_numbers"],))
+    # ---- C10 — a "not my pet" tick on one animal writes `N.M confirm` -------
+    c10 = run_answer('{row: skipRow([3], ["1.1"], ["2.2"]),'
+                     ' sends: confirmable({notMine: 1})}')
+    c10_ok = isinstance(c10, dict)
+    check("C10 a not-my-pet tick writes `N.M confirm` on the skip row "
+          "(REPRODUCTION)", c10_ok
+          and c10["row"] == "- skip: 3 confirm, 2.2 confirm, 1.1 not-a-subject"
+          and c10["sends"] is True, "%r" % (c10,))
+    if c10_ok:
+        md_c10 = rp.apply_answer(CROPPED, ["- page: P-B01", c10["row"]])
+        blk = pm.parse_review(md_c10)[0]
+        check("C10 the web row parses as one animal not mine, the whole "
+              "photo not mine and one crop not a real animal (GUARD)",
+              blk["skip_numbers"] == [3] and blk["skip_armed"]
+              and blk.get("skip_animals_mine_refs") == [(2, 2)]
+              and blk["skip_animals_armed_refs"] == [(1, 1)]
+              and blk["skip_animals_armed"], "%r" % (blk,))
     check("HIL-6 the page offers the answer as a button (REPRODUCTION)",
           'id="btn-none"' in tpl_b3)
 

@@ -607,6 +607,25 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
         lab.appendChild(document.createTextNode(" " + (t.thumb ? "animal " + key : "this")
           + " is not a real animal (a toy, a picture, a reflection)"));
         m.appendChild(lab);
+        // C10 — one animal of a shared photo that is real but not the
+        // owner's: `skip: N.M confirm`. A lone animal is the whole photo's
+        // "not my pet" instead, so it gets no tick here.
+        if(animalsIn(n) > 1){
+          var ml = document.createElement("label"); ml.className = "fwhere";
+          var mb = document.createElement("input"); mb.type = "checkbox";
+          if(!state.notMine) state.notMine = {};
+          mb.checked = !!state.notMine[key];
+          mb.addEventListener("change", function(){
+            state.notMine[key] = mb.checked;
+            if(mb.checked) state.notAnimal[key] = false;
+            save(); paint(); });
+          cb.addEventListener("change", function(){
+            if(cb.checked && state.notMine) state.notMine[key] = false; });
+          ml.appendChild(mb);
+          ml.appendChild(document.createTextNode(" animal " + key
+            + " is not my " + KIND + " (a real animal that is not yours)"));
+          m.appendChild(ml);
+        }
       });
       m.appendChild(nm);
 
@@ -927,22 +946,29 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
     return numbers.filter(function(n){ return !evidence[n]; });
   }
   // Q8-c — crops that are not a real animal ride on the same `skip:` row,
-  // as `<photo>.<animal>` with `not-a-subject`.
-  function skipRow(skippedNums, notAnimalKeys){
+  // as `<photo>.<animal>` with `not-a-subject`; C10 — one animal that is not
+  // the owner's, as `<photo>.<animal>` with `confirm`.
+  function skipRow(skippedNums, notAnimalKeys, notMineKeys){
     var parts = [];
     if(skippedNums.length) parts.push(skippedNums.join(",") + " confirm");
+    if((notMineKeys || []).length) parts.push(notMineKeys.join(",") + " confirm");
     if(notAnimalKeys.length) parts.push(notAnimalKeys.join(",") + " not-a-subject");
     return parts.length ? "- skip: " + parts.join(", ") : "";
   }
   // A skip or a not-an-animal mark is an answer on its own.
   function confirmable(c){
     if(c.dupes || c.openDup) return false;
-    return !!(c.named || c.rechecks || c.places || c.skipped || c.notAnimals);
+    return !!(c.named || c.rechecks || c.places || c.skipped || c.notAnimals
+              || c.notMine);
   }
   // answer:end
   function notAnimals(){
     return Object.keys(state.notAnimal || {}).filter(function(k){
       return state.notAnimal[k]; }).sort();
+  }
+  function notMine(){
+    return Object.keys(state.notMine || {}).filter(function(k){
+      return state.notMine[k] && !(state.notAnimal || {})[k]; }).sort();
   }
   function lines(){
     // G6-6 (G4) — a batch page's answer names its page, so `apply` lands it on
@@ -956,7 +982,7 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
       if(r.name && r.dup) nm = nm + " " + r.dup;
       return "- pick: " + r.photos.join(",") + "   who: " + r.who + "   name: " + nm;
     });
-    var sr = skipRow(skipped(), notAnimals());
+    var sr = skipRow(skipped(), notAnimals(), notMine());
     if(sr) out.push(sr);
     recheckRows().forEach(function(r){
       out.push("- recheck: " + r.subject_id + " " + r.value);
@@ -1032,7 +1058,8 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
       dupes: dupes.length, openDup: openDup.length,
       named: answerRows().filter(function(r){ return r.name; }).length,
       rechecks: recheckRows().length, places: placeRows().length,
-      skipped: sk.length, notAnimals: notAnimals().length});
+      skipped: sk.length, notAnimals: notAnimals().length,
+      notMine: notMine().length});
     banner();
   }
 
