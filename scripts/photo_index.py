@@ -1964,12 +1964,24 @@ def cmd_apply_page(args):
     proposals = [(ref, month) for ref in dict.fromkeys(refs) if FSL_REF.match(ref)
                  for month in fsl_month_proposals(index, ref, changed, need)]
     kinds = (["sns"] if blocks else []) + (["snl"] if places else [])
+    # U3-2 — an armed `skip:` is an answer too. `confirm` records it and the
+    # index has nothing to apply for it, so it is counted, never a row.
+    skips = [block for block in blocks
+             if (block.get("skip_armed") and block.get("skip_numbers"))
+             or block.get("skip_animals_armed")]
+    skipped = {n for block in skips
+               for n in ((block.get("skip_numbers") or []) if block.get("skip_armed")
+                         else [])
+               + [n for n, _a in block.get("skip_animals_armed_refs") or []]}
     entry = {"page_id": page, "batch": batch, "kinds": kinds,
-             "status": "answered" if rows else "unanswered",
+             "status": "answered" if rows or skips else "unanswered",
              "pinned": photo_memory.pinned_snapshot(text), "rows": rows}
     print(f"{page}: batch {batch}, {len(rows)} answered row(s) "
           f"({sum(r['kind'] == 'sns' for r in rows)} animal, "
-          f"{sum(r['kind'] == 'snl' for r in rows)} place)")
+          f"{sum(r['kind'] == 'snl' for r in rows)} place)"
+          + (f", {len(skips)} skip row(s) ({len(skipped)} photo(s)) — "
+             "recorded by `confirm`, nothing for the index to apply"
+             if skips else ""))
     for fid, old, new in changed:
         print(f"  {fid}: {' + '.join(old) or '—'} → {' + '.join(new)}")
     for ref, month in proposals:

@@ -471,6 +471,44 @@ def a_confirmed_pick_reaches_who_and_the_page_trace():
         f"rows={rows} err={err[-300:]!r} said={said[-300:]!r}"
 
 
+def skip_page(tmp, armed):
+    """A pet page answered with ONE `skip:` row and nothing else, confirmed
+    and applied. -> (apply-page exit code, its stdout, the page entry)."""
+    wd, pack_dir, extra = page_dump(tmp, pets=(1,), place_batches=())
+    next_page(wd, extra)
+    page = wd / "P-B01.md"
+    page.write_text(pmc.fill_skip(page.read_text(), [1], armed=armed))
+    pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+    code, out, err = apply_page(wd, "P-B01", "--go")
+    return code, out + err, (index_of(tmp).get("pages") or [{}])[0]
+
+
+@case
+def a_skip_only_page_is_answered_and_says_so():
+    """⭐ REPRODUCTION (U3-2). A page answered only with an armed `skip:` said
+    "0 answered row(s)" and was stored `unanswered`, though `confirm` had
+    just recorded the rejection. Counted through the page parser confirm
+    uses; the skip is said, and it is never a row."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        code, said, entry = skip_page(tmp, armed=True)
+    return (code == 0 and entry.get("status") == "answered"
+            and entry.get("rows") == []
+            and "0 answered row(s) (0 animal, 0 place), 1 skip row(s) (" in said
+            and "recorded by `confirm`, nothing for the index to apply" in said), \
+        f"code={code} entry={entry} said={said[-400:]!r}"
+
+
+@case
+def a_page_with_no_armed_row_stays_unanswered():
+    """GUARD (U3-2). Numbers on the `skip:` row without `confirm` are not an
+    answer: the page stays `unanswered` and no skip is counted."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        code, said, entry = skip_page(tmp, armed=False)
+    return (code == 0 and entry.get("status") == "unanswered"
+            and "skip row" not in said), \
+        f"code={code} entry={entry} said={said[-400:]!r}"
+
+
 @case
 def a_named_place_switches_the_refs_and_proposes_a_monthly_parent():
     """⭐ REPRODUCTION (G6 SNL). ⛔ FAILS on 4c8e639. Three January visits to an
