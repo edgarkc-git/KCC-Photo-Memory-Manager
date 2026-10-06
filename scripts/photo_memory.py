@@ -7187,13 +7187,24 @@ def cmd_confirm(args):
             for path in recorded["unresolved"]:
                 print(f"  ⚠️  {path} is on the review page but not in this work "
                       "dir's see output — nothing recorded for it.")
+            # W2-20b — one line per OTHER work dir, paths quoted. The name
+            # itself is already in the registry (saved above); only the
+            # see-labels write, which names the folder, was refused.
+            name_of = {Path(rel): subject_name(registry, sid)
+                       for rel, sid in confirmed}
+            elsewhere = {}
             for path in recorded["outside_workdir"]:
-                print(f"  ⛔ {path} is not inside this work dir ({workdir}) — "
-                      "its name was NOT recorded, so the folder keeps its class "
-                      "word. The photo was looked at in another work dir (a "
-                      "copied or moved work dir); replay the vision pass here "
-                      "(`photo_see.py --apply … --memorize`) and write the page "
-                      "again.")
+                other = Path(path).parent.parent.parent.parent
+                names = elsewhere.setdefault(other, [0, []])
+                names[0] += 1
+                name = name_of.get(Path(path))
+                if name and name not in names[1]:
+                    names[1].append(name)
+            for other, (count, names) in elsewhere.items():
+                print(f"  ⛔ {count} picked photo(s) were viewed in another work "
+                      f"dir (\"{other}\"), not this one (\"{workdir}\"): the "
+                      f"name {' + '.join(names) or '(unnamed)'} is saved in your "
+                      "memory, but these photos' folders keep their class word.")
         # ⛔ The limitation, said out loud rather than engineered around. A
         # batch holding none of the picked frames gains nothing, and that is
         # the SAFE direction: widening it by matching is exactly the absorb

@@ -8333,6 +8333,31 @@ def case_u33_an_older_page_still_renders_and_applies(tmp):
     assert "Lotus" in names, (names, said)
 
 
+def case_w220b_a_copied_work_dir_says_once_what_was_kept(tmp):
+    """⭐ REPRO W2-20b — a page answered in a COPIED work dir names frames
+    viewed in the source. One line per other work dir, both paths quoted (a
+    space breaks a copied path), and only what is true: the name is in the
+    registry, the folders keep their class word. No half-command."""
+    import shutil
+    pack_dir, workdir, _ids = four_drafts(tmp, rendered=4)
+    copy = tmp / "dump copy"
+    shutil.copytree(workdir, copy)
+    page = review_text(pack_dir, copy)
+    page.write_text(fill_pick(page.read_text(), [1], name="Lotus"))
+    rc, said = confirm(pack_dir, copy)
+    assert rc == 0, said
+    lines = [ln for ln in said.splitlines() if "⛔" in ln]
+    assert lines == [
+        f'  ⛔ 1 picked photo(s) were viewed in another work dir '
+        f'("{workdir}"), not this one ("{copy.resolve()}"): the name Lotus is '
+        "saved in your memory, but these photos' folders keep their class word."], \
+        lines
+    named = [s for s in psub.load(pack=open_pack(pack_dir)).subjects
+             if s.name == "Lotus"]
+    assert len(named) == 1 and named[0].status == psub.STATUS_CONFIRMED, \
+        [s.record for s in named]
+
+
 CASES = [
     ("F22 — a frame whose crop cannot be made is refused (REPRODUCTION)",
      case_a_frame_whose_crop_cannot_be_made_is_refused),
@@ -8728,6 +8753,8 @@ CASES = [
      case_u33_a_visited_home_says_a_home_you_named),
     ("U3-3 — an older page still renders and applies (GUARD)",
      case_u33_an_older_page_still_renders_and_applies),
+    ("W2-20b — a copied work dir says once what was kept (REPRODUCTION)",
+     case_w220b_a_copied_work_dir_says_once_what_was_kept),
 ]
 
 
