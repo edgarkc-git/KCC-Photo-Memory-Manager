@@ -921,7 +921,7 @@ def case_c10_the_word_binds_to_the_refs_before_it(tmp):
     assert block["skip_animals"] == [] and block["skip_basis"] == pm.BASIS_NOT_MINE
 
 
-def c10_shared_page(tmp, skip_value, route="page"):
+def c10_shared_page(tmp, skip_value, route="page", pick=True):
     """A real batch page over one photo holding two cats, answered
     `pick: 1 … Pebble same` + `skip: <skip_value>`, confirmed by `route`:
     `page` (confirm --page, then apply-page) or `checkpoint` (the end page,
@@ -969,7 +969,8 @@ def c10_shared_page(tmp, skip_value, route="page"):
                 page = wd / "memory-review_C1.md"
             text = page.read_text()
             assert "(animal 1.2)" in text, text
-            text = pmc.fill_pick(text, [1], who="pet", name="Pebble same")
+            if pick:
+                text = pmc.fill_pick(text, [1], who="pet", name="Pebble same")
             assert "`skip:` ______" in text, text
             page.write_text(text.replace("`skip:` ______",
                                          f"`skip:` {skip_value}", 1))
@@ -990,6 +991,9 @@ def c10_shared_page(tmp, skip_value, route="page"):
                 rc, said = pmc.confirm(pack_dir, wd, go=True)
             out["rc"], out["said"] = rc, said
             out["index"] = bpc.index_of(tmp)
+            out["page_entry"] = next(
+                (e for e in out["index"].get("pages") or []
+                 if "P-B01" in json.dumps(e)), {})
             out["animals"] = pm.frame_animals(wd)
             by_file, _space = photo_identity.load_detections(embed)
             out["rows"] = [r for r, _v in by_file[src]]
@@ -1035,6 +1039,29 @@ def case_c10_one_animal_not_mine_and_the_pet_keeps_its_name(tmp):
     code, o2, err = got["apply"]
     assert code == 0, (code, o2, err)
     assert (got["cell"].get("who") or "") == "Pebble", got["cell"]
+
+
+def case_c10_a_not_mine_crop_alone_is_an_answered_page(tmp):
+    """REPRO C10 x U3-2 — a page answered ONLY by `skip: 1.2 confirm` is
+    `answered`, and apply-page counts the photo that row is about. Before
+    the fix it said "1 skip row(s) (0 photo(s))"."""
+    got = c10_shared_page(tmp, "1.2 confirm", pick=False)
+    code, said, err = got["apply"]
+    marks = got["index"].get("not_mine") or []
+    assert [m["det_index"] for m in marks] == [1], marks
+    assert code == 0 and got["page_entry"].get("status") == "answered", \
+        (code, got["page_entry"], said, err)
+    assert "1 skip row(s) (1 photo(s))" in said, said
+
+
+def case_c10_two_crop_words_on_one_photo_count_one_photo(tmp):
+    """GUARD C10 x U3-2 — `skip: 1.2 confirm, 1.1 not-a-subject` names two
+    crops of ONE photo: one photo is counted, never two."""
+    got = c10_shared_page(tmp, "1.2 confirm, 1.1 not-a-subject", pick=False)
+    code, said, err = got["apply"]
+    assert [m["det_index"] for m in got["index"].get("not_mine") or []] == [1]
+    assert [m["det_index"] for m in got["index"].get("not_animals") or []] == [0]
+    assert code == 0 and "1 skip row(s) (1 photo(s))" in said, (said, err)
 
 
 def case_c10_the_end_page_takes_the_same_row(tmp):
@@ -1169,6 +1196,10 @@ CASES = [
      case_c10_the_word_binds_to_the_refs_before_it),
     ("C10: one animal not mine and the pet keeps its name (REPRO)",
      case_c10_one_animal_not_mine_and_the_pet_keeps_its_name),
+    ("C10: a not-mine crop alone is an answered page (REPRO)",
+     case_c10_a_not_mine_crop_alone_is_an_answered_page),
+    ("C10: two crop words on one photo count one photo (GUARD)",
+     case_c10_two_crop_words_on_one_photo_count_one_photo),
     ("C10: the end page takes the same row (REPRO)",
      case_c10_the_end_page_takes_the_same_row),
     ("C10: a recorded animal is said, not asked (REPRO)",

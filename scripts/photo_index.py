@@ -1972,7 +1972,8 @@ def cmd_apply_page(args):
     skipped = {n for block in skips
                for n in ((block.get("skip_numbers") or []) if block.get("skip_armed")
                          else [])
-               + [n for n, _a in block.get("skip_animals_armed_refs") or []]}
+               + [n for n, _a in block.get("skip_animals_armed_refs") or []]
+               + [n for n, _a in block.get("skip_animals_mine_refs") or []]}
     entry = {"page_id": page, "batch": batch, "kinds": kinds,
              "status": "answered" if rows or skips else "unanswered",
              "pinned": photo_memory.pinned_snapshot(text), "rows": rows}
