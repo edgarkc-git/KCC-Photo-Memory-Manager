@@ -852,13 +852,15 @@ def case_the_examples_in_the_steps_are_never_an_answer(tmp):
     assert rc == 0 and "0 change(s) would be written, 0 refused" in said, said
 
 
-def case_c10_a_strangers_animal_is_left_out_on_the_page(tmp):
-    """REPRO C10 hint (v2.0.2) — step 2 tells the owner that an animal not
-    theirs, beside their pet in one photo, gets no row and nothing is
-    recorded for it: on the text page AND the web page, one sentence."""
+def case_c10_a_strangers_animal_is_said_on_the_page(tmp):
+    """REPRO C10 — step 2 tells the owner that an animal not theirs, beside
+    their pet in one photo, is `skip: N.M confirm` and only that animal is
+    recorded: on the text page AND the web page, one sentence. (v2.0.2 said
+    it was left out with nothing recorded, which is no longer true.)"""
     import photo_review_page as rp
     said = ("An animal that is not yours, beside your pet in one photo, is "
-            "left out: give it no row and no skip; nothing is recorded for it.")
+            "`skip: N.M confirm` (photo N, animal M): only that animal is "
+            "recorded as not yours")
     pack_dir, workdir = pmc.k_batch_run(tmp, 2)
     page = pmc.review_text(pack_dir, workdir)
     step2 = [ln for ln in page.read_text().splitlines()
@@ -874,20 +876,277 @@ def case_c10_a_strangers_animal_is_left_out_on_the_page(tmp):
 
 
 def case_c10_the_crop_skip_refusal_says_the_same(tmp):
-    """REPRO C10 hint (v2.0.2) — the `skip: N.M` refusal carries the same
-    sentence, so an owner who tried to skip a stranger's crop learns to
-    leave it out."""
+    """REPRO C10 — a bare `skip: N.M` is refused and the refusal names BOTH
+    words (`confirm` = not mine, `not-a-subject` = not a real animal), plus
+    the step 2 sentence. (v2.0.2 said a crop ref only meant not a real
+    animal, and to leave a stranger out.)"""
     block = {"n": 1, "skip_animals": [(1, 2)], "skip_animals_armed": False,
              "frames": {1: {"ref": "abc"}}}
     refusals, changes = pm.RefusalChannel(), []
     pm.mark_not_animals(tmp, None, [block], refusals, changes, "T",
                         "P-B01.md", True)
-    assert any("beside your pet in one photo, is left out" in r
-               and "nothing is recorded for it" in r for r in refusals), \
+    assert any("`skip: 1.2 confirm`" in r and "`skip: 1.2 not-a-subject`" in r
+               and photo_profile.STRANGER_ANIMAL in r for r in refusals), \
         list(refusals)
 
 
+
+# ================================================================ C10 ======
+
+C10_HEAD = ("**Q1 · Group it — Cat** — affects 2 file(s) / 1 batch(es)\n"
+            "> `subjects:` 1=subj-0001, 4=subj-0004\n")
+
+
+def case_c10_a_crop_confirm_is_one_animal_not_mine(tmp):
+    """REPRO C10 — `skip: 1.2 confirm` names ONE animal of photo 1 as not the
+    owner's. At 6059fc5 the crop was armed by nothing and refused."""
+    block = pm.parse_review(C10_HEAD + "> - `skip:` 1.2 confirm\n")[0]
+    assert block["skip_animals"] == [(1, 2)] and block["skip_animals_armed"], block
+    assert block.get("skip_animals_mine_refs") == [(1, 2)], block
+    assert block["skip_animals_armed_refs"] == [] and block["skip_numbers"] == [], block
+
+
+def case_c10_the_word_binds_to_the_refs_before_it(tmp):
+    """GUARD C10 — `4 confirm, 1.2 not-a-subject` keeps its v2.0.2 meaning
+    (frame 4 not mine, crop 1.2 not a real animal), and a whole-photo
+    `skip: 3 confirm` is untouched."""
+    block = pm.parse_review(
+        C10_HEAD + "> - `skip:` 4 confirm, 1.2 not-a-subject\n")[0]
+    assert block["skip_numbers"] == [4] and block["skip_armed"], block
+    assert block["skip_animals_armed_refs"] == [(1, 2)], block
+    assert not block.get("skip_animals_mine_refs"), block
+    assert block["skip_basis"] == pm.BASIS_NOT_MINE, block
+    block = pm.parse_review(C10_HEAD + "> - `skip:` 3 confirm\n")[0]
+    assert block["skip_numbers"] == [3] and block["skip_armed"], block
+    assert block["skip_animals"] == [] and block["skip_basis"] == pm.BASIS_NOT_MINE
+
+
+def c10_shared_page(tmp, skip_value, route="page"):
+    """A real batch page over one photo holding two cats, answered
+    `pick: 1 … Pebble same` + `skip: <skip_value>`, confirmed by `route`:
+    `page` (confirm --page, then apply-page) or `checkpoint` (the end page,
+    confirm --checkpoint). -> a dict of what each store says afterwards."""
+    import csv
+    import numpy as np
+    import batch_page_cases as bpc
+    import identify_cases as idc
+    import photo_embed
+    import photo_identity
+    import photo_onboard_page as op
+    import photo_plan
+    saved = photo_embed.convert_to_thumbnail
+    photo_embed.convert_to_thumbnail = idc.thumbnail_stub()
+    out = {}
+    try:
+        with bpc.fixture_env():
+            wd, pack_dir, extra = bpc.page_dump(tmp, pets=(1,), place_batches=())
+            op.declare_pets(str(pack_dir), ["Pebble"])
+            src = str(wd / "B1_C0_000.JPG")
+            with open(wd / "embed" / "embeddings.csv", newline="") as fh:
+                sha = next(r["sha256"] for r in csv.DictReader(fh)
+                           if r["SourceFile"] == src)
+            embed = wd / "embed"
+            rows = [{"SourceFile": src, "sha256": sha,
+                     "status": photo_identity.STATUS_OK, "det_index": d,
+                     "det_count": 2, "kind": "cat", "det_score": 0.9,
+                     "box": box, "box_share": 0.5, "error": ""}
+                    for d, box in ((0, "0,0,20,20"), (1, "20,0,40,20"))]
+            with open(embed / "identity.csv", "w", newline="") as fh:
+                w = csv.DictWriter(fh, fieldnames=photo_identity.CSV_FIELDS)
+                w.writeheader()
+                w.writerows(rows)
+            with open(embed / "identity.npy", "wb") as fh:
+                np.save(fh, np.stack([idc.e(0), idc.e(1)]))
+            (embed / "identity-meta.json").write_text(json.dumps(
+                {**photo_identity.meta_identity(idc.DIM),
+                 "created_at": "2029-01-01 00:00"}))
+            if route == "page":
+                rc_page, said_page = bpc.next_page(wd, extra)
+                assert rc_page == pm.PAGE_WRITTEN_RC, said_page
+                page = wd / "P-B01.md"
+            else:
+                text, _said = pmc.review(pack_dir, wd, 1, final=True)
+                page = wd / "memory-review_C1.md"
+            text = page.read_text()
+            assert "(animal 1.2)" in text, text
+            text = pmc.fill_pick(text, [1], who="pet", name="Pebble same")
+            assert "`skip:` ______" in text, text
+            page.write_text(text.replace("`skip:` ______",
+                                         f"`skip:` {skip_value}", 1))
+            before = json.dumps(bpc.index_of(tmp).get("not_mine"))
+            if route == "page":
+                rc_dry, said_dry = pmc.confirm_page(pack_dir, wd, page="P-B01",
+                                                    go=False)
+            else:
+                rc_dry, said_dry = pmc.confirm(pack_dir, wd, go=False)
+            out["dry_kept"] = before == json.dumps(
+                bpc.index_of(tmp).get("not_mine"))
+            out["rc_dry"], out["said_dry"] = rc_dry, said_dry
+            if route == "page":
+                rc, said = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+                code, o2, err = bpc.apply_page(wd, "P-B01", "--go")
+                out["apply"] = (code, o2, err)
+            else:
+                rc, said = pmc.confirm(pack_dir, wd, go=True)
+            out["rc"], out["said"] = rc, said
+            out["index"] = bpc.index_of(tmp)
+            out["animals"] = pm.frame_animals(wd)
+            by_file, _space = photo_identity.load_detections(embed)
+            out["rows"] = [r for r, _v in by_file[src]]
+            out["quality"] = photo_identity.exemplar_quality(by_file[src][0][0])
+            out["named"] = bpc.subjects_named(pack_dir, "Pebble")
+            pack = photo_profile.resolve_pack(
+                explicit=pack_dir / photo_profile.PROFILE_NAME)
+            out["cell"] = photo_plan.visual_columns(
+                wd, [1], pack.profile, pack).get(src, {})
+            out["sha"], out["src"], out["wd"], out["pack_dir"] = sha, src, wd, pack_dir
+    finally:
+        photo_embed.convert_to_thumbnail = saved
+    return out
+
+
+def c10_assert_one_animal_not_mine(got):
+    marks = got["index"].get("not_mine") or []
+    assert [(m["sha256"], m["det_index"], m["box"]) for m in marks] == \
+        [(got["sha"], 1, "20,0,40,20")], marks
+    assert not got["index"].get("not_animals"), got["index"].get("not_animals")
+    assert got["dry_kept"] and got["rc_dry"] == 0, (got["rc_dry"], got["said_dry"])
+    assert got["rc"] == 0, got["said"]
+    assert "Nothing was marked" not in got["said"], got["said"]
+    assert "Nothing was rejected" not in got["said"], got["said"]
+    assert any("recorded as not the owner's animal" in e["change"]
+               for e in got["index"]["log"]), got["index"]["log"]
+    # ⛔ The stranger is still an animal: no count changes, D-24 holds.
+    assert got["animals"][got["src"]] == 2, got["animals"]
+    assert [int(r["det_count"]) for r in got["rows"]] == [2, 2], got["rows"]
+    assert not got["quality"][0], got["quality"]
+    assert "Pebble" in got["named"], (got["named"], got["said"])
+    assert not (got["named"]["Pebble"].get("exemplars") or []), got["named"]
+
+
+def case_c10_one_animal_not_mine_and_the_pet_keeps_its_name(tmp):
+    """REPRO C10 END TO END (batch page) — a photo with the owner's cat and a
+    stranger's cat, answered `pick: 1 … Pebble same` + `skip: 1.2 confirm`.
+    The stranger alone is recorded `not_mine` in the dump index; the photo
+    still holds two animals (no exemplar, D-24) and is named Pebble, on the
+    page and in the folder's `[who]`. At 6059fc5 the crop row was refused."""
+    got = c10_shared_page(tmp, "1.2 confirm")
+    c10_assert_one_animal_not_mine(got)
+    code, o2, err = got["apply"]
+    assert code == 0, (code, o2, err)
+    assert (got["cell"].get("who") or "") == "Pebble", got["cell"]
+
+
+def case_c10_the_end_page_takes_the_same_row(tmp):
+    """REPRO C10 — the same answer through the END page (`confirm
+    --checkpoint`) records the same one animal, and nothing else."""
+    got = c10_shared_page(tmp, "1.2 confirm", route="checkpoint")
+    c10_assert_one_animal_not_mine(got)
+
+
+def case_c10_a_one_animal_photo_takes_the_whole_photo_row(tmp):
+    """GUARD C10 — `skip: N.M confirm` on a photo with ONE animal is refused
+    and points at `skip: N confirm`; nothing is marked."""
+    import identify_cases as idc
+    with idc.ix.no_env():
+        wd, _pack = shared_dump(tmp)
+        import csv
+        import photo_identity
+        path = wd / "embed" / "identity.csv"
+        with open(path, newline="") as fh:
+            rows = list(csv.DictReader(fh))
+        for r in rows:
+            r["det_count"] = "1"
+        with open(path, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=photo_identity.CSV_FIELDS)
+            w.writeheader()
+            w.writerows(rows)
+        block = {"n": 1, "skip_animals": [(1, 1)], "skip_animals_armed": True,
+                 "skip_animals_mine_refs": [(1, 1)],
+                 "frames": {1: {"subject_id": "subj-0009",
+                                "ref": pm.short_ref("sha256:TWO_3.jpg")}}}
+        refusals, changes = pm.RefusalChannel(), []
+        marks = pm.mark_not_animals(wd, None, [block], refusals, changes,
+                                    "Test Operator", "P-B03.md", True)
+        index = idc.index_now(tmp)
+    assert marks == [] and not index.get("not_mine"), index.get("not_mine")
+    assert any("`skip: 1 confirm`" in r for r in refusals), list(refusals)
+
+
+def case_c10_both_words_on_one_crop_are_refused(tmp):
+    """GUARD C10 — one crop cannot be both not mine and not a real animal."""
+    block = pm.parse_review(
+        C10_HEAD + "> - `skip:` 1.2 not-a-subject, 1.2 confirm\n")[0]
+    block["frames"] = {1: {"ref": "abc"}}
+    refusals, changes = pm.RefusalChannel(), []
+    marks = pm.mark_not_animals(tmp, None, [block], refusals, changes, "T",
+                                "P-B01.md", True)
+    assert marks == [] and any("both" in r for r in refusals), list(refusals)
+
+
+def case_c10_a_v202_index_has_no_not_mine_and_keeps_its_marks(tmp):
+    """REPRO C10 migration — an index written by v2.0.2 has no `not_mine`
+    key: it reads as none, nothing is rewritten, and a later `confirm`
+    writes the new list beside the old `not_animals` marks, which stay. The
+    freeze hash covers the new list."""
+    import identify_cases as idc
+    import photo_identity
+    import photo_index
+    with idc.ix.no_env():
+        wd, pack = shared_dump(tmp)
+        ipack, target, index = photo_index.load(wd, pack)
+        index.pop("not_mine", None)
+        index["not_animals"] = [{"sha256": "sha256:OTHER.jpg", "det_index": 1,
+                                 "box": "1,1,2,2", "file": "OTHER.jpg",
+                                 "by": "owner", "source": "P-B01.md Q1 2.2",
+                                 "at": "2024-11-30 10:00"}]
+        photo_index.save(target, ipack, index)
+        on_disk = json.loads(Path(target).read_text()) if Path(target).is_file() else None
+        marks_before = photo_identity.not_mine_marks(wd / "embed", pack)
+        hash_before = photo_index.freeze_hash(wd, idc.index_now(tmp), [])
+        block = {"n": 1, "skip_animals": [(1, 2)], "skip_animals_armed": True,
+                 "skip_animals_mine_refs": [(1, 2)],
+                 "frames": {1: {"subject_id": "subj-0009",
+                                "ref": pm.short_ref("sha256:TWO_3.jpg")}}}
+        refusals, changes = pm.RefusalChannel(), []
+        pm.mark_not_animals(wd, None, [block], refusals, changes,
+                            "Test Operator", "P-B03.md", True)
+        after = idc.index_now(tmp)
+        hash_after = photo_index.freeze_hash(wd, after, [])
+        marks_after = photo_identity.not_mine_marks(wd / "embed", pack)
+    assert on_disk is None or "not_mine" not in on_disk, on_disk
+    assert marks_before == [], marks_before
+    assert not list(refusals), list(refusals)
+    assert [m["det_index"] for m in marks_after] == [1], marks_after
+    assert [m["file"] for m in after["not_animals"]] == ["OTHER.jpg"], after
+    assert hash_before != hash_after
+
+
+def case_c10_the_page_names_both_words(tmp):
+    """REPRO C10 — the shared-photo hint offers `confirm` (not yours) beside
+    `not-a-subject` (not a real animal)."""
+    rmsg = photo_profile.review_messages({})
+    said = rmsg["review_frame_not_animal"].format(ref="1.2")
+    assert "`skip: 1.2 confirm`" in said and "`skip: 1.2 not-a-subject`" in said, said
+
+
 CASES = [
+    ("C10: a crop confirm is one animal not mine (REPRO)",
+     case_c10_a_crop_confirm_is_one_animal_not_mine),
+    ("C10: the word binds to the refs before it (GUARD)",
+     case_c10_the_word_binds_to_the_refs_before_it),
+    ("C10: one animal not mine and the pet keeps its name (REPRO)",
+     case_c10_one_animal_not_mine_and_the_pet_keeps_its_name),
+    ("C10: the end page takes the same row (REPRO)",
+     case_c10_the_end_page_takes_the_same_row),
+    ("C10: a one-animal photo takes the whole-photo row (GUARD)",
+     case_c10_a_one_animal_photo_takes_the_whole_photo_row),
+    ("C10: both words on one crop are refused (GUARD)",
+     case_c10_both_words_on_one_crop_are_refused),
+    ("C10: a v2.0.2 index has no not_mine and keeps its marks (REPRO)",
+     case_c10_a_v202_index_has_no_not_mine_and_keeps_its_marks),
+    ("C10: the page names both words (REPRO)",
+     case_c10_the_page_names_both_words),
     ("HIL-4: the examples in the steps are never an answer (GUARD)",
      case_the_examples_in_the_steps_are_never_an_answer),
     ("HIL-4: the two steps say the same in text and on the web (REPRO)",
@@ -934,8 +1193,8 @@ CASES = [
     ("Q8-c: the owner marks a crop on the page (REPRO)",
      case_the_owner_marks_a_crop_on_the_page),
     ("Q8-c: a crop skip needs not-a-subject (GUARD)", case_a_crop_skip_needs_not_a_subject),
-    ("C10 hint: a stranger's animal is left out, said on the page (REPRO)",
-     case_c10_a_strangers_animal_is_left_out_on_the_page),
+    ("C10: a stranger's animal is said on the page (REPRO)",
+     case_c10_a_strangers_animal_is_said_on_the_page),
     ("C10 hint: the crop skip refusal says the same (REPRO)",
      case_c10_the_crop_skip_refusal_says_the_same),
     ("Q8-c: a labelled crop still parses on the HTML page (GUARD)",

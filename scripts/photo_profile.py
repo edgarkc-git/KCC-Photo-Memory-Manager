@@ -1217,12 +1217,12 @@ def messages(profile):
     return {**table, **named}
 
 
-# C10 hint (v2.0.2) — the per-animal "not mine" is v2.1; until then the
-# owner leaves a stranger's animal out. Step 2 and the `skip: N.M` refusal
-# say this one sentence.
+# C10 — "not mine" for ONE animal of a shared photo. Step 2 and the
+# `skip: N.M` refusal say this one sentence.
 STRANGER_ANIMAL = ("An animal that is not yours, beside your pet in one "
-                   "photo, is left out: give it no row and no skip; nothing "
-                   "is recorded for it.")
+                   "photo, is `skip: N.M confirm` (photo N, animal M): only "
+                   "that animal is recorded as not yours, and the other "
+                   "animal(s) in the photo are asked or named as usual.")
 
 # Every sentence the MEMORY REVIEW TABLE puts in front of a human (VS-4 /
 # Phase C). Separate from MESSAGE_VOCAB for one reason worth stating: the
@@ -1539,7 +1539,17 @@ REVIEW_VOCAB = {
                                    "number on the `skip:` row with "
                                    "not-a-subject, e.g. `skip: {ref} "
                                    "not-a-subject`: it stops counting as an "
-                                   "animal, and nothing is rejected.",
+                                   "animal, and nothing is rejected. If it is "
+                                   "a real animal that is not yours, use "
+                                   "confirm instead, e.g. `skip: {ref} "
+                                   "confirm`: only that animal is recorded as "
+                                   "not yours.",
+        # C10 — one animal of a shared photo already recorded as not the
+        # owner's, so the page does not ask about it again.
+        "review_frame_not_mine": "Photo {n}, animal {ref}: recorded as not "
+                                 "your animal, so it is not asked again. The "
+                                 "other animal(s) in this photo are asked or "
+                                 "named as usual.",
         # B4 — what the photo behind a frame is ALREADY named. A new name typed
         # for it replaces that one, which the owner could only learn from the
         # confirm's dry run, after answering.
@@ -1693,10 +1703,13 @@ REVIEW_VOCAB = {
                               "not a real animal (a toy, a cushion, a "
                               "picture), mark it not-a-subject: tick \"not a "
                               "real animal\" under it on the web page, or "
-                              "write `skip: 2.1 not-a-subject` in text. An "
-                              "animal that is simply not yours is \"Not my "
-                              "pet\" instead (`skip: 3 confirm`). "
-                              + STRANGER_ANIMAL,
+                              "write `skip: 2.1 not-a-subject` in text. If "
+                              "a crop is a real animal that is not yours, "
+                              "tick \"not my pet\" under it on the web page, "
+                              "or write `skip: 2.2 confirm` in text. A photo "
+                              "holding only animals that are not yours is "
+                              "\"Not my pet\" for the whole photo "
+                              "(`skip: 3 confirm`). " + STRANGER_ANIMAL,
         # Q3 (Lead 20261001) — a re-presented photo no animal index covers
         # is shown whole, and the page says so: never a silent fallback.
         "review_frame_whole_note": "Photo {n} is the whole photo: no animal "

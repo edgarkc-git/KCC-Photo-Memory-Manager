@@ -467,8 +467,44 @@ def load_detections(embed_dir, pack=None):
 
 
 def not_animal_marks(embed_dir, pack=None):
-    """Q8-c — the crops marked "not a real animal" for this dump: the
-    `not_animals` list of its INDEX, so the freeze hash covers them and every
+    return _index_marks(embed_dir, pack, "not_animals")
+
+
+def not_mine_marks(embed_dir, pack=None):
+    """C10 — the crops the owner said are NOT THEIR animal, one animal of a
+    shared photo each (`skip: N.M confirm`): the `not_mine` list of this
+    dump's index. A missing list (an index written before C10) is none.
+    ⛔ Never applied by `apply_marks()`: the stranger is still an animal in
+    the frame, so `det_count`, D-24 and the exemplar bar read it as before."""
+    return _index_marks(embed_dir, pack, "not_mine")
+
+
+def not_mine_keys(by_file, marks):
+    """-> {(sha256, det_index)} of the current detections a `not_mine` mark
+    names. A mark whose box no longer matches (the photo was detected again)
+    is STALE: said once, never applied to a different animal."""
+    keyed = {(m.get("sha256"), int(m.get("det_index") or 0)): m
+             for m in marks if m.get("sha256")}
+    out = set()
+    for source, entries in by_file.items():
+        for row, _v in entries:
+            key = (row.get("sha256"), int(row.get("det_index") or 0))
+            mark = keyed.get(key)
+            if mark is None or row.get("status") != STATUS_OK:
+                continue
+            if mark.get("box") in (None, "", row.get("box")):
+                out.add(key)
+            else:
+                print(f"  ⚠️ a not-mine mark on {Path(source).name} animal "
+                      f"{key[1] + 1} is stale (the photo was detected again) "
+                      "— ignored", file=sys.stderr)
+    return out
+
+
+def _index_marks(embed_dir, pack, key):
+    """One list of crop marks for this dump — `not_animals` (Q8-c, "not a
+    real animal") or `not_mine` (C10) — kept in its INDEX, so the freeze hash
+    covers them and every
     write goes through `open_for_change` (D-I16). [] for a dump with no index
     (the non-indexed flow has no page that can mark one).
 
@@ -497,7 +533,7 @@ def not_animal_marks(embed_dir, pack=None):
                   "with collection.json or $PHOTO_PROFILE (this reader was "
                   "given no pack).", file=sys.stderr)
         return []
-    return list(loaded[2].get("not_animals") or [])
+    return list(loaded[2].get(key) or [])
 
 
 _MARKS_UNREAD = set()

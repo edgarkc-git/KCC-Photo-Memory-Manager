@@ -334,6 +334,10 @@ def pick_crop_refusal(value):
 # it, so `4 confirm, 1.2 not-a-subject` still rejects frame 4 as `not-mine`.
 CROP_ARMED = re.compile(
     rf"((?:(?<![\d.])\d+\.\d+(?![\d.])\s*,?\s*)+){BASIS_NOT_A_SUBJECT}\b", re.I)
+# C10 — the crop refs `confirm` arms: that ONE animal of a shared photo is
+# not the owner's. Bound the same way, to the refs right before the word.
+CROP_CONFIRMED = re.compile(
+    r"((?:(?<![\d.])\d+\.\d+(?![\d.])\s*,?\s*)+)confirm\b", re.I)
 FIELD_LINE = re.compile(rf"^\s*[-*]?\s*(?=`?(?:{FIELD_KEYS})\b)", re.I)
 FIELD_SCAN = re.compile(rf"`?\b({FIELD_KEYS})\b`?\s*:\s*`?\s*", re.I)
 # The closing backtick after the colon is eaten HERE, the way `FIELD_SCAN` eats
@@ -3016,6 +3020,7 @@ def file_skips_by_frame(blocks, text):
         block["skip_filed"], block["skip_ambiguous"] = [], []
         block["skip_conflict"], block["page_shown"] = [], shown
         block.setdefault("skip_animals_armed_refs", [])
+        block.setdefault("skip_animals_mine_refs", [])
     for block in blocks:
         def owners(n):
             return [b for b in blocks if b is not block and n in b["frames"]]
@@ -3049,15 +3054,19 @@ def file_skips_by_frame(blocks, text):
                 block["skip_ambiguous"].append((ref, [b["n"] for b in found]))
                 continue
             target = found[0]
-            armed = (n, a) in block["skip_animals_armed_refs"]
+            not_animal = (n, a) in block["skip_animals_armed_refs"]
+            mine = (n, a) in block["skip_animals_mine_refs"]
+            armed = not_animal or mine
             if target["skip_animals"] and target["skip_animals_armed"] != armed:
                 block["skip_conflict"].append((ref, target["n"]))
                 continue
             if not target["skip_animals"]:
                 target["skip_animals_armed"] = armed
             target["skip_animals"].append((n, a))
-            if armed:
+            if not_animal:
                 target["skip_animals_armed_refs"].append((n, a))
+            if mine:
+                target["skip_animals_mine_refs"].append((n, a))
             target["skip_filed"].append((ref, block["n"]))
         block["skip_animals_armed"] = (
             bool(block["skip_animals"]) and block["skip_animals_armed"])
@@ -3175,9 +3184,14 @@ def parse_review(text):
                                            CROP_REF.findall(value)]
                 armed = [(int(n), int(a)) for m in CROP_ARMED.findall(value)
                          for n, a in CROP_REF.findall(m)]
-                current["skip_animals_armed"] = bool(
-                    current["skip_animals"]) and armed == current["skip_animals"]
+                mine = [(int(n), int(a)) for m in CROP_CONFIRMED.findall(
+                            CROP_ARMED.sub(" ", value))
+                        for n, a in CROP_REF.findall(m)]
+                current["skip_animals_armed"] = bool(current["skip_animals"]) \
+                    and all(r in armed or r in mine
+                            for r in current["skip_animals"])
                 current["skip_animals_armed_refs"] = armed
+                current["skip_animals_mine_refs"] = mine
                 # What is left is the whole-photo half, read on its own — the
                 # crops' word must not become the frames' basis (U2-10).
                 value = CROP_REF.sub(" ", CROP_ARMED.sub(" ", value))
@@ -3512,7 +3526,14 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
     predicted. Written into the dump INDEX before any row is judged, so the
     frame's animal count — and with it `exemplar_quality()` and the shared-
     frame rule — reads the frame without it. No detector filter, and nothing
-    is rejected: the frame itself stays askable and pickable."""
+    is rejected: the frame itself stays askable and pickable.
+
+    C10 — `skip: <frame>.<animal> confirm`: that ONE animal of a shared photo
+    is not the owner's. Kept in the index's own `not_mine` list, keyed like a
+    not-a-subject mark (sha256, det_index, box). ⛔ It changes no count: the
+    stranger is still an animal in the frame, so D-24 still holds the photo
+    out of the exemplars, and the owner's pick on the same photo keeps its
+    name. A photo with ONE animal is refused here — that is `skip: N confirm`."""
     import photo_index
     wanted = []
     for block in blocks:
@@ -3521,27 +3542,35 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
         refs = ", ".join(f"{n}.{a}" for n, a in block["skip_animals"])
         if not block.get("skip_animals_armed"):
             refusals.append(
-                f"Q{block['n']}: `skip:` {refs} names one animal in a photo, "
-                f"which only means *not a real animal* — put "
-                f"`{BASIS_NOT_A_SUBJECT}` right after those numbers, e.g. "
-                f"`skip: {refs} {BASIS_NOT_A_SUBJECT}`. Nothing was marked. "
-                + photo_profile.STRANGER_ANIMAL)
+                f"Q{block['n']}: `skip:` {refs} names one animal in a photo — "
+                f"say which: `confirm` if it is not your animal (e.g. "
+                f"`skip: {refs} confirm`), or `{BASIS_NOT_A_SUBJECT}` if it is "
+                f"not a real animal (e.g. `skip: {refs} {BASIS_NOT_A_SUBJECT}`)."
+                " Nothing was marked. " + photo_profile.STRANGER_ANIMAL)
             continue
+        mine_refs = block.get("skip_animals_mine_refs") or []
+        armed_refs = block.get("skip_animals_armed_refs") or []
         for n, a in block["skip_animals"]:
+            if (n, a) in mine_refs and (n, a) in armed_refs:
+                refusals.append(f"Q{block['n']}: `skip:` {n}.{a} carries both "
+                                f"`confirm` and `{BASIS_NOT_A_SUBJECT}` — keep "
+                                "the one you mean. Nothing was marked.")
+                continue
             frame = block["frames"].get(n)
             if not frame:
                 refusals.append(f"Q{block['n']}: `skip:` {n}.{a} — there is no "
                                 f"frame {n} on any question of this page. "
                                 "Nothing was marked.")
                 continue
-            wanted.append((block["n"], n, a, frame.get("ref")))
+            basis = BASIS_NOT_MINE if (n, a) in mine_refs else BASIS_NOT_A_SUBJECT
+            wanted.append((block["n"], n, a, frame.get("ref"), basis))
     if not wanted:
         return []
     by_file, _space = photo_identity.load_detections(Path(workdir) / "embed",
                                                       profile)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     marks = []
-    for q, n, a, ref in wanted:
+    for q, n, a, ref, basis in wanted:
         hits = [(source, row) for source, entries in by_file.items()
                 for row, _v in entries
                 if short_ref(row.get("sha256") or "") == ref
@@ -3552,16 +3581,35 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
                             f"{a} that is still counted. Nothing was marked.")
             continue
         source, row = hits[0]
+        if basis == BASIS_NOT_MINE and int(row.get("det_count") or 0) < 2:
+            refusals.append(f"Q{q}: `skip:` {n}.{a} — photo {n} holds one "
+                            "animal, so the whole photo is the answer: "
+                            f"`skip: {n} confirm`. Nothing was marked.")
+            continue
         marks.append({"sha256": row["sha256"], "det_index": a - 1,
                       "box": row.get("box"), "file": Path(source).name,
-                      "by": by, "source": f"{page} Q{q} {n}.{a}", "at": now})
+                      "by": by, "source": f"{page} Q{q} {n}.{a}", "at": now,
+                      "basis": basis})
     if not marks:
         return []
-    shown = ", ".join(m["source"].split()[-1] for m in marks)
+    lists = {BASIS_NOT_A_SUBJECT: "not_animals", BASIS_NOT_MINE: "not_mine"}
+    said = {BASIS_NOT_A_SUBJECT: ("would stop counting as an animal; this dry "
+                                  "run still counts it, so a pick on that "
+                                  "photo is judged with --go",
+                                  "no longer counted as an animal (the "
+                                  "photo's other animals are unchanged)"),
+            BASIS_NOT_MINE: ("would be recorded as not your animal (the "
+                             "photo's other animals are unchanged)",
+                             "recorded as not your animal (the photo's other "
+                             "animals are unchanged)")}
+
+    def shown(basis):
+        return ", ".join(m["source"].split()[-1] for m in marks
+                         if m["basis"] == basis)
     if not go:
-        changes.append(f"{shown} -> would stop counting as an animal; this dry "
-                       "run still counts it, so a pick on that photo is judged "
-                       "with --go")
+        for basis in lists:
+            if shown(basis):
+                changes.append(f"{shown(basis)} -> {said[basis][0]}")
         return marks
     try:
         loaded = photo_index.load(Path(workdir), profile)
@@ -3571,22 +3619,35 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
         photo_index.open_for_change(Path(workdir), ipack, index,
                                     "photo_memory confirm")
     except photo_index.Refused as exc:
-        refusals.append(f"`skip:` {shown} — a not-an-animal mark is kept in the "
+        everything = ", ".join(m["source"].split()[-1] for m in marks)
+        refusals.append(f"`skip:` {everything} — a crop mark is kept in the "
                         f"dump's index, and it cannot be written: {exc}")
         return []
-    have = {(m.get("sha256"), int(m.get("det_index") or 0))
-            for m in index.get("not_animals") or []}
-    new = [m for m in marks if (m["sha256"], m["det_index"]) not in have]
-    if new:
-        index.setdefault("not_animals", []).extend(new)
-        photo_index.log_entry(
-            index, "photo_memory confirm",
-            f"{len(new)} crop(s) marked not a real animal: "
-            + ", ".join(f"{m['file']} animal {m['det_index'] + 1}" for m in new),
-            f"Q8-c: `skip: … {BASIS_NOT_A_SUBJECT}` on {page}", by=by or "owner")
+    wrote = False
+    for basis, key in lists.items():
+        mine = [{k: v for k, v in m.items() if k != "basis"}
+                for m in marks if m["basis"] == basis]
+        if not mine:
+            continue
+        have = {(m.get("sha256"), int(m.get("det_index") or 0))
+                for m in index.get(key) or []}
+        new = [m for m in mine if (m["sha256"], m["det_index"]) not in have]
+        if new:
+            index.setdefault(key, []).extend(new)
+            what = ("marked not a real animal" if basis == BASIS_NOT_A_SUBJECT
+                    else "recorded as not the owner's animal")
+            photo_index.log_entry(
+                index, "photo_memory confirm",
+                f"{len(new)} crop(s) {what}: "
+                + ", ".join(f"{m['file']} animal {m['det_index'] + 1}"
+                            for m in new),
+                (f"Q8-c: `skip: … {BASIS_NOT_A_SUBJECT}` on {page}"
+                 if basis == BASIS_NOT_A_SUBJECT
+                 else f"C10: `skip: N.M confirm` on {page}"), by=by or "owner")
+            wrote = True
+        changes.append(f"{shown(basis)} -> {said[basis][1]}")
+    if wrote:
         photo_index.save(target, ipack, index)
-    changes.append(f"{shown} -> no longer counted as an animal (the photo's "
-                   "other animals are unchanged)")
     return marks
 
 
