@@ -124,7 +124,7 @@ def prep_no_cluster_scans_and_runs_the_census_but_never_clusters():
     dump was cut and geocoded before the owner's homes existed (U5-02)."""
     calls, out, wd = prep(no_cluster=True)
     return ([c[0] for c in calls] == ["photo_scan.py", "photo_census.py"]
-            and calls[1][1] == [wd] and "photo_run.py cluster" in out), \
+            and calls[1][1] == [wd] and 'photo_run.py" cluster' in out), \
         f"calls={calls} out={out[-200:]!r}"
 
 

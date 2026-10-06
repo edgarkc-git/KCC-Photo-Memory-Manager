@@ -294,7 +294,7 @@ def case_the_morning_line_names_the_sheet(tmp):
     coll, unit = bound(tmp)
     got = morning(coll)
     assert len(got) == 1 and NEW in got[0], got
-    assert "photo_onboard_page.py sheet" in got[0] and str(unit) in got[0], got
+    assert 'photo_onboard_page.py" sheet' in got[0] and str(unit) in got[0], got
 
 
 def case_the_morning_line_stops_once_added(tmp):
@@ -358,7 +358,7 @@ def case_the_banner_names_the_sheet(tmp):
     here yet"."""
     _coll, unit = bound(tmp)
     said = banner(unit)
-    assert "photo_onboard_page.py sheet" in said and "not possible" not in said, said
+    assert 'photo_onboard_page.py" sheet' in said and "not possible" not in said, said
 
 
 def case_the_banner_stops_once_answered(tmp):

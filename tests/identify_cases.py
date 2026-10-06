@@ -943,7 +943,8 @@ def a_frozen_stop_prints_unfreeze_first_and_the_route_works():
         answer(wd, {"PET_3.jpg": "agree"})
         steps = []
         for line in route:
-            cmd = line.split("photo_index.py ", 1)[1].split()[0]
+            # K3 — the script path is quoted: `…/photo_index.py" <cmd>`.
+            cmd = line.split("photo_index.py", 1)[1].lstrip('"').split()[0]
             argv = {"unfreeze": ("unfreeze", wd, "--reason", "the agent's verdicts"),
                     "identify": ("identify", wd, "--answers",
                                  wd / photo_index.VIEWS_NAME, "--go")}.get(cmd, (cmd, wd))
@@ -997,11 +998,11 @@ def an_unfrozen_stop_prints_the_route_as_before():
     wd = wd.resolve()
     vf = wd / photo_index.VIEWS_NAME
     py = photo_platform.owner_python()
-    stop = ("nothing and this command does not ask it again). Then run:\n"
-            f"     {py} {tool} identify \"{wd}\" --answers \"{vf}\" --go\n"
-            f"     {py} {tool} render \"{wd}\"   (then check and freeze)\n"
-            "   then re-run this command.")
     line = photo_platform.run_line(py, tool)
+    stop = ("nothing and this command does not ask it again). Then run:\n"
+            f"     {line} identify \"{wd}\" --answers \"{vf}\" --go\n"
+            f"     {line} render \"{wd}\"   (then check and freeze)\n"
+            "   then re-run this command.")
     apply_ = f'{line} identify "{wd}" --answers "{vf}" --go'
     ok = (codes == [0, 0] and r.returncode == 3 and stop in r.stdout
           and "unfreeze" not in r.stdout and "$ photo_index.py verify" not in r.stdout
