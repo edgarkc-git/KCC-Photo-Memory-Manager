@@ -811,7 +811,7 @@ def print_status(workdir, pack=None, paths=False, write=True):
         print(f"  ({len(held)} batch(es) held — listed above, and not "
               "proposed here until released)")
     if indexed(workdir):
-        print_index_next(workdir, live)
+        print_index_next(workdir, live, pack)
         return
     if pending and pack is not None and getattr(pack, "dir", None):
         # FIX6 (U6-09) — an owner's dump is sorted through an index, which has
@@ -899,7 +899,25 @@ def print_visual_pass(workdir, unseen):
     print(f"    (batches: {', '.join(str(n) for n in unseen)})")
 
 
-def print_index_next(workdir, live):
+def rendered_without_vision(workdir, pack):
+    """W2-20a — True when the index's last render went past unseen batches
+    with --no-vision: `photo_index render` stamps `render.no_vision` and
+    refuses an unseen batch without the flag."""
+    if pack is None or getattr(pack, "dir", None) is None:
+        return False
+    import photo_index
+    pointer = photo_index.read_pointer(workdir)
+    if not pointer or pointer.get("owner") != pack.owner:
+        return False
+    path = photo_index.index_dir(pack, pointer["dump_key"]) / photo_index.INDEX_NAME
+    try:
+        index = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return bool((index.get("render") or {}).get("no_vision"))
+
+
+def print_index_next(workdir, live, pack=None):
     """G8 — the next step on a dump WITH an index. Nobody authors plans.json
     here: `freeze` exports it, and the pages and the agent's views are the
     stops of `finish --go`."""
@@ -907,7 +925,14 @@ def print_index_next(workdir, live):
               if not (workdir / "classify" / f"batch-{b['batch']:02d}"
                       / "see-labels.json").exists()]
     finish = f"{photo_platform.run_line(PY, HERE / 'photo_run.py')} finish \"{workdir}\" --go"
-    if unseen:
+    if unseen and rendered_without_vision(workdir, pack):
+        print(f"  {len(unseen)} batch(es) rendered without vision "
+              f"(--no-vision): {', '.join(f'B{n}' for n in unseen)}. The visual "
+              "pass was skipped for them by choice, so their folders are "
+              "named from metadata alone. It can still be run, then "
+              "`photo_index.py render` again without --no-vision:")
+        print_visual_pass(workdir, unseen)
+    elif unseen:
         print(f"  {len(unseen)} batch(es) not seen yet — run the VISUAL pass "
               "(the repo .venv), then `finish --go`:")
         print_visual_pass(workdir, unseen)

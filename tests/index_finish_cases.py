@@ -435,6 +435,22 @@ def status_on_an_indexed_dump_lists_the_vision_pass_for_unseen_batches():
 
 
 @case
+def status_after_a_no_vision_render_says_vision_was_skipped():
+    """⭐ REPRODUCTION (W2-20a). A batch rendered with --no-vision was still
+    reported as "not seen yet", as if a step had been forgotten. The render's
+    own stamp says it was skipped by choice; the visual pass stays listed."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ix.g3_dump(tmp, seen=(1,))
+        code, _o, err = ix.run("init", wd)
+        code2, _o2, err2 = ix.run("render", wd, "--no-vision")
+        rc, out = status(wd)
+    return (code == 0 and code2 == 0 and rc == 0
+            and "1 batch(es) rendered without vision (--no-vision): B2" in out
+            and "not seen yet" not in out and "photo_see.py" in out
+            and "(batches: 2)" in out), f"{out!r} {err[-200:]} {err2[-200:]}"
+
+
+@case
 def status_without_an_index_keeps_its_own_next_step():
     """GUARD, NARROWED BY FIX6 (U6-09, Lead ruling). A dump with no index keeps
     its own next step and never speaks of pages or views. With an owner pack
