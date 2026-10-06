@@ -8401,6 +8401,24 @@ def case_u31_the_dry_run_counts_what_go_prints(tmp):
     assert "kept as a draft and asked about again" in dry + said
 
 
+def case_k3_the_identity_line_quotes_every_path(tmp):
+    """⭐ REPRO K3 — the "no identity index" line `confirm` prints is a command
+    an owner copies. Its interpreter and script were unquoted; in a work dir
+    named with a space, every path in it is quoted now."""
+    import photo_platform
+    import shutil
+    pack_dir, workdir, _ids = four_drafts(tmp, rendered=4)
+    spaced = tmp / "dump copy"
+    shutil.copytree(workdir, spaced)
+    page = review_text(pack_dir, spaced)
+    page.write_text(fill_pick(page.read_text(), [1], name="Lotus"))
+    _rc, said = confirm(pack_dir, spaced)
+    line = [ln.strip() for ln in said.splitlines() if "photo_identity.py" in ln]
+    script = Path(pm.__file__).resolve().parent / "photo_identity.py"
+    assert line == [f'"{photo_platform.venv_python()}" "{script}" '
+                    f'"{spaced.resolve()}"'], line
+
+
 CASES = [
     ("F22 — a frame whose crop cannot be made is refused (REPRODUCTION)",
      case_a_frame_whose_crop_cannot_be_made_is_refused),
@@ -8800,6 +8818,8 @@ CASES = [
      case_w220b_a_copied_work_dir_says_once_what_was_kept),
     ("U3-1 — the dry run counts what --go prints (REPRODUCTION)",
      case_u31_the_dry_run_counts_what_go_prints),
+    ("K3 — the identity line quotes every path (REPRODUCTION)",
+     case_k3_the_identity_line_quotes_every_path),
 ]
 
 

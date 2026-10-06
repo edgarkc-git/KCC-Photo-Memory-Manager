@@ -1524,7 +1524,7 @@ def uncropped_refusal(out, frames):
             "Showing the whole photo instead would hide WHICH animal the "
             "question is about. This python most likely cannot open the photo "
             "(a HEIC photo needs pillow-heif). Run this step again with the "
-            f"repo .venv, `{photo_platform.venv_python()}`; `photo_run.py "
+            f"repo .venv, `{photo_platform.quoted(photo_platform.venv_python())}`; `photo_run.py "
             "finish` uses it by itself when it exists.")
 
 
@@ -5235,8 +5235,8 @@ def cmd_confirm(args):
             "picked for, and the exemplar quality bar cannot run. Subject "
             "verdicts here are CLIP, not identity. Build it once, then "
             "re-run this confirm:\n"
-            f"    {photo_platform.venv_python()} {Path(__file__).resolve().parent}"
-            f"/photo_identity.py \"{workdir}\"\n"
+            f"    {photo_platform.run_line(photo_platform.venv_python(), Path(__file__).resolve().parent / 'photo_identity.py')}"
+            f" \"{workdir}\"\n"
             "  Exemplars already promoted are repaired with `photo_subjects.py "
             "review --prune --drop <vec_ref> --subject <id>`.")
     # SNS-5's two clearing writes. Collected here and written AFTER the main

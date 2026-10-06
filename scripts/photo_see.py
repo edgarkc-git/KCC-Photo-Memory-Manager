@@ -2736,8 +2736,8 @@ def main():
         print(f"⚠️  {len(unchecked)} still(s) in the pool were never checked for "
               "documents (an index built before this check). Run photo_embed.py "
               "on this work dir once — it fills the gap without --force:")
-        print(f"    {photo_platform.venv_python()} "
-              f"{Path(__file__).resolve().parent / 'photo_embed.py'} \"{workdir}\"")
+        print(f"    {photo_platform.run_line(photo_platform.venv_python(), Path(__file__).resolve().parent / 'photo_embed.py')}"
+              f" \"{workdir}\"")
     # ⭐ The axis being off is an OPERATOR fact, and it was only ever stated
     # inside the report's `scene_labels.note`. A run without the matrix writes a
     # valid report, prints `0 clip-matched` and reads as a clean result — the
@@ -2751,7 +2751,7 @@ def main():
         print(f"⚠️  no {scene_path} — the scene axis is OFF for this run: every "
               "file's scene class stays empty and nothing can be clip-matched "
               "(rungs 1/3/5 still work). Encode the label set once with:")
-        print(f"    {photo_platform.venv_python()} {Path(__file__).resolve().parent / 'photo_embed.py'}"
+        print(f"    {photo_platform.run_line(photo_platform.venv_python(), Path(__file__).resolve().parent / 'photo_embed.py')}"
               f" \"{workdir}\" --scene-labels")
     # R2 — the same failure shape, one stage over. The report ALREADY says this
     # (`subject_identity.index` is None when photo_identity never ran, and the
@@ -2769,8 +2769,7 @@ def main():
               "CLIP, not identity, and an exemplar promoted from here is a "
               "WHOLE-IMAGE vector (a frame holding two animals carries both). "
               "Build it once with:")
-        print(f"    {photo_platform.venv_python()} "
-              f"{Path(__file__).resolve().parent / 'photo_identity.py'}"
+        print(f"    {photo_platform.run_line(photo_platform.venv_python(), Path(__file__).resolve().parent / 'photo_identity.py')}"
               f" \"{workdir}\"")
     # Last, after the report is written and every warning is out.
     if not args.no_thumbnails:
