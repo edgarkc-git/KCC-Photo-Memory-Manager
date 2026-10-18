@@ -62,7 +62,7 @@ BENCHMARK_OWNER = "BetaUser00"
 # onboarding, not knowledge about the photos; `cluster_defaults`/`sampling`
 # are engine thresholds that ship in the template.
 BLANK_SHEET_ALLOWED = {"owner", "language", "cluster_defaults", "sampling",
-                       "visual_sorting"}
+                       "visual_sorting", "year_folders"}
 # ...with one exception nested a level down: the scene label set IS owner
 # vocabulary (ONB-10), so it must be empty even though its parent is config.
 BLANK_SHEET_NESTED_FACTS = (("visual_sorting", "scene_labels"),)

@@ -742,6 +742,137 @@ def set_what_stores_the_agents_text_and_clear_goes_back_to_the_pick():
         f"first={first['rendered']} second={second['rendered']}"
 
 
+@case
+def a_trip_over_a_split_day_freezes_and_copies_into_its_leg():
+    """⭐ REPRODUCTION (E40, M7). A trip made from the second half of a
+    `group split` day: that leg's files arrive as an OVERRIDE of the plan
+    that reads the split batch, and the freeze checked an override as a
+    top-level folder, so `1030_...` was refused as "not a folder period".
+    ⛔ FAILS on c7b761e (freeze refused). Now the freeze passes and
+    `finish --go` puts the split day under its trip."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        must(run("group", "split", wd, "F004", "--at", "2024-10-30",
+                 "--reason", "flew out after lunch"), "split")
+        new = next(fid for fid, fo in folders(tmp).items()
+                   if fo.get("split_from") == "F004")
+        must(run("group", "make-trip", wd, new, "F005", "--where", "Northland",
+                 "--reason", "r"), "make-trip")
+        render(wd)
+        code, out, err = run("freeze", wd)
+        if code:
+            return False, f"freeze rc={code} {err[-300:]!r}"
+        env = {k: v for k, v in os.environ.items() if k != photo_profile.ENV_VAR}
+        r = subprocess.run([sys.executable, str(RUN), "finish", str(wd), "--go",
+                            "--skip-memory"], capture_output=True, text=True, env=env)
+        tree = sorted(p.relative_to(Path(tmp) / "sorted").as_posix()
+                      for p in (Path(tmp) / "sorted").rglob("*") if p.is_file())
+    want = {"20241030-1031_Northland/1030_Dunmore/IMG_3001.jpg",
+            "20241030-1031_Northland/1031_Elmwick/IMG_3101.jpg",
+            "20241029_Dunmore/IMG_2901.jpg"}
+    return (r.returncode == 0 and want <= set(tree)), \
+        f"finish rc={r.returncode} tree={tree} {r.stderr[-300:]!r}"
+
+
+def set_year_folders(pack, value):
+    path = pack / photo_profile.PROFILE_NAME
+    prof = json.loads(path.read_text())
+    if value is None:
+        prof.pop("year_folders", None)
+    else:
+        prof["year_folders"] = value
+    path.write_text(json.dumps(prof, indent=2))
+    return prof
+
+
+def copied_tree(tmp, wd):
+    env = {k: v for k, v in os.environ.items() if k != photo_profile.ENV_VAR}
+    r = subprocess.run([sys.executable, str(RUN), "finish", str(wd), "--go",
+                        "--skip-memory"], capture_output=True, text=True, env=env)
+    root = Path(tmp) / "sorted"
+    return r, sorted(p.relative_to(root).as_posix() for p in root.rglob("*")
+                     if p.is_file())
+
+
+@case
+def year_folders_put_every_dated_folder_under_its_year():
+    """⭐ REPRODUCTION (E30, M7, G22). With the pack's `year_folders` on, the
+    copy writes every dated folder under `YYYY/` — a trip and a monthly
+    parent under the year they start — while the screenshot bucket and the
+    no-date folder stay where they always were. ⛔ FAILS on c7b761e (no year
+    folder: the owner moved 53 folders by hand)."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, pack = ready(tmp, min_visits=3)
+        set_year_folders(pack, True)
+        must(trip(wd), "make-trip")
+        must(fsl_month(wd), "make-fsl-month")
+        render(wd)
+        must(run("freeze", wd), "freeze")
+        r, tree = copied_tree(tmp, wd)
+    want = {"2024/20241025-1031_Northland/1025_Ashford/IMG_2501.jpg",
+            "2024/20241200_Harbour/1211/IMG_1101.jpg",
+            "2024/20241208_Townsville/IMG_0801.jpg",
+            "20241200_Screenshots/" + SHOT}
+    loose = [t for t in tree if not t.startswith("2024/")
+             and not t.startswith("20241200_Screenshots/")
+             and not t.startswith("_")]
+    return (r.returncode == 0 and want <= set(tree) and not loose), \
+        f"rc={r.returncode} tree={tree} {r.stderr[-200:]!r}"
+
+
+@case
+def a_pack_without_year_folders_keeps_the_flat_layout():
+    """GUARD (M7). No `year_folders` key — every pack written before P1 — and
+    an explicit `false` both copy exactly as before: no year folder."""
+    got = {}
+    for value in (None, False):
+        with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+            wd, pack = ready(tmp)
+            set_year_folders(pack, value)
+            render(wd)
+            must(run("freeze", wd), "freeze")
+            r, tree = copied_tree(tmp, wd)
+            got[value] = (r.returncode, [t for t in tree if t.startswith("2024/")],
+                          "20241208_Townsville/IMG_0801.jpg" in tree)
+    return all(v == (0, [], True) for v in got.values()), f"{got}"
+
+
+@case
+def layout_path_is_the_path_the_freeze_writes():
+    """GUARD (M7, the one layout answer M6 R5 reads). For every live day
+    folder, leg and parent, `layout_path()` equals the destination the
+    freeze put in plans.json, with year folders on and off."""
+    bad = []
+    for value in (True, False):
+        with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+            wd, pack = ready(tmp, min_visits=3)
+            prof = set_year_folders(pack, value)
+            must(trip(wd), "make-trip")
+            must(fsl_month(wd), "make-fsl-month")
+            render(wd)
+            must(run("freeze", wd), "freeze")
+            plans = json.loads((wd / "plans.json").read_text())
+            root = plans["dest_root"]
+            idx = index(tmp)
+            frozen = {}
+            for plan in plans["plans"]:
+                frozen[plan["folder"]] = plan["dest"]["path"]
+                for leg in plan.get("legs") or []:
+                    frozen[(plan["folder"], leg["name"])] = \
+                        plan["dest"]["path"] + "/" + leg["name"]
+            for fo in photo_index.live(idx):
+                if fo["kind"] == "bucket":
+                    continue
+                got = photo_index.layout_path(idx, fo["id"], root, prof)
+                want = (frozen.get(fo["id"]) if not fo.get("parent")
+                        else frozen.get((fo["parent"], fo["rendered"])))
+                if want and got != want:
+                    bad.append(f"{value} {fo['id']}: {got} != {want}")
+                if not want:
+                    bad.append(f"{value} {fo['id']}: not in plans.json")
+    return not bad, f"{bad[:4]}"
+
+
 # ---------------------------------------------------------------------------
 # E43 / M3 — set-where: the owner's own [where] for one day folder or leg
 # ---------------------------------------------------------------------------

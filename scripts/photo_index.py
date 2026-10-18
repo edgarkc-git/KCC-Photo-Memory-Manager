@@ -558,20 +558,52 @@ def export_units(index, by_number):
     return units
 
 
-def unit_paths(units, root, real):
-    """folder id -> its destination: `root/<top>[/<leg>]`, by rendered name
-    (`real`) or by id (render's placeholder); a merge or fill_shell top keeps
-    the owner's existing folder."""
+def unit_paths(units, root, real, years=False):
+    """folder id -> its destination: `root/[YYYY/]<top>[/<leg>]`, by rendered
+    name (`real`) or by id (render's placeholder); a merge or fill_shell top
+    keeps the owner's existing folder. `years` (M7, the pack's
+    `year_folders`) puts a new top under the year its period starts."""
     paths = {}
     for u in units:
         top = u["top"]
         if real and top["dest"]["mode"] != "new":
             paths[top["id"]] = top["dest"]["existing_path"]
+        elif real:
+            year = year_of(top["rendered"]) if years else None
+            paths[top["id"]] = f"{root}/{year + '/' if year else ''}{top['rendered']}"
         else:
-            paths[top["id"]] = f"{root}/{top['rendered'] if real else top['id']}"
+            paths[top["id"]] = f"{root}/{top['id']}"
         for leg, _a, _b in u["legs"]:
             paths[leg["id"]] = f"{paths[top['id']]}/{leg['rendered'] if real else leg['id']}"
     return paths
+
+
+def year_of(name):
+    """-> the year folder a rendered top-level name goes under, or None for a
+    name with no dated period (M7)."""
+    head = (name or "").split("_")[0]
+    return head[:4] if len(head) >= 6 and head[:6].isdigit() else None
+
+
+def layout_path(index, folder_id, dest_root, profile):
+    """M7 — the final destination directory of one live folder, exactly as
+    the freeze will write it: `dest_root/[YYYY/]<top>[/<leg>]` for a day
+    folder, leg or parent (YYYY only with the pack's `year_folders`), the
+    owner's existing folder for a merge or fill-shell top, and
+    `dest_root/<name>` for a bucket. Reads rendered names: call it after
+    `render`. Raises KeyError for an id that is not a live folder.
+    ⛔ The ONE layout answer: the freeze's `unit_paths()` and the fix plan's
+    YEAR/TRIP ops (M6 R5) both read it."""
+    by_id = {fo["id"]: fo for fo in live(index)}
+    fo = by_id[folder_id]
+    if fo["kind"] == "bucket":
+        return f"{dest_root}/{fo['rendered']}"
+    top = by_id[fo["parent"]] if fo.get("parent") else fo
+    unit = {"top": top, "legs": [(leg, None, None) for leg in legs_of(index, top["id"])]
+            if top["kind"] in PARENTS else []}
+    paths = unit_paths([unit], dest_root, real=True,
+                       years=photo_profile.year_folders(profile))
+    return paths[folder_id]
 
 
 def unit_plan(u, n, paths, words=None):
@@ -589,8 +621,11 @@ def unit_plan(u, n, paths, words=None):
                              **({"where": words(leg)} if words else {}))
                         for leg, a, b in u["legs"]]
     if u["overrides"]:
+        # E40 — a leg's days can arrive as an override (a `group split` piece
+        # in a trip): marked, so the name check reads it as a leg.
         plan["overrides"] = [{"dates": ds, "dest": paths[h["id"]],
-                              "reason": f"photo_index: days {h['id']} holds"}
+                              "reason": f"photo_index: days {h['id']} holds",
+                              **({"leg": True} if h["kind"] == "leg" else {})}
                              for ds, h in u["overrides"]]
     return plan
 
@@ -3002,7 +3037,8 @@ def cmd_freeze(args):
                           "nothing frozen")
     dest_root = photo_plan.resolve_dest_root(workdir, None, pack.profile)
     labels = id_labels(pack)
-    paths = unit_paths(units, dest_root, real=True)
+    paths = unit_paths(units, dest_root, real=True,
+                       years=photo_profile.year_folders(pack.profile))
     expected = expected_rows(index, paths, dest_root)
     # FIX8 F8-2 — BEFORE anything is written: a refused freeze leaves plans.json
     # and plan/ exactly as they were.

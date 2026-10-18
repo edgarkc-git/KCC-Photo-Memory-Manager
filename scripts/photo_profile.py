@@ -2264,6 +2264,21 @@ def country(profile):
     return value.strip().upper()
 
 
+def year_folders(profile):
+    """M7 / G22 — True when the owner keeps dated folders under a year folder
+    (`<dest root>/2024/20240501_...`). Asked once at onboarding (default
+    yes) and stored as `year_folders`; a pack without the key keeps the
+    layout it always had (no year folder).
+    ⛔ A non-boolean value stops the run: it decides where every copy lands."""
+    value = get(profile, "year_folders")
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        sys.exit("the owner pack's `year_folders` must be true or false; fix "
+                 "it in photo-profile.json")
+    return value
+
+
 def get(profile, *keys, default=None):
     cur = profile
     for k in keys:

@@ -225,6 +225,12 @@ value alone cannot be told from the shipped one, so without the flag an owner
 who answered is warned on every batch for ever. `--write-pack` below writes
 both.
 
+⭐ **Year folders (G22).** The page and the sheet ask once whether every dated
+folder goes under a folder for its year (`2024/20240501_…`); recommended yes.
+The answer is `year_folders` in the pack, read by every later dump. Blank keeps
+what the pack holds — a pack that never answered stays flat — and a later
+answer moves no folder already copied.
+
 ### Naming a place is the question; living there is an answer about it
 
 ⭐ Each area on the page asks **"What do you call this place?"** — the owner's

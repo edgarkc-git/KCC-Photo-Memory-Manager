@@ -1444,7 +1444,16 @@ def folder_name_checks(plan, batches, hard=None, soft=None, rows=None):
         # refusal stays unarmed here; the index checks each piece against its
         # own places (`check`, since B3a re-resolves them). Two overrides may
         # share a folder, which is checked once.
-        if all(path != o[0] for o in out):
+        if any(path == o[0] for o in out):
+            continue
+        if ov.get("leg"):
+            # E40 — a leg of a trip whose days another plan reads: checked as
+            # the leg it is, never as a top-level folder.
+            name = Path(path).name
+            _ok, ref, warn = photo_name.validate(
+                name, hard=hard, soft=soft, kind=photo_name.NAME_LEG)
+            out.append((path, name, ref, warn))
+        else:
             folder(path, False)
     return out
 

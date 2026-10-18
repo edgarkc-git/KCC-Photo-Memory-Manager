@@ -1040,6 +1040,14 @@ def coords_file(homes, near_misses=()):
 
 # ------------------------------------------------------------------- render
 
+def year_folders_held(profile):
+    """M7 — the pack's own year-folders answer, `yes` / `no`, or "" when the
+    owner never gave one (and the layout stays flat)."""
+    if photo_profile.get(profile or {}, "year_folders") is None:
+        return ""
+    return "yes" if photo_profile.year_folders(profile) else "no"
+
+
 def away_km_shown(profile):
     """The home range this owner's next run would actually use, as a number
     fit to print — 3, not 3.0, and 60 when the pack still says 60.
@@ -1129,6 +1137,10 @@ def build_data(targets, profile, with_coords, prefill=None, device_specs=None,
         # for leaving the line blank, and blank kept the 60. A sentence about
         # a setting has to come from the same place the setting does.
         "away_km_default": away_km_shown(pack.profile),
+        # M7 / G22 — the pack's own answer (`yes` / `no`), or "" when it never
+        # gave one. The question ships blank on both surfaces like every
+        # other (a quote is never an answer); yes is RECOMMENDED in its text.
+        "year_folders_held": year_folders_held(pack.profile),
         # False only under --unfiltered-evidence, and then both surfaces say so.
         "evidence_filtered": callable(ACTIVE_FILTER),
         "submitted": None,
@@ -1661,6 +1673,23 @@ def sheet_text(data, blocks, photographs, digest, workdirs=()):
     out.extend(in_your_pack(data, "away"))
     out.append(">>> away_km:")
     out.append("")
+    out.append("#   year_folders: copy every dated folder into a folder for its "
+               "year")
+    out.append("#     (<destination>/2024/20240501_...)? yes or no. A trip goes "
+               "under the year")
+    out.append("#     it starts; monthly buckets and files with no date stay "
+               "where they are.")
+    out.append("#     Recommended: yes. Asked once: a later dump uses the same "
+               "answer, and a")
+    out.append("#     folder already copied is never moved.")
+    if data.get("year_folders_held"):
+        out.append("#   in your pack: %s — leave blank to keep it"
+                   % data["year_folders_held"])
+    else:
+        out.append("#     Left blank: no year folders, the layout stays as it "
+                   "is.")
+    out.append(">>> year_folders:")
+    out.append("")
     out.append("#   pets: your pets, the ones that live with you, comma "
                "separated — the names you")
     out.append("#     actually call them. Each one becomes a record the engine "
@@ -1758,7 +1787,7 @@ def cmd_sheet(args):
 # over a sheet's own text at write time, so an old sheet still re-digests to
 # the value it stored).
 ANSWER_KEYS = ("make", "makes", "screen", "home", "language", "types",
-               "away_km", "pets", "country")
+               "away_km", "pets", "country", "year_folders")
 
 
 # The words that REJECT a proposed area outright. ⛔ `not a home` is NOT one
@@ -1856,7 +1885,8 @@ def parse_lines(text, known=None):
     known = known or {}
     out = {"lines": [], "makes": {}, "own_camera_makes": [], "screens": {},
            "homes": {}, "language": "", "types": "", "away_km": "",
-           "pets": "", "country": "", "header": {}, "blank": []}
+           "pets": "", "country": "", "year_folders": "", "header": {},
+           "blank": []}
 
     def check(kind, subject):
         pool = known.get(kind)
@@ -1936,6 +1966,13 @@ def parse_lines(text, known=None):
                     "turns off the test that tells a day abroad from a day at "
                     "home." % rest)
             out["country"] = code
+        elif key == "year_folders":
+            if rest.lower() not in ("yes", "no"):
+                raise SystemExit(
+                    "year_folders %r: write `yes` to copy every dated folder "
+                    "into a folder for its year, `no` to keep them side by "
+                    "side." % rest)
+            out["year_folders"] = rest.lower()
         else:
             out[key] = rest
 
@@ -2372,6 +2409,16 @@ def pack_updates(answers, coords, profile, entities, add_screens=frozenset(),
             # only writer.
             plan.append(("photo-profile.json",
                          "cluster_defaults.away_km_answered", True))
+
+    if answers.get("year_folders"):
+        # M7 / G22 — the owner may change it on a later sheet: it decides
+        # where the NEXT copies land, never moves a folder already copied.
+        want = answers["year_folders"] == "yes"
+        if profile.get("year_folders") == want:
+            said("year_folders", "already listed", answers["year_folders"])
+        else:
+            plan.append(("photo-profile.json", "year_folders", want))
+            said("year_folders", "add", answers["year_folders"])
 
     homes, places = [], []
     pack_homes = photo_census.pack_home_rows(profile)
@@ -3145,6 +3192,7 @@ def apply_answers(path, text, args=None):
                "types": answers["types"],
                "away_km": answers["away_km"],
                "pets": answers["pets"],
+               "year_folders": answers["year_folders"],
                "units": [u.strip() for u in
                          (header.get("folders") or "").split(",") if u.strip()],
                "unanswered": answers["blank"]}

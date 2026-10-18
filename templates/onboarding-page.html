@@ -271,12 +271,13 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
      translated key renders a page that reads perfectly and writes an answer
      nothing can read. */
   var KEY = {makes:"makes", screen:"screen", home:"home", language:"language",
-             types:"types", away:"away_km", pets:"pets", country:"country"};
+             types:"types", away:"away_km", pets:"pets", country:"country",
+             year:"year_folders"};
 
   var LS = "photo-onboard/" + (D.owner || "-") + "/" + (D.units || []).join("+");
   function fresh(){
     return {makes:{}, screens:{}, homes:{}, language:"", types:"",
-            away:"", pets:"", country:"", submitted:null};
+            away:"", pets:"", country:"", year:"", submitted:null};
   }
   var state;
   try{ state = JSON.parse(localStorage.getItem(LS)) || fresh(); }
@@ -308,6 +309,9 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
      reader below calls .trim() on it. Fill it rather than guard each one. */
   if(typeof state.pets !== "string") state.pets = "";
   if(typeof state.country !== "string") state.country = "";
+  /* M7 / G22 — year folders start undecided like every other answer here
+     (a quote is never an answer); yes is RECOMMENDED in the row's text. */
+  if(state.year !== "yes" && state.year !== "no") state.year = "";
   function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
 
   function el(tag, cls, txt){
@@ -800,6 +804,21 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
       + D.away_km_default + " km: past that, somewhere counts as a different place and "
       + "gets named in the folder. Make it smaller if your everyday range is smaller, "
       + "larger if the next town still feels like home."));
+
+    box.appendChild(el("label","inline",
+      "Copy every dated folder into a folder for its year (2024/\u2026)? "
+      + "Recommended: yes"
+      + (D.year_folders_held ? "  \u00B7  in your pack: " + D.year_folders_held : "")));
+    box.appendChild(toggle("Yes, year folders", "No, side by side",
+      state.year === "yes" ? true : (state.year === "no" ? false : null),
+      function(v){
+        state.year = v === null ? "" : (v ? "yes" : "no");
+        save(); render();
+      }));
+    box.appendChild(el("div","consequence",
+      "A trip goes under the year it starts. Monthly buckets and files with no "
+      + "date stay where they are. Asked once: a later dump uses the same answer, "
+      + "and folders already copied are never moved."));
     st.body.appendChild(box);
     return st.section;
   }
@@ -852,6 +871,7 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
     if(String(state.away).trim()) out.push(KEY.away + ": " + String(state.away).trim());
     if(state.pets.trim()) out.push(KEY.pets + ": " + state.pets.trim());
     if(state.country) out.push(KEY.country + ": " + state.country);
+    if(state.year) out.push(KEY.year + ": " + state.year);
     return out;
   }
 
@@ -1079,7 +1099,7 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
                    lines: lines(), makes: state.makes, screens: state.screens,
                    homes: state.homes, language: state.language,
                    types: state.types, away_km: state.away, pets: state.pets,
-                   units: D.units || []};
+                   year_folders: state.year, units: D.units || []};
     var api = null;
     try{ api = await window.claude.use("artifact"); }catch(e){ api = null; }
     if(!api){

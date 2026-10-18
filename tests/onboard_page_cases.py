@@ -1860,7 +1860,7 @@ def main():
                    for c in D["screens"]["candidates"]]
                 + ["home|%s" % r["id"]
                    for r in D["homes"]["rows"] + D["homes"]["near_misses"]]
-                + ["language", "types", "away_km", "pets"]
+                + ["language", "types", "away_km", "year_folders", "pets"]
                 # K20 / C5 — the page asks it too while the country is unknown.
                 + ([] if D["country"]["known"] else ["country"]))
         check("the sheet asks EVERY question the page asks", stems == want,
