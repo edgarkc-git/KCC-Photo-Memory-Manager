@@ -950,11 +950,10 @@ def the_next_dump_names_a_draft_the_new_pet_by_same():
     """GUARD (Lead, E37 follow-up). A record made the E37 way (confirmed, a
     `who`, no exemplar, not declared) is an ordinary remembered pet on the
     next dump: a draft answered `Birk same` joins it, with no second Birk and
-    nothing refused. As for any named pet, a plain `Birk` gets SNS-7's ask and
-    `same` reads the name as spelled (`birk same` is refused, nothing
-    written); neither ever mints a second Birk."""
+    nothing refused. As for any named pet, a plain `Birk` gets SNS-7's ask;
+    neither ever mints a second Birk."""
     results = {}
-    for answer in ("Birk same", "Birk", "birk same"):
+    for answer in ("Birk same", "Birk"):
         with tempfile.TemporaryDirectory() as tmp, fixture_env():
             wd, pack_dir, extra = page_dump(tmp, pets=(1,), place_batches=())
             pack = photo_profile.resolve_pack(
@@ -974,11 +973,42 @@ def the_next_dump_names_a_draft_the_new_pet_by_same():
             births = [s for s in subs if (s.get("name") or "").casefold() == "birk"]
             joined = [s for s in subs if s.get("absorbed_by") == birk.subject_id]
             results[answer] = (rc, len(births), len(joined), said)
-    same, plain, low = results["Birk same"], results["Birk"], results["birk same"]
+    same, plain = results["Birk same"], results["Birk"]
     return (same[0] == 0 and same[1] == 1 and same[2] == 1
-            and plain[1] == 1 and plain[2] == 0
-            and low[1] == 1 and low[2] == 0), \
-        f"same={same[:3]} plain={plain[:3]} low={low[:3]} {same[3][-300:]!r}"
+            and plain[1] == 1 and plain[2] == 0), \
+        f"same={same[:3]} plain={plain[:3]} {same[3][-300:]!r}"
+
+
+@case
+def same_reads_the_remembered_name_in_any_case():
+    """⭐ REPRODUCTION (owner ruling 20261018). ⛔ FAILS on 87fc7ae: `same` read
+    the name as spelled, so `birk same` was refused against the remembered
+    `Birk`. `birk same` and `BIRK same` now act as `Birk same`: the draft
+    joins Birk, the name keeps its spelling, and no second record is minted."""
+    results = {}
+    for answer in ("birk same", "BIRK same"):
+        with tempfile.TemporaryDirectory() as tmp, fixture_env():
+            wd, pack_dir, extra = page_dump(tmp, pets=(1,), place_batches=())
+            pack = photo_profile.resolve_pack(
+                explicit=pack_dir / photo_profile.PROFILE_NAME)
+            registry = pm.photo_subjects.load(pack=pack)
+            birk = registry.create_subject(name="Birk", who="pet", kind="cat",
+                                           status=pm.photo_subjects.STATUS_CONFIRMED)
+            registry.save()
+            next_page(wd, extra)
+            identity_index(wd, str(wd / "B1_C0_000.JPG"), 1)
+            page = wd / "P-B01.md"
+            page.write_text(pmc.fill_pick(page.read_text(), [1], who="pet",
+                                          name=answer))
+            rc, said = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+            subs = json.loads((pack_dir / "photo-subjects" / "subjects.json")
+                              .read_text())["subjects"]
+            births = [s.get("name") for s in subs
+                      if (s.get("name") or "").casefold() == "birk"]
+            joined = [s for s in subs if s.get("absorbed_by") == birk.subject_id]
+            results[answer] = (rc, births, len(joined), said[-300:])
+    return all(r[0] == 0 and r[1] == ["Birk"] and r[2] == 1
+               for r in results.values()), f"{results}"
 
 
 @case

@@ -6048,6 +6048,24 @@ def cmd_confirm(args):
                     if s.name == unit["name"]
                     and s.status == photo_subjects.STATUS_CONFIRMED
                     and s.subject_id not in member_ids)
+                if (unit.get("same") or unit.get("same_as")) and not held \
+                        and unit["name"]:
+                    # `same` answers about a pet the owner can see, so its
+                    # spelling's case is not a second animal (owner ruling
+                    # 20261018): `birk same` reads as the remembered `Birk`.
+                    # Only one spelling may answer; two are left as typed.
+                    spelled = {s.name for s in registry.subjects
+                               if s.name and s.name.casefold()
+                               == unit["name"].casefold()
+                               and s.status == photo_subjects.STATUS_CONFIRMED
+                               and s.subject_id not in member_ids}
+                    if len(spelled) == 1:
+                        unit["name"] = spelled.pop()
+                        held = sorted(
+                            s.subject_id for s in registry.subjects
+                            if s.name == unit["name"]
+                            and s.status == photo_subjects.STATUS_CONFIRMED
+                            and s.subject_id not in member_ids)
                 # ⚠️ The other half a name can collide with is a row EARLIER ON
                 # THIS PAGE, and `held` cannot see it. `held` reads the
                 # registry; the two-pass split means nothing is written until
