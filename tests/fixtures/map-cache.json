@@ -221,5 +221,60 @@
    },
    "type": "way"
   }
+ ],
+ "landmarks:45.397297,145.396151,45.402853,145.403849": [
+  {
+   "bounds": {
+    "maxlat": 45.4002,
+    "maxlon": 145.4002,
+    "minlat": 45.3998,
+    "minlon": 145.3998
+   },
+   "tags": {
+    "name": "Hillside Hostel",
+    "tourism": "hostel"
+   },
+   "type": "way"
+  },
+  {
+   "bounds": {
+    "maxlat": 45.4003,
+    "maxlon": 145.4002,
+    "minlat": 45.3999,
+    "minlon": 145.3998
+   },
+   "tags": {
+    "name": "Lantern Hostel",
+    "tourism": "hostel"
+   },
+   "type": "way"
+  },
+  {
+   "lat": 45.4,
+   "lon": 145.4003,
+   "tags": {
+    "amenity": "restaurant",
+    "name": "Birk Kitchen"
+   },
+   "type": "node"
+  },
+  {
+   "lat": 45.3996,
+   "lon": 145.4,
+   "tags": {
+    "amenity": "cafe",
+    "name": "Lotus Cafe"
+   },
+   "type": "node"
+  },
+  {
+   "lat": 45.4006,
+   "lon": 145.4,
+   "tags": {
+    "name": "Birk Hill Street",
+    "tourism": "attraction"
+   },
+   "type": "node"
+  }
  ]
 }

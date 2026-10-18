@@ -698,6 +698,12 @@ USER_AGENT = "kcc-photo-manager/0.1"
 LANDMARK_RADIUS_M = 300
 # 📐 `{n}` — a photo this near a feature's outline was taken AT it.
 LANDMARK_AT_M = 50
+# 📐 `{n}` — F4: a sight this near wins a photo's vote over any hotel or
+# restaurant, even one the photo is inside (D4).
+LANDMARK_SIGHT_REACH_M = 150
+# 📐 `{n}` — F4: a node this near counts as containing the photo, as an
+# outline at distance 0 does.
+LANDMARK_NODE_AT_M = 25
 # 📐 `{n}` — D3: the share of the day's photos a second landmark needs.
 LANDMARK_SECOND_SHARE = 1 / 3
 MAX_LANDMARKS = 2
@@ -813,14 +819,19 @@ def rank_landmarks(elements, pts, language):
 
     Each photo VOTES ONCE (the Lead's F1, 20261018): every feature within
     LANDMARK_RADIUS_M used to count every photo, so a large park tied with
-    the sight inside it and D3 passed both. A photo AT one or more features
-    (within LANDMARK_AT_M of the outline) votes, in order (F3, the Lead's
-    live probe): a sight before a stay (D4); any sight before a pedestrian
-    street; a NOTABLE feature (wikidata/wikipedia) before one that is not;
-    an outline that CONTAINS the photo before a nearby node; the smallest;
-    the nearest. "Smallest" alone picked a room inside the sight. A photo
-    at none votes for the nearest, sight first on a tie."""
+    the sight inside it and D3 passed both. A photo votes for, in tiers:
+      1. a sight it is AT (within LANDMARK_AT_M of the outline);
+      2. a sight within LANDMARK_SIGHT_REACH_M (F4: a stay the photo is
+         inside used to beat an old street 67 m off — D4 says otherwise);
+      3. a stay it is at;
+      4. the nearest feature, sight first on a tie.
+    Within a tier (F3, the Lead's live probes): any sight before a
+    pedestrian street; a NOTABLE feature (wikidata/wikipedia) before one
+    that is not; a feature that CONTAINS the photo (an outline at 0, or a
+    node within LANDMARK_NODE_AT_M) before one that does not; the smallest;
+    the nearest. "Smallest" alone picked a room inside the sight."""
     radius, at = LANDMARK_RADIUS_M / 1000, LANDMARK_AT_M / 1000
+    reach, node_at = LANDMARK_SIGHT_REACH_M / 1000, LANDMARK_NODE_AT_M / 1000
     cands = []
     for el in elements or ():
         tags = el.get("tags") or {}
@@ -830,19 +841,26 @@ def rank_landmarks(elements, pts, language):
             continue
         cands.append((name, rank, el, (is_street(tags), not is_notable(tags)),
                       feature_extent_km(el)))
+
+    def order(c):
+        d, _name, _rank, kind, extent, node = c
+        contains = d <= node_at if node else d == 0
+        return (*kind, not contains, extent, d)
+
     best = {}
     for p in pts:
         near = [(feature_km((p[0], p[1]), el), name, rank, kind, extent,
-                 "bounds" in el and "lat" not in el)
+                 "lat" in el and "lon" in el)
                 for name, rank, el, kind, extent in cands]
         near = [c for c in near if c[0] <= radius]
         if not near:
             continue
-        inside = [c for c in near if c[0] <= at]
-        d, name, rank, *_rest = (
-            min(inside, key=lambda c: (c[2], *c[3], not (c[5] and c[0] == 0),
-                                       c[4], c[0]))
-            if inside else min(near, key=lambda c: (c[0], c[2])))
+        tiers = ([c for c in near if c[2] == 0 and c[0] <= at],
+                 [c for c in near if c[2] == 0 and c[0] <= reach],
+                 [c for c in near if c[0] <= at])
+        tier = next((t for t in tiers if t), None)
+        d, name, rank, *_rest = (min(tier, key=order) if tier
+                                 else min(near, key=lambda c: (c[0], c[2])))
         row = best.setdefault(name, {"name": name, "rank": rank, "photos": 0,
                                      "km": d})
         row["photos"] += 1

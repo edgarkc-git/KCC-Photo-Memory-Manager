@@ -46,6 +46,7 @@ E = (43.0000, 143.0000)
 F = (43.6000, 143.6000)
 G = (44.2000, 144.2000)
 H = (44.8000, 144.8000)
+J = (45.4000, 145.4000)
 
 
 def off(pt, dlat=0.0, dlon=0.0):
@@ -78,6 +79,10 @@ DAYS = {
     # small viewpoint inside the tower, a notable memorial 37 m off, and
     # plain pedestrian streets — the tower names the day, alone
     "2025-05-11": [off(H, 0.0001 * i) for i in range(4)],
+    # F4, the shape of the Lead's second live probe (synthetic): photos
+    # inside two hostel outlines, a restaurant 24 m off, a cafe 45 m off and
+    # an old-street attraction node 67 m off — the sight names the day (D4)
+    "2025-05-12": [off(J, 0.00005 * i) for i in range(4)],
 }
 WANT = {"2025-05-01": "Lotus Garden",
         "2025-05-02": "Old Mill Museum+Harbour Beach",
@@ -87,7 +92,8 @@ WANT = {"2025-05-01": "Lotus Garden",
         "2025-05-06": "Homecity",
         "2025-05-09": "Birk Tower",
         "2025-05-10": "Birk Tower+Lotus Commons",
-        "2025-05-11": "Lotus Spire"}
+        "2025-05-11": "Lotus Spire",
+        "2025-05-12": "Birk Hill Street"}
 
 
 def bounds(pt, half):
@@ -135,6 +141,17 @@ ELEMENTS["2025-05-11"] = [
     {"type": "way", "bounds": {"minlat": H[0] - 0.002, "minlon": H[1] - 0.00005,
                                "maxlat": H[0] + 0.002, "maxlon": H[1] + 0.00005},
      "tags": {"highway": "pedestrian", "name": "Lotus Walk"}}]
+ELEMENTS["2025-05-12"] = [
+    {"type": "way", "bounds": bounds(J, 0.0002),
+     "tags": {"tourism": "hostel", "name": "Hillside Hostel"}},
+    {"type": "way", "bounds": bounds(off(J, 0.0001), 0.0002),
+     "tags": {"tourism": "hostel", "name": "Lantern Hostel"}},
+    {"type": "node", "lat": J[0], "lon": off(J, 0.0, 0.0003)[1],
+     "tags": {"amenity": "restaurant", "name": "Birk Kitchen"}},
+    {"type": "node", "lat": off(J, -0.0004)[0], "lon": J[1],
+     "tags": {"amenity": "cafe", "name": "Lotus Cafe"}},
+    {"type": "node", "lat": off(J, 0.0006)[0], "lon": J[1],
+     "tags": {"tourism": "attraction", "name": "Birk Hill Street"}}]
 
 
 def geocoder(cache=None, enabled=False):
@@ -603,6 +620,38 @@ def a_notable_outline_beats_a_room_inside_it():
     got = pc.pick_landmarks(pc.rank_landmarks(ELEMENTS["2025-05-11"], pts, "en"),
                             len(pts))
     return got == ["Lotus Spire"], f"{got}"
+
+
+@case
+def a_sight_within_reach_beats_the_hostel_the_photo_is_in():
+    """⭐ REPRODUCTION (F4, the Lead's live probe on 199ca9b: photos inside
+    two hostels named the day after a restaurant 24 m off, with the old
+    street 67 m away). D4: a sight within LANDMARK_SIGHT_REACH_M takes the
+    vote before any stay. ⛔ FAILS on 199ca9b ("Birk Kitchen" or a hostel)."""
+    pts = pts_at(*((off(J, 0.00005 * i), 1) for i in range(4)))
+    got = pc.pick_landmarks(pc.rank_landmarks(ELEMENTS["2025-05-12"], pts, "en"),
+                            len(pts))
+    far = [dict(el, lat=off(J, 0.0016)[0]) if el["tags"].get("tourism") == "attraction"
+           else el for el in ELEMENTS["2025-05-12"]]
+    stays = pc.pick_landmarks(pc.rank_landmarks(far, pts, "en"), len(pts))
+    return (got == ["Birk Hill Street"]
+            and stays and stays[0] != "Birk Hill Street"), f"{got} far={stays}"
+
+
+@case
+def a_temple_node_near_the_photos_beats_the_park_around_them():
+    """⭐ REPRODUCTION (F4). A non-notable sight mapped as a node 15 m off
+    counts as containing the photo (LANDMARK_NODE_AT_M), so it beats the
+    non-notable park whose outline holds the photos — the smaller wins.
+    ⛔ FAILS on 199ca9b (the park)."""
+    t = (48.0, 148.0)
+    park = {"type": "way", "bounds": bounds(t, 0.005),
+            "tags": {"leisure": "park", "name": "Lotus Commons"}}
+    temple = {"type": "node", "lat": off(t, 0.000135)[0], "lon": t[1],
+              "tags": {"amenity": "place_of_worship", "name": "Birk Temple"}}
+    pts = pts_at((t, 3))
+    got = pc.pick_landmarks(pc.rank_landmarks([park, temple], pts, "en"), 3)
+    return got == ["Birk Temple"], f"{got}"
 
 
 @case
