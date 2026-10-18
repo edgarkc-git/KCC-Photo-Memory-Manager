@@ -524,6 +524,8 @@ def shared_frame_rows(workdir, block, refusals, pack=None):
             continue
         for unit in units:
             logs.append((frame["path"], unit["name"], frame["subject_id"], number))
+            # E37 — the row's `who`, for a name no record holds yet.
+            block.setdefault("shared_who", {})[(number, unit["name"])] = unit["who"]
             unit["numbers"] = [x for x in unit["numbers"] if x != number]
     for unit in block["picks"]:
         if unit["verb"] != "pick":
@@ -7072,6 +7074,28 @@ def cmd_confirm(args):
         for number, names in sorted(by_frame.items()):
             changes.append(f"Q{block['n']} frame {number}: {' + '.join(names)} "
                            "— named, not remembered as a look: 2+ animals")
+        # E37 (D-24) — one name per animal, a NEW pet included: a name no
+        # record of any status holds becomes a confirmed record, so the
+        # photo can carry it. Never a second record for a known name (ADR
+        # 0004), and no exemplar: a 2+ animal photo is never a look.
+        for _path, name, draft_id, number in logged:
+            if any((s.name or "").casefold() == name.casefold()
+                   for s in registry.subjects):
+                continue
+            draft = registry.get_literal(draft_id)
+            kind = draft.record.get("kind") if draft is not None else None
+            new = registry.create_subject(
+                name=name, who=block["shared_who"][(number, name)], kind=kind,
+                status=photo_subjects.STATUS_CONFIRMED)
+            changes.append(
+                f"{new.subject_id} -> confirmed {name!r}: a new pet, named on "
+                f"photo {number} of Q{block['n']}, which holds 2+ animals. No "
+                "look is remembered from it, so the next dump may ask about "
+                f"{name} again.")
+            log_lines.append(
+                f"| human-confirmed | {new.subject_id} named {name!r} on a photo "
+                f"holding 2+ animals (no exemplar)\n  | by: {by} | src: "
+                f"{path.name} Q{block['n']}")
         # G2 — a draft whose every photo on this page was named that way has
         # nothing left to ask. Booked, and moved nowhere: no join, no split,
         # no exemplar.

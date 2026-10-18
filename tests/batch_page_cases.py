@@ -828,6 +828,186 @@ def two_animals_in_one_photo_get_two_names_end_to_end():
         f"questions={len(questions)} rows={rows} err={err[-200:]!r} said={said[-500:]!r}"
 
 
+def pack_files_state(pack_dir):
+    return {str(p.relative_to(pack_dir)): p.read_bytes()
+            for p in sorted(Path(pack_dir).rglob("*")) if p.is_file()}
+
+
+def vector_files_of(pack_dir, subject_id):
+    """Every file the three vector stores hold for `subject_id`."""
+    root = Path(pack_dir) / "photo-subjects"
+    return sorted(str(p.relative_to(root)) for p in root.rglob(f"{subject_id}*")
+                  if p.is_file())
+
+
+@case
+def a_new_pet_on_a_two_animal_photo_gets_its_name():
+    """⭐ E37 REPRODUCTION (D-24, one name per animal). ⛔ FAILS on 11f5353:
+    rows `Pebble same` + `Birk` on a photo of two animals logged both names,
+    then dropped Birk ("held by 0 confirmed subject(s)") because no record
+    held that name — the folder carried Pebble alone. Now Birk is a confirmed
+    record with the row's `who`, the photo carries both names after
+    apply-page, and the run says no look was remembered. Only THAT photo
+    carries Birk (names only for frames the owner picked)."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, rc, said = two_name_page(tmp, 2, ["Pebble same", "Birk"])
+        code, out, err = apply_page(wd, "P-B01", "--go")
+        pack = photo_profile.resolve_pack(explicit=pack_dir / photo_profile.PROFILE_NAME)
+        cells = photo_plan.visual_columns(wd, [1], pack.profile, pack)
+        named = subjects_named(pack_dir, "Pebble", "Birk")
+    shared = str(wd / "B1_C0_000.JPG")
+    others = {s: c.get("who") for s, c in cells.items() if s != shared}
+    birk = named.get("Birk") or {}
+    return (rc == 0 and code == 0
+            and sorted((cells.get(shared, {}).get("who") or "").split("+"))
+            == ["Birk", "Pebble"]
+            and birk.get("status") == pm.photo_subjects.STATUS_CONFIRMED
+            and birk.get("who") == "pet" and birk.get("exemplars") == []
+            and "a new pet, named on photo 1" in said
+            and "held by 0 confirmed" not in said
+            and not any("Birk" in (w or "") for w in others.values())), \
+        f"rc={rc} code={code} who={cells.get(shared, {}).get('who')!r} " \
+        f"birk={birk} others={others} said={said[-600:]!r}"
+
+
+@case
+def a_new_pet_on_a_two_animal_photo_banks_no_look_in_any_space():
+    """GUARD (D-24/G6-6, LL-PHO-136). The new record holds no exemplar and no
+    file in any of the three vector stores; Pebble gains none either; the
+    photo's identity row (its `vec_ref` sha) is byte for byte as before."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, extra = page_dump(tmp, pets=(1,), place_batches=())
+        op.declare_pets(str(pack_dir), ["Pebble"])
+        next_page(wd, extra)
+        identity_index(wd, str(wd / "B1_C0_000.JPG"), 2)
+        id_before = (wd / "embed" / "identity.csv").read_bytes()
+        page = wd / "P-B01.md"
+        text = page.read_text()
+        for name in ("Pebble same", "Birk"):
+            text = pmc.fill_pick(text, [1], who="pet", name=name)
+        page.write_text(text)
+        rc, said = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+        named = subjects_named(pack_dir, "Pebble", "Birk")
+        files = {n: vector_files_of(pack_dir, s["subject_id"]) for n, s in named.items()}
+        id_after = (wd / "embed" / "identity.csv").read_bytes()
+    return (rc == 0 and len(named) == 2
+            and all(s.get("exemplars") == [] for s in named.values())
+            and files == {"Pebble": [], "Birk": []} and id_before == id_after), \
+        f"rc={rc} named={named} files={files}"
+
+
+@case
+def a_new_pet_dry_run_writes_nothing():
+    """GUARD (LL-PHO-205). The dry run says the new pet would be confirmed
+    and leaves every pack file byte for byte as it was."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, extra = page_dump(tmp, pets=(1,), place_batches=())
+        op.declare_pets(str(pack_dir), ["Pebble"])
+        next_page(wd, extra)
+        identity_index(wd, str(wd / "B1_C0_000.JPG"), 2)
+        page = wd / "P-B01.md"
+        text = page.read_text()
+        for name in ("Pebble same", "Birk"):
+            text = pmc.fill_pick(text, [1], who="pet", name=name)
+        page.write_text(text)
+        before = pack_files_state(pack_dir)
+        rc, said = pmc.confirm_page(pack_dir, wd, page="P-B01", go=False)
+        after = pack_files_state(pack_dir)
+    return (rc == 0 and before == after and "a new pet, named on photo 1" in said), \
+        f"rc={rc} same={before == after} said={said[-400:]!r}"
+
+
+@case
+def a_name_any_record_holds_is_never_minted_twice():
+    """GUARD (ADR 0004). A name some record already holds, in any letter
+    case and any status (here a REJECTED one), is not made a second record:
+    today's warning stands and nothing is minted."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, extra = page_dump(tmp, pets=(1,), place_batches=())
+        op.declare_pets(str(pack_dir), ["Pebble"])
+        reg = pack_dir / "photo-subjects" / "subjects.json"
+        data = json.loads(reg.read_text())
+        data["subjects"].append({"subject_id": "subj-0950", "name": "birk",
+                                 "who": "pet", "kind": "cat",
+                                 "status": "rejected", "exemplars": []})
+        reg.write_text(json.dumps(data))
+        next_page(wd, extra)
+        identity_index(wd, str(wd / "B1_C0_000.JPG"), 2)
+        page = wd / "P-B01.md"
+        text = page.read_text()
+        for name in ("Pebble same", "Birk"):
+            text = pmc.fill_pick(text, [1], who="pet", name=name)
+        page.write_text(text)
+        rc, said = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+        subs = json.loads(reg.read_text())["subjects"]
+    birks = [s for s in subs if (s.get("name") or "").casefold() == "birk"]
+    return (len(birks) == 1 and "a new pet" not in said
+            and "held by 0 confirmed" in said), f"birks={birks} said={said[-400:]!r}"
+
+
+@case
+def the_next_dump_names_a_draft_the_new_pet_by_same():
+    """GUARD (Lead, E37 follow-up). A record made the E37 way (confirmed, a
+    `who`, no exemplar, not declared) is an ordinary remembered pet on the
+    next dump: a draft answered `Birk same` joins it, with no second Birk and
+    nothing refused. As for any named pet, a plain `Birk` gets SNS-7's ask and
+    `same` reads the name as spelled (`birk same` is refused, nothing
+    written); neither ever mints a second Birk."""
+    results = {}
+    for answer in ("Birk same", "Birk", "birk same"):
+        with tempfile.TemporaryDirectory() as tmp, fixture_env():
+            wd, pack_dir, extra = page_dump(tmp, pets=(1,), place_batches=())
+            pack = photo_profile.resolve_pack(
+                explicit=pack_dir / photo_profile.PROFILE_NAME)
+            registry = pm.photo_subjects.load(pack=pack)
+            birk = registry.create_subject(name="Birk", who="pet", kind="cat",
+                                           status=pm.photo_subjects.STATUS_CONFIRMED)
+            registry.save()
+            next_page(wd, extra)
+            identity_index(wd, str(wd / "B1_C0_000.JPG"), 1)
+            page = wd / "P-B01.md"
+            page.write_text(pmc.fill_pick(page.read_text(), [1], who="pet",
+                                          name=answer))
+            rc, said = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+            subs = json.loads((pack_dir / "photo-subjects" / "subjects.json")
+                              .read_text())["subjects"]
+            births = [s for s in subs if (s.get("name") or "").casefold() == "birk"]
+            joined = [s for s in subs if s.get("absorbed_by") == birk.subject_id]
+            results[answer] = (rc, len(births), len(joined), said)
+    same, plain, low = results["Birk same"], results["Birk"], results["birk same"]
+    return (same[0] == 0 and same[1] == 1 and same[2] == 1
+            and plain[1] == 1 and plain[2] == 0
+            and low[1] == 1 and low[2] == 0), \
+        f"same={same[:3]} plain={plain[:3]} low={low[:3]} {same[3][-300:]!r}"
+
+
+@case
+def a_confirmed_pet_with_no_look_matches_nothing():
+    """GUARD (Lead, A19). A confirmed record with 0 exemplars is never a
+    recogniser: `match()` gives it no verdict on any vector, `prune` neither
+    fails nor drops anything, and the end-of-dump page renders with it in
+    the pack."""
+    import numpy as np
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, extra = page_dump(tmp, pets=(1,), place_batches=())
+        pack = photo_profile.resolve_pack(explicit=pack_dir / photo_profile.PROFILE_NAME)
+        registry = pm.photo_subjects.load(pack=pack)
+        birk = registry.create_subject(name="Birk", who="pet", kind="cat",
+                                       status=pm.photo_subjects.STATUS_CONFIRMED)
+        registry.save()
+        registry = pm.photo_subjects.load(pack=pack)
+        rng = np.random.default_rng(7)
+        X = rng.normal(size=(5, 512)).astype(np.float32)
+        verdicts = registry.match(X, [None] * 5)
+        named = [v for v in verdicts
+                 if v and birk.subject_id in json.dumps(v, default=str)]
+        pruned = registry.prune()
+        questions = pm.build_questions(registry, str(wd), pack, pack.profile,
+                                       photo_profile.review_messages(pack.profile))
+    return (named == [] and birk.subject_id not in pruned
+            and questions is not None), f"named={named} pruned={pruned}"
+
+
 @case
 def a_stale_batch_page_refusal_leads_to_the_page_again():
     """⭐ M7 (REPRODUCTION). ⛔ FAILS on 6edab52: a batch page refused as stale
