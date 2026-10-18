@@ -23,17 +23,39 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tests"))
 import photo_fixplan_page as fp  # noqa: E402
 
-PLAN = """# Fix plan — dump-a
+import photo_index  # noqa: E402
 
-Answer each row: ok, skip or word: <your place word>. A row left open is a skip.
+# The plan as the fix plan stage writes it: its own writer, never a copy of
+# its format (one row format, `photo_index.FIX_ROW`).
+OPS = [
+    {"op": "RENAME", "rule": "R1", "folder": "F001", "from": "20250104_Townsville_beach",
+     "to": "20250104_Lotus Beach Park_beach",
+     "reason": "Map: Lotus Beach Park holds 39 of 42 photos", "photos": 42},
+    {"op": "RENAME", "rule": "R2", "folder": "F002", "from": "20250111_Hillside_sofa",
+     "to": "20250111_Hillside_Lotus_sofa", "reason": "Lotus agreed in 3 photos",
+     "photos": 18},
+    {"op": "INTO-EXISTING", "rule": "R4", "folder": "F003", "from": "20250120_Birkton",
+     "to": "2025/20250120_Birk Old Street_market",
+     "reason": "This day already has a folder · from an earlier dump", "photos": 6},
+    {"op": "RENAME", "rule": "R3", "folder": "F004", "from": "20250215_Townsville_white cat",
+     "to": "20250215_Townsville_Birk", "reason": "Birk is the white cat", "photos": 9},
+]
+REFUSED = [({"op": "RENAME", "rule": "R1", "folder": "F005", "from": "20250301_Townsville",
+             "to": "20250301_Townsville"},
+            "landmark lookup failed: type the place with group set-where")]
+SAMPLES = "   samples: DCIM/a.jpg | DCIM/b.jpg | DCIM/c.jpg"
 
-1. RENAME (R1) · 20250104_Townsville_beach → 20250104_Lotus Beach Park_beach · Map: Lotus Beach Park holds 39 of 42 photos · 42 photos · answer: ______
-   samples: DCIM/a.jpg | DCIM/b.jpg | DCIM/c.jpg
-2. RENAME (R2) · 20250111_Hillside_sofa → 20250111_Hillside_Lotus_sofa · Lotus agreed in 3 photos · 18 photos · answer: ______
-3. INTO-EXISTING (R4) · (new) 20250120_Birkton → 2025/20250120_Birk Old Street_market · This day already has a folder · 6 photos · answer: ______
-4. RENAME (agent) · 20250215_Townsville → 20250215_Townsville · The map did not answer · 9 photos · answer: ______
-   lookup: failed
-"""
+
+def plan_text(ops=OPS, refused=REFUSED, wd=Path("/work/dump-a")):
+    text = photo_index.fix_plan_text(wd, {"dump": "dump-a"}, ops, refused)
+    lines = text.splitlines()
+    first = next((i for i, l in enumerate(lines) if photo_index.FIX_ROW.match(l)), None)
+    if first is None:
+        return text
+    return "\n".join(lines[:first + 1] + [SAMPLES] + lines[first + 1:]) + "\n"
+
+
+PLAN = plan_text()
 
 
 CASES = []
@@ -68,31 +90,31 @@ def page_data(html):
 
 
 @case
-def the_op_lines_are_read_and_written_back_unchanged():
-    """GUARD (M9 on the stage's own line). Every field of `N. OP (rule) ·
-    from → to · reason · photos · answer:` is read, the indented samples and
-    a map failure ride with their op, and writing an op back gives the line
-    it came from."""
+def the_rows_are_read_with_the_stages_own_pattern():
+    """GUARD (M9 on the stage's own row, `photo_index.FIX_ROW`). Every row the
+    fix plan stage writes is read — number, op, rule, folder, from, to, the
+    reason (a ` · ` inside it kept), the photo count — the samples ride with
+    their row, and `## Refused` is read as information, not as a row."""
     plan = fp.parse_plan(PLAN)
     ops = plan["ops"]
-    first = ops[0]
-    lines = [l for l in PLAN.splitlines() if re.match(r"^\d+\. ", l)]
-    return (plan["title"] == "Fix plan — dump-a" and len(ops) == 4
-            and first["op"] == "RENAME" and first["rule"] == "R1"
-            and first["to"] == "20250104_Lotus Beach Park_beach"
-            and first["photos"] == 42 and first["answer"] == ""
-            and first["samples"] == ["DCIM/a.jpg", "DCIM/b.jpg", "DCIM/c.jpg"]
-            and ops[3]["lookup_failed"] and not ops[1]["lookup_failed"]
-            and [fp.op_line(o) for o in ops] == lines), \
-        f"{len(ops)} {first}"
+    stage = [l for l in PLAN.splitlines() if photo_index.FIX_ROW.match(l)]
+    return (plan["title"] == "Fix plan · dump dump-a" and len(ops) == len(stage) == 4
+            and ops[0]["folder"] == "F001" and ops[0]["rule"] == "R1"
+            and ops[0]["to"] == "20250104_Lotus Beach Park_beach"
+            and ops[0]["photos"] == 42 and ops[0]["answer"] == ""
+            and ops[0]["samples"] == ["DCIM/a.jpg", "DCIM/b.jpg", "DCIM/c.jpg"]
+            and ops[2]["reason"] == "This day already has a folder · from an earlier dump"
+            and ops[1]["samples"] == [] and len(plan["refused"]) == 1
+            and "group set-where" in plan["refused"][0]), f"{ops[0]} {plan['refused']}"
 
 
 @case
 def the_page_carries_every_row_and_three_thumbnails():
     """REPRODUCTION (G20). ⛔ FAILS on c7b761e (no fix plan page). `render`
-    writes one self-contained page: every op with its rule, old → new,
-    reason and count, up to three sample photos embedded as thumbnails,
-    the plan's digest, and no mojibake."""
+    writes one self-contained page: every row with its rule, old → new,
+    reason and count, up to three sample photos embedded, `My word` only on
+    the rows that take one (R1 place, R3 words), the Refused list, the
+    digest, and no mojibake."""
     with tempfile.TemporaryDirectory() as tmp:
         wd, md = workdir(tmp)
         r = run("render", md)
@@ -102,33 +124,38 @@ def the_page_carries_every_row_and_three_thumbnails():
         return False, r.stderr[-300:]
     d = page_data(html)
     rows = d["rows"]
-    return (len(rows) == 4 and rows[0]["chip"] == "Place" and rows[1]["chip"] == "Pets"
-            and rows[2]["chip"] == "Move" and len(rows[0]["thumbs"]) == 3
+    return (len(rows) == 4 and [x["chip"] for x in rows] == ["Place", "Pets", "Move", "Pets"]
+            and [x["word"] for x in rows] == ["place", None, None, "what"]
+            and len(rows[0]["thumbs"]) == 3 and rows[1]["thumbs"] == []
             and all(t.startswith("data:image/jpeg;base64,") for t in rows[0]["thumbs"])
-            and rows[3]["lookup_failed"] and d["digest"].startswith("sha256:")
-            and d["photos"] == 75 and "__DATA__" not in html
-            and "__TEMPLATE_B64__" not in html), f"{r.stdout} {rows[0]['chip']}"
+            and len(d["refused"]) == 1 and d["digest"].startswith("sha256:")
+            and d["photos"] == 75 and d["nothing"] == photo_index.NOTHING_TO_CHANGE
+            and "__DATA__" not in html and "__TEMPLATE_B64__" not in html), \
+        f"{r.stdout} {[(x['chip'], x['word']) for x in rows]}"
 
 
 @case
-def typed_answers_land_on_their_op_lines_and_an_open_row_is_a_skip():
-    """REPRODUCTION (G21). `apply` writes `ok` / `skip` / `word:` into the
-    op lines and nothing else; the plan as the applying stage reads it
-    (`decided`) holds every row, an open one as skip. ⛔ FAILS on c7b761e."""
+def answers_land_on_their_rows_and_the_stage_reads_them():
+    """⭐ REPRODUCTION (G21, one format). `apply` writes `ok` / `skip` /
+    `word:` into the answer field of each row and changes nothing else; the
+    fix plan stage's OWN reader (`photo_index.parse_fix`) then reads every
+    answer, and a row left open stays open (the stage reads it as skip).
+    ⛔ FAILS on c7b761e (no page apply)."""
     with tempfile.TemporaryDirectory() as tmp:
         wd, md = workdir(tmp)
         ans = Path(tmp) / "answers.txt"
-        ans.write_text("1: ok\n3: word: Birk Hill Market\n4: skip\n", encoding="utf-8")
+        ans.write_text("1: word: Birk Hill Market\n3: ok\n4: word: sleepy\n",
+                       encoding="utf-8")
         r = run("apply", md, "--answer", ans)
         text = md.read_text(encoding="utf-8")
-    got = fp.decided(text)
-    untouched = [l for l in text.splitlines() if not re.match(r"^\d+\. ", l)] == \
-        [l for l in PLAN.splitlines() if not re.match(r"^\d+\. ", l)]
-    return (r.returncode == 0 and got == {1: "ok", 2: "skip", 3: "word:Birk Hill Market",
-                                          4: "skip"}
-            and "answer: word: Birk Hill Market" in text
-            and "2. RENAME (R2)" in text and "answer: ______" in text
-            and untouched and "1 left open" in r.stdout), f"{got} {r.stdout} {r.stderr[-200:]}"
+    got = {row["n"]: (row["answer"], row["word"]) for row in photo_index.parse_fix(text)}
+    changed = [(a, b) for a, b in zip(PLAN.splitlines(), text.splitlines()) if a != b]
+    only_answers = all(a.split("answer:")[0] == b.split("answer:")[0] for a, b in changed)
+    return (r.returncode == 0 and len(changed) == 3 and only_answers
+            and got == {1: ("word", "Birk Hill Market"), 2: ("", None),
+                        3: ("ok", None), 4: ("word", "sleepy")}
+            and fp.decided(text)[2] == "skip" and "1 left open" in r.stdout), \
+        f"{got} {r.stdout} {r.stderr[-200:]}"
 
 
 @case
@@ -150,20 +177,23 @@ def the_republished_page_is_read_back_too():
         reply.write_text(back, encoding="utf-8")
         r = run("apply", md, "--answer", reply)
         got = fp.decided(md.read_text(encoding="utf-8"))
-    return (r.returncode == 0 and got[1] == "ok" and got[2] == "ok"
+    return (r.returncode == 0 and back != html and got[1] == "ok" and got[2] == "ok"
             and got[3] == "skip"), f"{got} {r.stderr[-200:]}"
 
 
 @case
-def an_answer_for_another_draft_or_op_or_a_bad_word_writes_nothing():
+def an_answer_for_another_draft_or_row_or_a_bad_word_writes_nothing():
     """REPRODUCTION (G21, G17). A page sent for an earlier draft (the digest
-    differs), an op number the plan does not hold, and a typed word that is
-    a coordinate or holds a grammar separator are all refused, and the plan
-    file is byte-identical afterwards. ⛔ FAILS on c7b761e."""
+    differs), a row number the plan does not hold, a word on a row that
+    takes none (R2, R4), and a typed word that is a coordinate or holds a
+    grammar separator are all refused, and the plan file is byte-identical
+    afterwards. ⛔ FAILS on c7b761e."""
     bad = {"stale": json.dumps({"digest": "sha256:0", "lines": ["1: ok"]}),
-           "unknown op": "9: ok\n",
+           "unknown row": "9: ok\n",
+           "word on R2": "2: word: Lotus\n",
            "coordinate": "1: word: 25.03,121.56\n",
            "separator": "1: word: Lotus_Bay\n",
+           "R3 separator": "4: word: a_b\n",
            "not a row": "the owner said yes\n"}
     got = {}
     with tempfile.TemporaryDirectory() as tmp:
@@ -179,8 +209,8 @@ def an_answer_for_another_draft_or_op_or_a_bad_word_writes_nothing():
 
 @case
 def a_two_place_word_is_checked_word_by_word():
-    """GUARD (as `group set-where`). `Old Pier+Sea Park` is two place words,
-    each checked; it is written as given."""
+    """GUARD (as `group set-where`). On an R1 row `Old Pier+Sea Park` is two
+    place words, each checked; it is written as given."""
     with tempfile.TemporaryDirectory() as tmp:
         wd, md = workdir(tmp)
         ans = Path(tmp) / "a.txt"
@@ -193,20 +223,36 @@ def a_two_place_word_is_checked_word_by_word():
 @case
 def the_out_of_date_and_empty_states_are_carried_in_the_data():
     """GUARD (SPEC §5.2). `--out-of-date` renders the error state (the page
-    shows why and keeps Send off); a plan with no op renders the empty
-    state, "Nothing to change"."""
+    shows why and keeps Send off); the stage's own empty plan ("Nothing to
+    change.") renders no row, its Refused list still shown."""
     with tempfile.TemporaryDirectory() as tmp:
         wd, md = workdir(tmp)
         run("render", md, "--out-of-date", "You named a pet after this plan was made.")
         stale = page_data(md.with_suffix(".html").read_text(encoding="utf-8"))
-        md.write_text("# Fix plan — dump-a\n\nNothing to change.\n", encoding="utf-8")
+        md.write_text(plan_text(ops=[]), encoding="utf-8")
         r = run("render", md)
         empty = page_data(md.with_suffix(".html").read_text(encoding="utf-8"))
     tpl = (ROOT / "templates" / "fixplan-page.html").read_text(encoding="utf-8")
     return (stale["out_of_date"].startswith("You named") and empty["rows"] == []
-            and r.returncode == 0 and "Nothing to change" in tpl
+            and len(empty["refused"]) == 1 and r.returncode == 0
+            and photo_index.NOTHING_TO_CHANGE in plan_text(ops=[])
             and "This plan is out of date" in tpl and "Answers sent" in tpl
-            and "deleted after the dump" in tpl), f"{stale['out_of_date']!r}"
+            and "deleted after the dump" in tpl), f"{stale['out_of_date']!r} {empty}"
+
+
+@case
+def a_make_trip_row_is_shown_when_the_stage_writes_one():
+    """GUARD (R5 MAKE-TRIP, once the stage's FIX_ROW takes it): a trip row is
+    read and shown like any row, OK or Skip only."""
+    if "MAKE-TRIP" not in getattr(photo_index, "FIX_OPS", ()):
+        return True, "the stage writes no MAKE-TRIP row yet — skipped"
+    trip = {"op": "MAKE-TRIP", "rule": "R5", "folder": "F006",
+            "from": "2 day folders 1025-1031", "to": "20241025-1031_Countryland_Dunmore",
+            "reason": "a trip abroad", "photos": 6}
+    plan = fp.parse_plan(plan_text(ops=[trip], refused=[]))
+    row = fp.build_data(plan, "/nowhere", 64, 50)["rows"]
+    return (len(row) == 1 and row[0]["op"] == "MAKE-TRIP" and row[0]["word"] is None
+            and row[0]["chip"] == "Move"), f"{row}"
 
 
 def js_lines(rows, state):

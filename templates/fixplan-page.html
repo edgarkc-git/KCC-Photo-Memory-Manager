@@ -57,6 +57,7 @@ main{padding:0 16px 16px;display:flex;flex-direction:column;gap:12px}
 .thumbs div{aspect-ratio:1;border-radius:6px;background:var(--thumb);overflow:hidden;
   display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--body)}
 .thumbs img{width:100%;height:100%;object-fit:cover;display:block}
+.thumbs.none{display:none}
 .picks{display:flex;gap:8px}
 .pick{flex:1;min-height:44px;border-radius:8px;font:inherit;font-size:15px;font-weight:600;
   border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
@@ -64,9 +65,7 @@ main{padding:0 16px 16px;display:flex;flex-direction:column;gap:12px}
 label.word{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
 label.word input{font:inherit;font-size:15px;padding:10px;border:1px solid var(--line);border-radius:8px;
   min-height:44px;background:var(--surface);color:var(--ink)}
-.failed{background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:8px;padding:10px;
-  font-size:14px;color:var(--body)}
-.failed b{color:var(--warn-ink)}
+.notice ul{margin:0 0 8px;padding-left:18px;color:var(--body)}
 .notice{background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:10px;padding:14px}
 .notice h2{margin:0 0 6px;font-size:17px;color:var(--warn-ink)}
 .notice p{margin:0;color:var(--body)}
@@ -95,13 +94,14 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
   header{padding:32px 24px 16px}
   h1{font-size:28px}
   .chips,main{padding-left:24px;padding-right:24px}
-  .row{grid-template-columns:120px minmax(0,1fr) minmax(0,1.3fr) 160px 230px;align-items:start}
+  .row{grid-template-columns:120px minmax(0,1fr) minmax(0,1.3fr) 150px 280px;align-items:start}
+  .row .thumbs.none{display:block}
   .row .top{flex-direction:column;align-items:flex-start}
   .row .thumbs{grid-template-columns:repeat(3,44px)}
   .row .thumbs div{width:44px;height:44px}
   .picks{flex-wrap:wrap}
   .pick{min-height:36px;font-size:14px}
-  .row .wordrow,.row .failed{grid-column:2 / -1}
+  .row .wordrow{grid-column:2 / -1}
   footer{flex-direction:row;align-items:center;justify-content:space-between;position:static}
 }
 </style>
@@ -177,10 +177,20 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     });
     return c;
   }
-  function blocked(){
-    /* A row whose map lookup failed waits for an answer: its proposal kept
-       the town, and only the owner can say whether that stands. */
-    return ROWS.filter(function(r){ return r.lookup_failed && !answerOf(r); }).length;
+  /* What the engine will NOT do (a failed map lookup among them): shown as
+     information, never as a row to answer — it does not stop the copy. */
+  function refusedBox(){
+    var list = D.refused || [];
+    if(!list.length) return null;
+    var n = el("section", "notice");
+    n.appendChild(el("h2", null, list.length + " change" + (list.length === 1 ? "" : "s")
+                     + " the engine will not make"));
+    var ul = el("ul");
+    list.forEach(function(t){ ul.appendChild(el("li", "mono small", t)); });
+    n.appendChild(ul);
+    n.appendChild(el("p", null, "Nothing to answer here. Tell the agent your place word "
+                     + "if you know it: it sets it with group set-where."));
+    return n;
   }
 
   function head(title, sub){
@@ -203,19 +213,23 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     names.appendChild(el("div", "new mono", r.to));
     a.appendChild(names);
     a.appendChild(el("div", "why", r.reason));
+    /* No sample: an empty cell, hidden on a phone, so the desktop grid's
+       columns stay in place. */
     var thumbs = r.thumbs || [];
-    if(thumbs.length){
-      var th = el("div", "thumbs");
-      thumbs.forEach(function(src, i){
-        var box = el("div");
-        if(src){ var img = el("img"); img.src = src; img.alt = "sample photo " + (i + 1); box.appendChild(img); }
-        else box.textContent = "unreadable";
-        th.appendChild(box);
-      });
-      a.appendChild(th);
-    }
+    var th = el("div", thumbs.length ? "thumbs" : "thumbs none");
+    thumbs.forEach(function(src, i){
+      var box = el("div");
+      if(src){ var img = el("img"); img.src = src; img.alt = "sample photo " + (i + 1); box.appendChild(img); }
+      else box.textContent = "unreadable";
+      th.appendChild(box);
+    });
+    a.appendChild(th);
     var picks = el("div", "picks");
-    [["ok","OK"],["skip","Skip"],["word","My word"]].forEach(function(p){
+    /* `word:` is taken on R1 (the place word) and R3 (the words for the
+       look-word) only; every other row is OK or Skip. */
+    var choices = [["ok","OK"],["skip","Skip"]];
+    if(r.word) choices.push(["word","My word"]);
+    choices.forEach(function(p){
       var b = el("button", "pick", p[1]);
       b.type = "button";
       b.setAttribute("aria-pressed", state.pick[r.n] === p[0] ? "true" : "false");
@@ -226,14 +240,9 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
       picks.appendChild(b);
     });
     a.appendChild(picks);
-    if(r.lookup_failed){
-      var f = el("div", "failed");
-      f.appendChild(el("b", null, "Map lookup failed. "));
-      f.appendChild(document.createTextNode("The map service did not answer, so this keeps the town name. Type a place word if you know it, or OK to keep the town."));
-      a.appendChild(f);
-    }
-    if(state.pick[r.n] === "word"){
-      var lab = el("label", "word wordrow", "Your place word");
+    if(r.word && state.pick[r.n] === "word"){
+      var lab = el("label", "word wordrow",
+                   r.word === "place" ? "Your place word" : "Your words for this folder");
       var inp = el("input");
       inp.type = "text"; inp.value = state.word[r.n] || "";
       inp.id = "word-" + r.n;
@@ -249,11 +258,9 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     if(!footerEl) return;
     var c = counts(), btn = footerEl.querySelector(".send"), sum = footerEl.querySelector(".sum");
     sum.textContent = c.ok + " OK · " + c.skip + " skip · " + c.word + " own word · " + c.open + " open";
-    var stop = blocked();
-    btn.disabled = stop > 0;
-    footerEl.querySelector(".hint").textContent = stop
-      ? stop + " row(s) with a failed map lookup need an answer before you send."
-      : "Rows you leave open count as Skip. The agent reads your answers and shows the final plan in chat.";
+    btn.disabled = false;
+    footerEl.querySelector(".hint").textContent =
+      "Rows you leave open count as Skip. The agent reads your answers and shows the final plan in chat.";
   }
 
   function readyView(focus){
@@ -264,7 +271,7 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     var bulk = el("button", "ghost", "OK to all open rows");
     bulk.type = "button";
     bulk.addEventListener("click", function(){
-      ROWS.forEach(function(r){ if(!answerOf(r) && !r.lookup_failed) state.pick[r.n] = "ok"; });
+      ROWS.forEach(function(r){ if(!answerOf(r)) state.pick[r.n] = "ok"; });
       save(); render();
     });
     h.appendChild(bulk);
@@ -280,6 +287,8 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     });
     app.appendChild(chips);
     var main = el("main");
+    var box = refusedBox();
+    if(box) main.appendChild(box);
     ROWS.forEach(function(r){
       if(state.chip === "All" || state.chip === r.chip || !groups[state.chip]) main.appendChild(rowCard(r));
     });
@@ -307,10 +316,12 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     app.appendChild(head((D.title || "Fix plan") + " · 0 changes", D.photos ? D.photos + " photos" : ""));
     var m = el("main"); m.style.paddingTop = "24px";
     var c = el("section", "card");
-    c.appendChild(el("h2", null, "Nothing to change"));
+    c.appendChild(el("h2", null, D.nothing || "Nothing to change."));
     c.appendChild(el("p", null, "Every folder name already follows the rules: landmark places, all your pets, year folders, days that already have a folder."));
     c.appendChild(el("p", null, "Tell the agent “go” to freeze the plan and copy."));
     m.appendChild(c);
+    var box = refusedBox();
+    if(box){ box.style.marginTop = "12px"; m.appendChild(box); }
     app.appendChild(m);
   }
 

@@ -468,14 +468,19 @@ When the fix plan stop writes `plan/fix-plan.md` (exit 3), the owner answers
 it on a private web page:
 
 1. `<repo>/.venv/bin/python3 <repo>/scripts/photo_fixplan_page.py render "<work dir>/plan/fix-plan.md"`
-   writes `plan/fix-plan.html`: each change as old → new name, its rule, the
-   reason, the photo count and up to three sample photos, with OK / Skip / My
-   word and one Send button.
+   writes `plan/fix-plan.html`: each row as old → new name, its rule, the
+   reason, the photo count and up to three sample photos, with OK / Skip (and
+   My word on an R1 or R3 row) and one Send button. The plan's
+   `## Refused (never applied)` list (a failed map lookup among them) is
+   shown as information; it asks nothing and stops nothing — a place the
+   owner then names goes in with `group set-where`.
 2. Publish that file as a **private** artifact and send the owner its link
    through your own channel. ⛔ Never share it: it shows the owner's photos.
-3. The owner presses Send; the page republishes itself with the answers. Read
-   it back and write the answers into the plan:
-   `python3 scripts/photo_fixplan_page.py apply "<work dir>/plan/fix-plan.md" --answer <the republished page, or the copied lines>`.
+3. The owner presses Send; the page republishes itself with the answers. Write
+   them into the plan's rows:
+   `python3 scripts/photo_fixplan_page.py apply "<work dir>/plan/fix-plan.md" --answer <the republished page, or the copied lines>`,
+   then apply the plan with the line the plan prints
+   (`photo_index.py fix-plan "<work dir>" --answers "<work dir>/plan/fix-plan.md" --go`).
    ⛔ A row left open is a **skip** — only rows the owner ticked are applied.
    A page answered for an earlier draft of the plan is refused; render it
    again (`--out-of-date "<why>"` shows the owner why on the same link first).
