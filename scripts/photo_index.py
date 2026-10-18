@@ -15,7 +15,8 @@
   python3 photo_index.py recut  "<Working Files>/<dump>" [--reason "..."]  (G4)
   python3 photo_index.py relabel "<Working Files>/<dump>" [--go] [--reason "..."]
   python3 photo_index.py group make-trip "<Working Files>/<dump>" F008 F009 ...
-                                --where "<place>" [--what "..."] --reason "..."  (G5)
+                                --where "<place>" [--where "<place>"] [--country "<word>"]
+                                [--what "..."] --reason "..."  (G5, M7)
   python3 photo_index.py group make-fsl-month "<dump>" fsl-0003 2024-12 --reason "..."
   python3 photo_index.py group move  "<dump>" F021 --to F023 --dates 2024-12-11 --reason "..."
   python3 photo_index.py group split "<dump>" F011 --at 2024-10-30 --reason "..."
@@ -1015,6 +1016,87 @@ def where_words(fo, labels):
     return words, unknown
 
 
+# 📐 `{n}` — M7: days with no photo allowed between two batches abroad that
+# still read as one trip.
+TRIP_GAP_DAYS = 1
+
+
+def trip_candidates(index, batches, pack):
+    """M7 / G22 / E28 — the trips abroad this index could make, as PROPOSALS
+    (the fix plan's R5 MAKE-TRIP row; applied only through `group make-trip`
+    on the owner's ok). -> [{"folders": [F0NN, ...], "to": <trip name>,
+    "days": "MMDD-MMDD", "photos": n, "where": [place words],
+    "country": <word or None>}].
+
+    A trip abroad (glossary; owner ruling Q2 20261018) is a run of 2+ days of
+    batches typed OVERSEAS, consecutive but for TRIP_GAP_DAYS days without
+    photos, made of 2+ top-level day folders. ⛔ None is proposed while a
+    home outside the owner's country is valid on any of those days (an
+    expat period: the engine cannot tell the expat country from a third
+    one), nor for an owner with no country test (no OVERSEAS day exists).
+    The name (Q3, owner ruling 20261018): `YYYYMMDD-MMDD_<country>_<place>[+<place>]`, the
+    country word from the batches' map reply (D-F12), the places the legs'
+    own, most photos first, at most two; with no country word, places only.
+    """
+    import photo_cluster
+    from datetime import date, timedelta
+    abroad = sorted((b for b in batches or () if b.get("day_type") == "OVERSEAS"
+                     and b.get("from") and b.get("to")), key=lambda b: b["from"])
+    runs = []
+    for b in abroad:
+        start = date.fromisoformat(b["from"])
+        if runs and start - date.fromisoformat(runs[-1][-1]["to"]) <= \
+                timedelta(days=TRIP_GAP_DAYS + 1):
+            runs[-1].append(b)
+        else:
+            runs.append([b])
+    profile = pack.profile
+    country = photo_cluster.owner_country(profile)
+    homes = photo_profile.home_points(profile)
+    owned = claims(index)
+    labels = id_labels(pack)
+    present = {}
+    for f in index["files"]:
+        if f["status"] == "present" and f["folder"]:
+            present[f["folder"]] = present.get(f["folder"], 0) + 1
+    out = []
+    for run in runs:
+        first, last = run[0]["from"], max(b["to"] for b in run)
+        if first == last:
+            continue
+        if any(photo_cluster.in_country((h[0], h[1]), country) is False
+               and (not h[2] or h[2] <= last[:len(h[2])])
+               and (not h[3] or h[3] >= first[:len(h[3])]) for h in homes):
+            continue
+        holders_in = [fo for fo in holders(index)
+                      if owned.get(fo["id"]) and all(first <= d <= last
+                                                     for d in owned[fo["id"]])]
+        if len(holders_in) < 2 or any(fo["kind"] != "day" or fo.get("parent")
+                                      for fo in holders_in):
+            continue
+        holders_in.sort(key=lambda fo: min(owned[fo["id"]]))
+        weight = {}
+        for fo in holders_in:
+            for w in where_words(fo, labels)[0]:
+                weight[w] = weight.get(w, 0) + present.get(fo["id"], 0)
+        places = sorted(weight, key=lambda w: -weight[w])[:2]
+        words = [b["country_word"] for b in run if b.get("country_word")]
+        word = max(set(words), key=words.count) if words else None
+        days = sorted(set().union(*(owned[fo["id"]] for fo in holders_in)))
+        name = photo_name.render(days[0], days[-1], where=places, country=word)
+        ok, _ref, _warn = photo_name.validate(
+            name, place_known=bool(places), span=(days[0], days[-1]),
+            hard=photo_profile.name_budget(profile)[0],
+            soft=photo_profile.name_budget(profile)[1], country=bool(word))
+        if not ok or not places:
+            continue
+        out.append({"folders": [fo["id"] for fo in holders_in], "to": name,
+                    "days": f"{days[0][5:7]}{days[0][8:10]}-{days[-1][5:7]}{days[-1][8:10]}",
+                    "photos": sum(present.get(fo["id"], 0) for fo in holders_in),
+                    "where": places, "country": word})
+    return out
+
+
 def agent_what(fo):
     """The folder's own `[what]` (set-what, make-trip --what), or None."""
     return (fo.get("what") or {}).get("text")
@@ -1112,10 +1194,13 @@ def render_parent(fo, members, labels, budget):
         _ok, ref, warn = photo_name.validate(name, hard=hard, soft=soft,
                                              kind=photo_name.NAME_MONTHLY)
     elif dates:
-        name = photo_name.render(dates[0], dates[-1], where=where, what=own)
+        country = fo.get("country")
+        name = photo_name.render(dates[0], dates[-1], where=where, what=own,
+                                 country=country)
         _ok, ref, warn = photo_name.validate(
             name, place_known=bool(fo["where"]), span=(dates[0], dates[-1]),
-            hard=hard, soft=soft, kind=photo_name.NAME_FOLDER)
+            hard=hard, soft=soft, kind=photo_name.NAME_FOLDER,
+            country=bool(country))
     else:
         validation["refusals"] = ["no leg of this trip has a file to copy — its "
                                   "period comes from them"]
@@ -4464,20 +4549,34 @@ def group_make_trip(index, args, pack, by_number, cmd, reason):
     if len(ids) < 2:
         raise Refused("a trip needs two or more day folders — nothing changed")
     legs = [group_target(index, fid, allow=("day",)) for fid in ids]
-    where = agent_text(args.where, "--where", "where")
+    # M7 — `--where` may be given twice (a trip abroad's two places, D3);
+    # each word is checked alone and the name joins them with `+`.
+    given = args.where if isinstance(args.where, list) else [args.where]
+    if len(given) > 2:
+        raise Refused("a trip takes at most two place words (D3) — nothing changed")
+    words = list(dict.fromkeys(agent_text(w, "--where", "where") for w in given))
+    where = photo_name.NAME_SEP.join(words)
     what = agent_text(args.what, "--what", "what") if args.what is not None else None
+    # D-F12 / M7 — a trip abroad's country word, its own slot on the trip
+    # folder only (never on a leg).
+    country = (agent_text(args.country, "--country", "where")
+               if getattr(args, "country", None) else None)
     owned = claims(index)
-    pid, ref = next_folder_id(index), AGENT_REF + where
-    parent = new_folder(pid, "trip", where=[{"ref": ref}])
+    pid = next_folder_id(index)
+    parent = new_folder(pid, "trip", where=[{"ref": AGENT_REF + w} for w in words])
     parent["what"] = {"text": what, "source": AGENT} if what else None
+    if country:
+        parent["country"] = country
     index["folders"].append(parent)
-    index["places"].setdefault(ref, {"kind": AGENT, "text": where})
+    for w in words:
+        index["places"].setdefault(AGENT_REF + w, {"kind": AGENT, "text": w})
     for leg in legs:
         leg.update(kind="leg", parent=pid)
         log_entry(index, cmd, f"{leg['id']} → a leg of {pid}", reason, by="agent")
     settle_structure(index, owned, [pid] + ids, by_number, cmd, reason)
-    log_entry(index, cmd, f"{pid}: a trip at `{where}` with {len(ids)} leg(s) "
-              f"({', '.join(ids)})", reason, by="agent")
+    log_entry(index, cmd, f"{pid}: a trip at `{where}`"
+              + (f" in {country}" if country else "")
+              + f" with {len(ids)} leg(s) ({', '.join(ids)})", reason, by="agent")
     return f"{pid}: a trip at {where!r} with legs {', '.join(ids)}"
 
 
@@ -4874,7 +4973,9 @@ def main(argv=None):
 
     p = action("make-trip", "day folders become the legs of one trip")
     p.add_argument("folders", nargs="+", help="the day folders, e.g. F008 F009")
-    p.add_argument("--where", required=True, help="the trip's place word (R5)")
+    p.add_argument("--where", required=True, action="append",
+                   help="the trip's place word (R5); give it twice for two (D3)")
+    p.add_argument("--country", help="a trip abroad's country word (D-F12)")
     p.add_argument("--what")
     p = action("make-fsl-month", "one month's visits to a named frequent place "
                                  "become the legs of a monthly parent (D-I12)")

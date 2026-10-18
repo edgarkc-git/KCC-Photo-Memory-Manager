@@ -15,7 +15,8 @@ import urllib.request
 STUB_NOMINATIM = {"name": "Stubtown", "category": "place", "type": "town",
                   "addresstype": "town", "place_rank": 16,
                   "namedetails": {"name": "Stubtown"},
-                  "address": {"town": "Stubtown"}, "display_name": "Stubtown"}
+                  "address": {"town": "Stubtown", "country": "Stubland"},
+                  "display_name": "Stubtown, Stubland"}
 
 
 def _answer(req, *a, **k):

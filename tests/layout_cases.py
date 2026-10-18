@@ -145,6 +145,139 @@ def a_malformed_year_folders_value_stops_the_run():
         return True, ""
 
 
+# ---------------------------------------------------------------------------
+# E28 — a trip abroad, PROPOSED as one trip folder (owner rulings Q2/Q3)
+# ---------------------------------------------------------------------------
+
+def group_index(tmp):
+    """-> (work dir, pack, index, batches) of index_group's synthetic dump:
+    F001-F005 hold 2024-10-25..31 (no photo on 10-28), F004 two days."""
+    import index_group_cases as g
+    import photo_index
+    wd, _pack = g.ready(tmp)
+    pack, _target, idx = photo_index.load(wd, None)
+    batches = json.loads((wd / "batches.json").read_text())["batches"]
+    return wd, pack, idx, batches
+
+
+def abroad(batches, word="Countryland", upto=5):
+    return [dict(b, day_type="OVERSEAS", **({"country_word": word} if word else {}))
+            if b["batch"] <= upto else dict(b, day_type="TW_AWAY") for b in batches]
+
+
+@case
+def a_run_of_days_abroad_is_proposed_as_one_trip_named_country_and_place():
+    """⭐ REPRODUCTION (E28, Q3 owner ruling 20261018). Five day folders on seven
+    days abroad (one day with no photo between) are ONE proposal: the five
+    folders, `YYYYMMDD-MMDD_<country>_<place>+<place>` with the legs' own
+    places, most photos first, and the photo count. ⛔ FAILS on c7b761e
+    (no trip_candidates: a trip abroad stayed loose day folders)."""
+    import photo_index
+    from index_group_cases import ix
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        _wd, pack, idx, batches = group_index(tmp)
+        got = photo_index.trip_candidates(idx, abroad(batches), pack)
+    want = [{"folders": ["F001", "F002", "F003", "F004", "F005"],
+             "to": "20241025-1031_Countryland_Dunmore+Ashford",
+             "days": "1025-1031", "photos": 6, "where": ["Dunmore", "Ashford"],
+             "country": "Countryland"}]
+    return got == want, f"{got}"
+
+
+@case
+def an_ok_through_make_trip_renders_exactly_the_proposed_name():
+    """⭐ REPRODUCTION (E28 → B's R5 MAKE-TRIP). The proposal is applied
+    through `group make-trip` with `--where` twice and `--country`; render
+    then names the trip parent exactly as proposed (country on the trip
+    folder only, D-F12) and each leg `MMDD_<place>`. ⛔ FAILS on c7b761e
+    (no --country, one --where)."""
+    import photo_index
+    import index_group_cases as g
+    with tempfile.TemporaryDirectory() as tmp, g.ix.no_env():
+        wd, pack, idx, batches = group_index(tmp)
+        c = photo_index.trip_candidates(idx, abroad(batches), pack)[0]
+        args = ["group", "make-trip", wd, *c["folders"]]
+        for w in c["where"]:
+            args += ["--where", w]
+        args += ["--country", c["country"], "--reason", "fix plan R5 ok"]
+        code, _o, err = g.run(*args)
+        if code:
+            return False, err[-300:]
+        g.render(wd)
+        f = g.folders(tmp)
+        trip = next(fo for fo in f.values() if fo["kind"] == "trip")
+        legs = sorted(fo["rendered"] for fo in f.values() if fo.get("parent") == trip["id"])
+    return (trip["rendered"] == c["to"] and "1025_Ashford" in legs
+            and not any("Countryland" in l for l in legs)), \
+        f"{trip['rendered']} vs {c['to']} legs={legs}"
+
+
+@case
+def no_trip_is_proposed_in_an_expat_period_or_without_a_country_test():
+    """GUARD (Q2). A home outside the owner's country, valid on those days,
+    is an expat period: the engine cannot tell the expat country from a
+    third one, so nothing is proposed. Batches with no day type (a cut made
+    before P1) propose nothing either; a single day abroad is no trip."""
+    import photo_index
+    from index_group_cases import ix
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        _wd, pack, idx, batches = group_index(tmp)
+        pack.profile = dict(pack.profile, country="TW", home_locations=[
+            {"id": "home-01", "lat": 24.0, "lon": 121.0},
+            {"id": "home-02", "lat": 50.0, "lon": 10.0, "valid_from": "2024-01",
+             "valid_until": "2025-06"}])
+        expat = photo_index.trip_candidates(idx, abroad(batches), pack)
+        pack.profile["home_locations"][1].update(valid_from="2019-01", valid_until="2020-06")
+        before = photo_index.trip_candidates(idx, abroad(batches), pack)
+        old = photo_index.trip_candidates(idx, batches, pack)
+        one = photo_index.trip_candidates(idx, abroad(batches, upto=1), pack)
+    return (expat == [] and len(before) == 1 and old == [] and one == []), \
+        f"expat={expat} before={len(before)} old={old} one={one}"
+
+
+@case
+def with_no_country_word_the_trip_takes_its_places_only():
+    """GUARD (Q3). No country word on the batches: the proposal is named by
+    its places alone, never with an empty slot."""
+    import photo_index
+    from index_group_cases import ix
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        _wd, pack, idx, batches = group_index(tmp)
+        got = photo_index.trip_candidates(idx, abroad(batches, word=None), pack)
+    return (len(got) == 1 and got[0]["to"] == "20241025-1031_Dunmore+Ashford"
+            and got[0]["country"] is None), f"{got}"
+
+
+@case
+def a_batch_abroad_carries_its_day_type_and_the_replys_country():
+    """⭐ REPRODUCTION (Q3: the country word from the zoom-10 reply, stored on
+    the batch). A day abroad for a Taiwan owner is typed OVERSEAS on its
+    batch and takes the country the map reply named, in the owner's
+    language; ⛔ no request comes within PLACE_SUPPRESS_KM of the home.
+    ⛔ FAILS on c7b761e (no day_type, no country_word)."""
+    import landmark_cases as lc
+    import photo_cluster as pc
+    from index_group_cases import ix
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        days = {"2025-05-01": lc.DAYS["2025-05-01"], "2025-05-02": lc.DAYS["2025-05-02"]}
+        wd = lc.dump(tmp, days=days, cache={})
+        prof_path = Path(tmp) / "photo-memory" / ix.OWNER / "photo-profile.json"
+        prof = json.loads(prof_path.read_text())
+        prof["country"] = "TW"
+        prof["home_locations"] = [{"id": "home-01", "lat": 24.0, "lon": 121.0}]
+        prof_path.write_text(json.dumps(prof))
+        log = Path(tmp) / "net.log"
+        proc = lc.cluster(wd, log, answer="stub")
+        batches = (json.loads((wd / "batches.json").read_text())["batches"]
+                   if proc.returncode == 0 else [])
+        near = [r for r in lc.requests(log)
+                for lat, lon, _a, _b in lc.coords_in((r["url"] or "") + " " + (r["data"] or ""))
+                if pc.haversine_km((24.0, 121.0), (lat, lon)) <= pc.PLACE_SUPPRESS_KM]
+    return (batches and all(b.get("day_type") == "OVERSEAS" for b in batches)
+            and all(b.get("country_word") == "Stubland" for b in batches)
+            and not near), f"rc={proc.returncode} {[(b.get('day_type'), b.get('country_word')) for b in batches]} {proc.stderr[-200:]!r}"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")

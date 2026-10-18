@@ -126,7 +126,7 @@ def period(start, end=None):
     return f"{s}-{e[4:]}"
 
 
-def render(start, end=None, where=(), who=(), what=None, kind=None):
+def render(start, end=None, where=(), who=(), what=None, kind=None, country=None):
     """-> the assembled folder name.
 
     `where` and `who` are SEQUENCES, joined with `+`. ⛔ `who` is a REPEATABLE
@@ -137,13 +137,16 @@ def render(start, end=None, where=(), who=(), what=None, kind=None):
     `kind` picks the period form: a FOLDER `YYYYMMDD[-MMDD]` (the default), a
     LEG `MMDD[-MMDD]` (its parent carries the year), or a MONTHLY `YYYYMM00`
     (from `start`'s month; `end` is ignored).
+
+    `country` (D-F12, M7) is the trip-abroad folder's country word, its own
+    slot between the period and `[where]`; only a trip parent carries one.
     """
     head = period(start, end)
     if kind == NAME_LEG:
         head = head[4:]
     elif kind == NAME_MONTHLY:
         head = head[:6] + "00"
-    slots = [head]
+    slots = [head] + ([str(country)] if country else [])
     for seq in (where, who):
         joined = NAME_SEP.join(str(x) for x in seq if x)
         if joined:
@@ -266,7 +269,7 @@ def bucket_form(top, word):
 
 
 def validate(name, place_known=False, span=None, hard=None, soft=None,
-             kind=NAME_FOLDER, where=None, parent_where=None):
+             kind=NAME_FOLDER, where=None, parent_where=None, country=False):
     """-> (ok, [refusals], [warnings]).
 
     A refusal means the name must not be written. A warning means it may be,
@@ -291,6 +294,10 @@ def validate(name, place_known=False, span=None, hard=None, soft=None,
     if not name:
         return False, ["the name is empty"], []
     slots = name.split(SLOT_SEP)
+    if country and len(slots) > 1:
+        # D-F12 — a trip abroad's country word is fixed cost like [period]
+        # and [where]; the slots after it read as they always do.
+        slots = [slots[0]] + slots[2:]
     head = slots[0]
     pattern = PERIOD_PATTERNS.get(kind, PERIOD_PATTERNS[NAME_FOLDER])
     legacy = LEGACY_PATTERNS.get(kind)

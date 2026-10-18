@@ -993,14 +993,32 @@ class Geocoder:
                         or data.get("display_name", "").split(",")[0])
                 tag = "address" if name else None
             country = is_country_answer(data)
+            address = data.get("address") or {}
             self.cache[key] = {"name": name, "name_tag": tag,
                                "display": data.get("display_name", ""),
                                "cat": data.get("category", ""), "type": data.get("type", ""),
+                               # M7 — the reply's own country, for a trip
+                               # abroad's folder (D-F12); no extra request.
+                               "country_name": address.get("country") or "",
                                **({"country": True} if country else {})}
             self.dirty = True
             return None if country else (name or None)
         except Exception:
             return (old or {}).get("name") or None
+
+    def country_word(self, pt):
+        """M7 / D-F12 — the country an AWAY point is in, in the owner's
+        language, or None: read off the zoom-10 reply `city()` stores, asked
+        (one request) only when no stored reply carries it. ⛔ The caller has
+        proved `pt` is outside PLACE_SUPPRESS_KM of every home."""
+        _key, row = self.cached(pt, 10)
+        if (row is None or "country_name" not in row) and self.enabled:
+            if row is not None:
+                self.cache.pop(_key, None)
+            self.city(pt, precise=True)
+            _key, row = self.cached(pt, 10)
+        name = (row or {}).get("country_name")
+        return read_tags({"name": name}, self.language)[0] if name else None
 
     def landmarks(self, pts, guard_homes=()):
         """-> the D3/D4 landmark names (at most two) for one day's or stop's
@@ -1538,6 +1556,17 @@ def main():
             failed = len(geocoder.landmark_failed) - failed_before
             if failed:
                 flags.append("landmark_lookup_failed")
+            # M7 / D-F12 — a trip abroad's country word, from a day centre
+            # outside every home's radius (never asked near one).
+            country_word = None
+            if typ == "OVERSEAS":
+                guard = all_homes + ([(auto_anchor[0], auto_anchor[1], None, None)]
+                                     if auto_anchor else [])
+                for c in centroids:
+                    if not near_any_home(c, guard):
+                        country_word = geocoder.country_word(c)
+                        if country_word:
+                            break
             batches.append({
                 "batch": len(batches) + 1, "label": label,
                 # ⛔ The resolved place as its OWN field, not only inside the
@@ -1551,8 +1580,9 @@ def main():
                 "place": place,
                 "from": part[0].isoformat(), "to": part[-1].isoformat(),
                 "days": len(part), "files": rows, "gps_files": gps_n,
-                "status": "pending", "flags": flags,
+                "status": "pending", "flags": flags, "day_type": typ,
                 **({"landmark_failed_stops": failed} if failed else {}),
+                **({"country_word": country_word} if country_word else {}),
             })
     geocoder.save()
 

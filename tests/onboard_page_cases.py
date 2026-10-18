@@ -692,12 +692,14 @@ def nothing_new_cases(tmp, wd):
     d = data_of(render_to(wd, os.path.join(tmp, "nn-probe.html"), False))
     near = d["homes"]["near_misses"]
 
-    def pack_that_knows(name, cameras=True, screens=True, homes=True):
+    def pack_that_knows(name, cameras=True, screens=True, homes=True, years=True):
         pack = fresh_pack(tmp, name)
         path = os.path.join(pack, "photo-profile.json")
         prof = json.load(io.open(path, encoding="utf-8"))
         prof["language"] = "en"
         prof.setdefault("cluster_defaults", {}).update(away_km=3, away_km_answered=True)
+        if years:
+            prof["year_folders"] = True
         if cameras:
             prof["own_camera_makes"] = sorted({dv["make"] for dv in d["cameras"]["devices"]})
         if screens:
@@ -731,7 +733,10 @@ def nothing_new_cases(tmp, wd):
     check("C3 --force-page still writes the page (GUARD)", code == 0 and wrote)
     for name, kw in (("a new camera", {"cameras": False}),
                      ("a new screen size", {"screens": False}),
-                     ("a proposed home", {"homes": False})):
+                     ("a proposed home", {"homes": False}),
+                     # M7 (REPRODUCTION, the Lead 20261018): a pack onboarded
+                     # before the question existed is asked it, once.
+                     ("an unanswered year-folders question", {"years": False})):
         code, said, wrote = render_with(pack_that_knows("nn-" + name.replace(" ", "-"), **kw))
         check("C3 %s still gets a page (GUARD)" % name, wrote and "Nothing new" not in said,
               said[-200:])

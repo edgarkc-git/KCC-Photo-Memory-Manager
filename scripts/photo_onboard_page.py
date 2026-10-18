@@ -1191,9 +1191,12 @@ def nothing_new(data):
     """H-C C3 / obs-9 (owner ruling 20261001) -> the one line to print when
     this unit adds no camera, no screen size and no proposed home to a pack
     that has been onboarded before, else None. A near-miss is not a home
-    candidate, but it is DISCLOSED here with the route to open it (D-04)."""
+    candidate, but it is DISCLOSED here with the route to open it (D-04).
+    ⛔ M7 — a pack that never answered year folders (onboarded before the
+    question existed) is something new: its next unit asks it, once."""
     new = data["new"]
-    if not new["onboarded"] or new["cameras"] or new["screens"] or new["homes"]:
+    if not new["onboarded"] or new["cameras"] or new["screens"] or new["homes"] \
+            or not data.get("year_folders_held"):
         return None
     line = ("Nothing new to ask for %s: every camera and screen size is "
             "already in the pack, and no place here looks like a home. No "
