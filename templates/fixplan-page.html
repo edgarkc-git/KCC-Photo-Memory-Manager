@@ -1,0 +1,395 @@
+<meta charset="utf-8">
+<!-- The page carries its own charset: opened from disk it has no wrapper to
+     give it one, and every non-ASCII name would render as mojibake. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fix Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ground:#F6F5F1; --surface:#FFFFFF; --sunk:#E9E6DE; --hair:#DDDAD2;
+  --ink:#1B1B19; --body:#3E3C38; --muted:#4A4843; --quiet:#5C5A55; --struck:#6B6963;
+  --line:#A9A59C; --accent:#1F4FB8; --accent-ink:#FFFFFF; --tag:#E4ECFB; --tag-ink:#163A88;
+  --warn-soft:#FDF1E7; --warn-line:#E3B48A; --warn-ink:#7A3A06; --off:#C9C6BE;
+  --thumb:#CFCBC1;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#16171A; --surface:#1F2024; --sunk:#2A2B30; --hair:#33353B;
+    --ink:#ECEAE4; --body:#D4D1CA; --muted:#BDBAB2; --quiet:#A8A59D; --struck:#97948C;
+    --line:#5A5850; --accent:#7EA2F0; --accent-ink:#10131A; --tag:#22304F; --tag-ink:#BBD0FA;
+    --warn-soft:#3A2717; --warn-line:#8A5A2E; --warn-ink:#F2C08F; --off:#3A3B40;
+    --thumb:#3A3B40;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#16171A; --surface:#1F2024; --sunk:#2A2B30; --hair:#33353B;
+  --ink:#ECEAE4; --body:#D4D1CA; --muted:#BDBAB2; --quiet:#A8A59D; --struck:#97948C;
+  --line:#5A5850; --accent:#7EA2F0; --accent-ink:#10131A; --tag:#22304F; --tag-ink:#BBD0FA;
+  --warn-soft:#3A2717; --warn-line:#8A5A2E; --warn-ink:#F2C08F; --off:#3A3B40;
+  --thumb:#3A3B40;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);
+  font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:15px;line-height:1.45}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.wrap{max-width:1200px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+header{padding:20px 16px 12px;background:var(--surface);border-bottom:1px solid var(--hair);
+  display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:flex-end}
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--quiet)}
+h1{margin:4px 0;font-size:22px;line-height:1.25;font-weight:700}
+.sub{font-size:14px;color:var(--muted)}
+.chips{padding:12px 16px;display:flex;gap:8px;flex-wrap:wrap}
+.chip{font:inherit;font-size:13px;padding:6px 12px;min-height:36px;border-radius:999px;border:0;
+  background:var(--sunk);color:var(--ink);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--ground)}
+main{padding:0 16px 16px;display:flex;flex-direction:column;gap:12px}
+.row{background:var(--surface);border:1px solid var(--hair);border-radius:10px;padding:14px;
+  display:grid;gap:10px;grid-template-columns:1fr}
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.tag{font-size:12px;font-weight:600;padding:3px 8px;border-radius:6px;background:var(--tag);color:var(--tag-ink);white-space:nowrap}
+.count{font-size:13px;color:var(--muted)}
+.old{font-size:13px;color:var(--struck);text-decoration:line-through;overflow-wrap:anywhere}
+.new{font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.why{font-size:13px;color:var(--muted)}
+.thumbs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.thumbs div{aspect-ratio:1;border-radius:6px;background:var(--thumb);overflow:hidden;
+  display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--body)}
+.thumbs img{width:100%;height:100%;object-fit:cover;display:block}
+.picks{display:flex;gap:8px}
+.pick{flex:1;min-height:44px;border-radius:8px;font:inherit;font-size:15px;font-weight:600;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.pick[aria-pressed="true"]{border:2px solid var(--accent);background:var(--accent);color:var(--accent-ink)}
+label.word{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+label.word input{font:inherit;font-size:15px;padding:10px;border:1px solid var(--line);border-radius:8px;
+  min-height:44px;background:var(--surface);color:var(--ink)}
+.failed{background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:8px;padding:10px;
+  font-size:14px;color:var(--body)}
+.failed b{color:var(--warn-ink)}
+.notice{background:var(--warn-soft);border:1px solid var(--warn-line);border-radius:10px;padding:14px}
+.notice h2{margin:0 0 6px;font-size:17px;color:var(--warn-ink)}
+.notice p{margin:0;color:var(--body)}
+.card{background:var(--surface);border:1px solid var(--hair);border-radius:10px;padding:14px}
+.card h2{margin:0 0 8px;font-size:17px}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.stats div{background:var(--surface);border:1px solid var(--hair);border-radius:10px;padding:12px;
+  display:flex;flex-direction:column}
+.stats b{font-size:24px}
+.stats span{font-size:13px;color:var(--muted)}
+.skel{background:var(--sunk);border-radius:6px}
+.bar{height:6px;border-radius:3px;background:var(--sunk);overflow:hidden}
+.bar div{height:6px;width:40%;background:var(--accent)}
+footer{margin-top:auto;padding:16px;background:var(--surface);border-top:1px solid var(--hair);
+  display:flex;flex-direction:column;gap:8px;position:sticky;bottom:0}
+.send{min-height:48px;border:0;border-radius:10px;background:var(--accent);color:var(--accent-ink);
+  font:inherit;font-size:16px;font-weight:600;cursor:pointer}
+.send:disabled{background:var(--off);color:var(--body);cursor:not-allowed}
+.ghost{min-height:44px;padding:0 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface);
+  color:var(--ink);font:inherit;font-size:15px;cursor:pointer}
+.small{font-size:12px;color:var(--quiet)}
+.theme{position:absolute;top:8px;right:8px}
+details{font-size:13px;color:var(--muted)}
+details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);padding:8px;border-radius:6px}
+@media (min-width:900px){
+  header{padding:32px 24px 16px}
+  h1{font-size:28px}
+  .chips,main{padding-left:24px;padding-right:24px}
+  .row{grid-template-columns:120px minmax(0,1fr) minmax(0,1.3fr) 160px 230px;align-items:start}
+  .row .top{flex-direction:column;align-items:flex-start}
+  .row .thumbs{grid-template-columns:repeat(3,44px)}
+  .row .thumbs div{width:44px;height:44px}
+  .picks{flex-wrap:wrap}
+  .pick{min-height:36px;font-size:14px}
+  .row .wordrow,.row .failed{grid-column:2 / -1}
+  footer{flex-direction:row;align-items:center;justify-content:space-between;position:static}
+}
+</style>
+<div class="wrap" id="app" aria-live="polite">
+  <header>
+    <div>
+      <div class="eyebrow">Fix plan · before copy</div>
+      <h1>Loading the plan…</h1>
+      <div class="sub">Loading the plan and thumbnails…</div>
+    </div>
+  </header>
+  <main>
+    <div class="bar"><div></div></div>
+    <article class="row"><div class="skel" style="width:90px;height:18px"></div>
+      <div class="skel" style="width:85%;height:14px"></div>
+      <div class="skel" style="width:70%;height:16px"></div></article>
+  </main>
+  <footer><button class="send" disabled>Send answers</button></footer>
+</div>
+
+<script id="plan-data" type="application/json">__DATA__</script>
+<script id="page-template" type="text/plain">__TEMPLATE_B64__</script>
+<script>
+(function(){
+  "use strict";
+  var MARK_D = "__" + "DATA" + "__", MARK_T = "__" + "TEMPLATE_B64" + "__";
+  /* base64 -> text as UTF-8; atob alone returns latin-1 and double-encodes
+     every non-ASCII name the moment the page republishes itself. */
+  function b64utf8(b64){
+    var bin = atob(b64), bytes = new Uint8Array(bin.length);
+    for(var i = 0; i < bin.length; i++){ bytes[i] = bin.charCodeAt(i); }
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+  var D = JSON.parse(document.getElementById("plan-data").textContent);
+  var ROWS = D.rows || [];
+  var LS = "fixplan/" + D.digest;
+  var state;
+  try{ state = JSON.parse(localStorage.getItem(LS)) || null; }catch(e){ state = null; }
+  if(!state || typeof state !== "object") state = {pick:{}, word:{}, chip:"All"};
+  /* An answer the plan already holds (the agent re-rendered a half-answered
+     plan) starts the page where the owner left it. */
+  ROWS.forEach(function(r){
+    if(r.answer && state.pick[r.n] === undefined){
+      if(r.answer.indexOf("word:") === 0){ state.pick[r.n] = "word"; state.word[r.n] = r.answer.slice(5); }
+      else state.pick[r.n] = r.answer;
+    }
+  });
+  function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
+
+  function el(tag, cls, txt){
+    var e = document.createElement(tag);
+    if(cls) e.className = cls;
+    if(txt !== undefined && txt !== null) e.textContent = txt;
+    return e;
+  }
+  function answerOf(r){
+    var p = state.pick[r.n];
+    if(p === "word"){ var w = (state.word[r.n] || "").trim(); return w ? "word: " + w : ""; }
+    return p || "";
+  }
+  /* ⛔ The SINGLE reader of the owner's answers: what `apply` parses. An
+     open row is not written — it is a skip (G21). */
+  function lines(){
+    var out = [];
+    ROWS.forEach(function(r){ var a = answerOf(r); if(a) out.push(r.n + ": " + a); });
+    return out;
+  }
+  function counts(){
+    var c = {ok:0, skip:0, word:0, open:0};
+    ROWS.forEach(function(r){
+      var a = answerOf(r);
+      if(!a) c.open++; else if(a === "ok") c.ok++; else if(a === "skip") c.skip++; else c.word++;
+    });
+    return c;
+  }
+  function blocked(){
+    /* A row whose map lookup failed waits for an answer: its proposal kept
+       the town, and only the owner can say whether that stands. */
+    return ROWS.filter(function(r){ return r.lookup_failed && !answerOf(r); }).length;
+  }
+
+  function head(title, sub){
+    var h = el("header"), d = el("div");
+    d.appendChild(el("div", "eyebrow", "Fix plan · before copy"));
+    d.appendChild(el("h1", null, title));
+    if(sub) d.appendChild(el("div", "sub", sub));
+    h.appendChild(d);
+    return h;
+  }
+
+  function rowCard(r){
+    var a = el("article", "row");
+    var top = el("div", "top");
+    top.appendChild(el("span", "tag", r.rule));
+    top.appendChild(el("span", "count", r.photos + " photo" + (r.photos === 1 ? "" : "s")));
+    a.appendChild(top);
+    var names = el("div");
+    names.appendChild(el("div", "old mono", r.from));
+    names.appendChild(el("div", "new mono", r.to));
+    a.appendChild(names);
+    a.appendChild(el("div", "why", r.reason));
+    var thumbs = r.thumbs || [];
+    if(thumbs.length){
+      var th = el("div", "thumbs");
+      thumbs.forEach(function(src, i){
+        var box = el("div");
+        if(src){ var img = el("img"); img.src = src; img.alt = "sample photo " + (i + 1); box.appendChild(img); }
+        else box.textContent = "unreadable";
+        th.appendChild(box);
+      });
+      a.appendChild(th);
+    }
+    var picks = el("div", "picks");
+    [["ok","OK"],["skip","Skip"],["word","My word"]].forEach(function(p){
+      var b = el("button", "pick", p[1]);
+      b.type = "button";
+      b.setAttribute("aria-pressed", state.pick[r.n] === p[0] ? "true" : "false");
+      b.addEventListener("click", function(){
+        state.pick[r.n] = state.pick[r.n] === p[0] ? undefined : p[0];
+        save(); render(p[0] === "word" ? r.n : null);
+      });
+      picks.appendChild(b);
+    });
+    a.appendChild(picks);
+    if(r.lookup_failed){
+      var f = el("div", "failed");
+      f.appendChild(el("b", null, "Map lookup failed. "));
+      f.appendChild(document.createTextNode("The map service did not answer, so this keeps the town name. Type a place word if you know it, or OK to keep the town."));
+      a.appendChild(f);
+    }
+    if(state.pick[r.n] === "word"){
+      var lab = el("label", "word wordrow", "Your place word");
+      var inp = el("input");
+      inp.type = "text"; inp.value = state.word[r.n] || "";
+      inp.id = "word-" + r.n;
+      inp.addEventListener("input", function(){ state.word[r.n] = this.value; save(); paintFooter(); });
+      lab.appendChild(inp);
+      a.appendChild(lab);
+    }
+    return a;
+  }
+
+  var footerEl = null;
+  function paintFooter(){
+    if(!footerEl) return;
+    var c = counts(), btn = footerEl.querySelector(".send"), sum = footerEl.querySelector(".sum");
+    sum.textContent = c.ok + " OK · " + c.skip + " skip · " + c.word + " own word · " + c.open + " open";
+    var stop = blocked();
+    btn.disabled = stop > 0;
+    footerEl.querySelector(".hint").textContent = stop
+      ? stop + " row(s) with a failed map lookup need an answer before you send."
+      : "Rows you leave open count as Skip. The agent reads your answers and shows the final plan in chat.";
+  }
+
+  function readyView(focus){
+    var app = document.getElementById("app");
+    app.innerHTML = "";
+    var h = head((D.title || "Fix plan") + " · " + ROWS.length + " change" + (ROWS.length === 1 ? "" : "s"),
+                 D.photos + " photos · nothing is copied until you send");
+    var bulk = el("button", "ghost", "OK to all open rows");
+    bulk.type = "button";
+    bulk.addEventListener("click", function(){
+      ROWS.forEach(function(r){ if(!answerOf(r) && !r.lookup_failed) state.pick[r.n] = "ok"; });
+      save(); render();
+    });
+    h.appendChild(bulk);
+    app.appendChild(h);
+    var chips = el("div", "chips"), groups = {All: ROWS.length};
+    ROWS.forEach(function(r){ groups[r.chip] = (groups[r.chip] || 0) + 1; });
+    Object.keys(groups).forEach(function(k){
+      var b = el("button", "chip", k + " " + groups[k]);
+      b.type = "button";
+      b.setAttribute("aria-pressed", state.chip === k ? "true" : "false");
+      b.addEventListener("click", function(){ state.chip = k; save(); render(); });
+      chips.appendChild(b);
+    });
+    app.appendChild(chips);
+    var main = el("main");
+    ROWS.forEach(function(r){
+      if(state.chip === "All" || state.chip === r.chip || !groups[state.chip]) main.appendChild(rowCard(r));
+    });
+    app.appendChild(main);
+    footerEl = el("footer");
+    var sum = el("div", "sub sum");
+    var btn = el("button", "send", "Send answers"); btn.type = "button";
+    btn.addEventListener("click", send);
+    var hint = el("div", "small hint");
+    var st = el("div", "sub sendstate");
+    var copy = el("details");
+    copy.appendChild(el("summary", null, "Or copy the answers yourself"));
+    var pre = el("pre", "mono"); pre.textContent = lines().join("\n") || "(no answer yet)";
+    copy.appendChild(pre);
+    copy.addEventListener("toggle", function(){ pre.textContent = lines().join("\n") || "(no answer yet)"; });
+    [sum, btn, hint, st, copy].forEach(function(x){ footerEl.appendChild(x); });
+    app.appendChild(footerEl);
+    paintFooter();
+    if(focus){ var i = document.getElementById("word-" + focus); if(i) i.focus(); }
+  }
+
+  function emptyView(){
+    var app = document.getElementById("app");
+    app.innerHTML = "";
+    app.appendChild(head((D.title || "Fix plan") + " · 0 changes", D.photos ? D.photos + " photos" : ""));
+    var m = el("main"); m.style.paddingTop = "24px";
+    var c = el("section", "card");
+    c.appendChild(el("h2", null, "Nothing to change"));
+    c.appendChild(el("p", null, "Every folder name already follows the rules: landmark places, all your pets, year folders, days that already have a folder."));
+    c.appendChild(el("p", null, "Tell the agent “go” to freeze the plan and copy."));
+    m.appendChild(c);
+    app.appendChild(m);
+  }
+
+  function errorView(){
+    var app = document.getElementById("app");
+    app.innerHTML = "";
+    app.appendChild(head((D.title || "Fix plan") + " · " + ROWS.length + " changes"));
+    var m = el("main"); m.style.paddingTop = "16px";
+    var n = el("section", "notice");
+    n.appendChild(el("h2", null, "This plan is out of date"));
+    n.appendChild(el("p", null, D.out_of_date));
+    var p2 = el("p", null, "Your answers were not sent. Ask the agent to make the plan again.");
+    p2.style.marginTop = "8px";
+    n.appendChild(p2);
+    m.appendChild(n);
+    app.appendChild(m);
+    var f = el("footer"), b = el("button", "send", "Send answers");
+    b.disabled = true; f.appendChild(b); app.appendChild(f);
+  }
+
+  function doneView(){
+    var app = document.getElementById("app"), s = D.submitted;
+    app.innerHTML = "";
+    app.appendChild(head("Answers sent", (D.title || "Fix plan") + " · " + s.at));
+    var m = el("main"); m.style.paddingTop = "16px";
+    var st = el("div", "stats");
+    [["ok","OK"],["skip","Skip"],["word","Own word"]].forEach(function(k){
+      var d = el("div"); d.appendChild(el("b", null, String(s.counts[k[0]] + (k[0] === "skip" ? s.counts.open : 0))));
+      d.appendChild(el("span", null, k[1])); st.appendChild(d);
+    });
+    m.appendChild(st);
+    var c = el("section", "card");
+    c.appendChild(el("h2", null, "What happens next"));
+    var ol = el("ol");
+    ["The agent shows the final plan in chat.",
+     "You say “go”: the plan is frozen and copied.",
+     "Every copy is checked; then a short after-check."].forEach(function(t){ ol.appendChild(el("li", null, t)); });
+    c.appendChild(ol);
+    m.appendChild(c);
+    m.appendChild(el("p", "sub", "This page is private and is deleted after the dump. Changed your mind? Tell the agent before you say “go”."));
+    app.appendChild(m);
+  }
+
+  async function send(){
+    var st = footerEl.querySelector(".sendstate"), btn = footerEl.querySelector(".send");
+    var c = counts();
+    var payload = {at: new Date().toISOString().slice(0,16).replace("T"," "),
+                   digest: D.digest, lines: lines(), counts: c};
+    btn.disabled = true; st.textContent = "Sending…";
+    var api = null;
+    try{ api = await window.claude.use("artifact"); }catch(e){ api = null; }
+    if(!api){
+      st.textContent = "This page cannot reach the agent. Open “Or copy the answers yourself” and paste them into the chat.";
+      btn.disabled = false; return;
+    }
+    try{
+      var next = JSON.parse(JSON.stringify(D));
+      next.submitted = payload;
+      var b64 = document.getElementById("page-template").textContent.trim();
+      var html = "<!doctype html>\n" + b64utf8(b64)
+        .replace(MARK_T, b64)
+        .replace(MARK_D, JSON.stringify(next).replace(/<\//g, "<\\/"));
+      await api.publish(html);
+      D.submitted = payload; render();
+    }catch(err){
+      var code = (err && err.code) || "upstream_error";
+      st.textContent = code === "conflict"
+        ? "The page changed while you answered — it is reloading; press Send again."
+        : "Send failed (" + code + "). Open “Or copy the answers yourself” and paste them into the chat.";
+      btn.disabled = false;
+    }
+  }
+
+  function render(focus){
+    if(D.submitted) return doneView();
+    if(D.out_of_date) return errorView();
+    if(!ROWS.length) return emptyView();
+    readyView(focus);
+  }
+  render();
+})();
+</script>

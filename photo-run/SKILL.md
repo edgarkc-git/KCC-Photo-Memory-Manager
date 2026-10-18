@@ -462,6 +462,27 @@ missing — there is no second list to keep in step.
 `prep` and `finish` can be split across sessions freely — `status` always shows
 what's left.
 
+## The fix plan page (G20, G21)
+
+When the fix plan stop writes `plan/fix-plan.md` (exit 3), the owner answers
+it on a private web page:
+
+1. `<repo>/.venv/bin/python3 <repo>/scripts/photo_fixplan_page.py render "<work dir>/plan/fix-plan.md"`
+   writes `plan/fix-plan.html`: each change as old → new name, its rule, the
+   reason, the photo count and up to three sample photos, with OK / Skip / My
+   word and one Send button.
+2. Publish that file as a **private** artifact and send the owner its link
+   through your own channel. ⛔ Never share it: it shows the owner's photos.
+3. The owner presses Send; the page republishes itself with the answers. Read
+   it back and write the answers into the plan:
+   `python3 scripts/photo_fixplan_page.py apply "<work dir>/plan/fix-plan.md" --answer <the republished page, or the copied lines>`.
+   ⛔ A row left open is a **skip** — only rows the owner ticked are applied.
+   A page answered for an earlier draft of the plan is refused; render it
+   again (`--out-of-date "<why>"` shows the owner why on the same link first).
+4. Show the owner the final plan in chat and continue on their "go".
+5. ⛔ **Delete the page after the dump** (the artifact's delete) — it is not
+   kept anywhere.
+
 ## Exit codes you will meet
 
 Read the exit code of the command itself. ⛔ Never pipe a stage into `tail`
