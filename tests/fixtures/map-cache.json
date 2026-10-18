@@ -1,0 +1,94 @@
+{
+ "40.01000,140.00000,z10adm,en": {
+  "name": "Homecity",
+  "name_tag": "admin"
+ },
+ "42.400100,142.400000,z18,en": {
+  "cat": "tourism",
+  "name": "Seaview Point",
+  "name_tag": "name",
+  "type": "viewpoint"
+ },
+ "43.000100,143.000000,z10,en": {
+  "cat": "place",
+  "name": "Townfield",
+  "name_tag": "name",
+  "type": "town"
+ },
+ "43.000100,143.000000,z18,en": {
+  "cat": "highway",
+  "name": "",
+  "name_tag": null,
+  "type": "residential"
+ },
+ "landmarks:40.597297,140.596440,40.604203,140.603560": [
+  {
+   "bounds": {
+    "maxlat": 40.601,
+    "maxlon": 140.601,
+    "minlat": 40.599000000000004,
+    "minlon": 140.599
+   },
+   "tags": {
+    "leisure": "park",
+    "name": "Lotus Garden"
+   },
+   "type": "way"
+  },
+  {
+   "lat": 40.6015,
+   "lon": 140.6,
+   "tags": {
+    "name": "Birk Hotel",
+    "tourism": "hotel"
+   },
+   "type": "node"
+  }
+ ],
+ "landmarks:41.197297,141.196408,41.222703,141.203592": [
+  {
+   "lat": 41.2,
+   "lon": 141.2,
+   "tags": {
+    "name": "Old Mill Museum",
+    "tourism": "museum"
+   },
+   "type": "node"
+  },
+  {
+   "bounds": {
+    "maxlat": 41.2105,
+    "maxlon": 141.20049999999998,
+    "minlat": 41.2095,
+    "minlon": 141.1995
+   },
+   "tags": {
+    "name": "Harbour Beach",
+    "natural": "beach"
+   },
+   "type": "way"
+  },
+  {
+   "lat": 41.22,
+   "lon": 141.2,
+   "tags": {
+    "historic": "monument",
+    "name": "Clock Tower"
+   },
+   "type": "node"
+  }
+ ],
+ "landmarks:41.797297,141.796375,41.802903,141.803625": [
+  {
+   "lat": 41.8,
+   "lon": 141.8,
+   "tags": {
+    "amenity": "restaurant",
+    "name": "Birk Inn"
+   },
+   "type": "node"
+  }
+ ],
+ "landmarks:42.397297,142.396340,42.402903,142.403660": [],
+ "landmarks:42.997297,142.996305,43.002903,143.003695": []
+}

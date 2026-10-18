@@ -193,7 +193,7 @@ def midpoint_stops(day):
 
 def batch_places(part, day_files, geocoder, all_homes,
                  limit=MAX_BATCH_PLACES, labelled_homes=(), named_places=(),
-                 place_km=None):
+                 place_km=None, guard_homes=None):
     """-> the ordered, distinct places a batch actually visited.
 
     ⭐ R9. This used to be ONE geocode of the MEDIAN day's centroid for the
@@ -221,7 +221,12 @@ def batch_places(part, day_files, geocoder, all_homes,
     ⚠️ Cost: the geocoder sleeps 1.1 s per UNCACHED lookup (Nominatim's usage
     policy). Its cache key is the coordinate rounded to 2 decimal places, so a
     batch that stays in one place pays once, not once per day.
+
+    ⛔ M1. `guard_homes` (default `all_homes`) is the set no full-precision
+    lookup may come near; a packless run adds its auto-detected anchor, which
+    `all_homes` never holds.
     """
+    guard = all_homes if guard_homes is None else guard_homes
     names = []
     for d in part:
         centroid = day_files[d]["centroid"]
@@ -230,6 +235,8 @@ def batch_places(part, day_files, geocoder, all_homes,
         stops = midpoint_stops(day_files[d])
         word = None
         if stops:
+            import photo_where
+            segs = photo_where.segment(day_files[d]["points"])
             # FIX6 F5 (owner decision 20260915, "name from a real stop") —
             # the median sits where no photo was taken, so the day takes the
             # word of its LAST AWAY stop this same chain can name. Only a day
@@ -237,11 +244,14 @@ def batch_places(part, day_files, geocoder, all_homes,
             # chain cannot name leaves the centroid word below, never a blank.
             at_home = [within_home_range(s, d.isoformat(), all_homes, PLACE_SUPPRESS_KM)
                        for s in stops]
-            order = stops if all(at_home) else [s for s, h in zip(stops, at_home) if not h]
-            for stop in reversed(order):
-                got = batch_places([d], {d: {"centroid": stop}}, geocoder, all_homes,
+            order = list(zip(stops, segs)) if all(at_home) else \
+                [(s, g) for s, g, h in zip(stops, segs, at_home) if not h]
+            for stop, seg in reversed(order):
+                got = batch_places([d], {d: {"centroid": stop, "points": seg}},
+                                   geocoder, all_homes,
                                    limit=1, labelled_homes=labelled_homes,
-                                   named_places=named_places, place_km=place_km)
+                                   named_places=named_places, place_km=place_km,
+                                   guard_homes=guard)
                 if got:
                     word = got[0]
                     break
@@ -293,7 +303,21 @@ def batch_places(part, day_files, geocoder, all_homes,
                 if len(names) >= limit:
                     break
                 continue
-            name = geocoder.city(centroid)
+            # ⭐ M1 / ADR 0006 — the landmark first, from the day's own photos
+            # outside every home's radius, at full precision; the town only
+            # when no landmark answers. ⛔ The centroid is sent precisely only
+            # when it too is outside every home's radius (any window).
+            found = geocoder.landmarks(away_points(day_files[d].get("points") or [],
+                                                   guard))
+            if found:
+                for w in found:
+                    if w not in names:
+                        names.append(w)
+                if len(names) >= limit:
+                    break
+                continue
+            name = geocoder.city(centroid,
+                                 precise=not near_any_home(centroid, guard))
         if not name or is_address(name):
             continue
         if name not in names:
@@ -384,6 +408,22 @@ def within_home_range(point, day, homes, away_km):
     return False
 
 
+def near_any_home(point, homes, km=None):
+    """True when `point` is within `km` (PLACE_SUPPRESS_KM) of ANY home, its
+    validity window ignored: the gate on a full-precision lookup (ADR 0006).
+    A home the owner left is still their address, so a point near it is
+    never sent precisely."""
+    km = PLACE_SUPPRESS_KM if km is None else km
+    return any(haversine_km(point, (h[0], h[1])) <= km for h in homes)
+
+
+def away_points(points, homes):
+    """-> the points a landmark lookup may send: every one outside
+    PLACE_SUPPRESS_KM of every home (A43: a wide stop can hold a photo taken
+    at the door while its centre is far away)."""
+    return [p for p in points if not near_any_home((p[0], p[1]), homes)]
+
+
 def place_label(point, places, radius_km):
     """-> the owner's name for the named place `point` sits at, or None.
 
@@ -438,7 +478,9 @@ def parse_date_source(row):
 # i18n-guard:allow-begin — locale detection data, not user-facing output:
 # characters that mark a simplified-Chinese variant of an OSM place name, so
 # the traditional variant can be preferred. This parses INPUT from OSM.
-SIMPLIFIED_CHARS = set("旧国东门马华湾区岛汉兰凤龙圣罗宝尔盐纽约莱坞")
+SIMPLIFIED_CHARS = set("旧国东门马华湾区岛汉兰凤龙圣罗宝尔盐纽约莱坞"
+                       "萨辖县镇乡馆园场广厅关济滨泽桥观庙楼阁线车长"
+                       "术图书钟亚欧传达纪乐")
 # i18n-guard:allow-end
 
 
@@ -478,7 +520,8 @@ def is_traditional(language):
 
 
 def name_tags(language):
-    """-> the OSM `namedetails` tags to read, in preference order.
+    """-> the OSM name tags to read, in preference order: the owner's
+    language, then English (M2, E6/E15).
 
     ⛔ The neutral `name` is NOT in this list. It is the fallback, and the
     fallback has to be distinguishable from a hit — a place named in the
@@ -492,7 +535,23 @@ def name_tags(language):
         base = lang.split("-")[0]
         if base != lang:
             tags.append(f"name:{base}")
+    tags.append("name:en")
     return list(dict.fromkeys(tags))
+
+
+def is_simplified(value, tags=None):
+    """True for a Chinese name in the Simplified script. Two tests: a
+    Simplified-only character, or the value being the tag set's own
+    `name:zh-Hans` while a different Traditional tag exists (or it is no
+    Traditional tag at all) — the characters alone miss names like E15's."""
+    if not value:
+        return False
+    if set(value) & SIMPLIFIED_CHARS:
+        return True
+    tags = tags or {}
+    hans = {tags.get(t) for t in ("name:zh-Hans", "name:zh-CN", "name:zh-SG")} - {None}
+    hant = {tags.get(t) for t in ("name:zh-Hant", "name:zh-TW", "name:zh-HK")} - {None}
+    return value in hans and value not in hant
 
 
 def pick_variant(name, language):
@@ -506,18 +565,36 @@ def pick_variant(name, language):
     return name.split(";")[0].strip()
 
 
-def read_name(data, language):
-    """-> (name, the tag it came from), or (None, None).
+def read_tags(tags, language, neutral=None):
+    """-> (name, the tag it came from), or (None, None), from one OSM tag set
+    — Nominatim's `namedetails` or an Overpass element's `tags`.
 
     The neutral `name` closes the list and SAYS SO through the returned tag,
-    which is what makes the language fallback visible instead of silent."""
-    details = data.get("namedetails") or {}
+    which is what makes the language fallback visible instead of silent.
+    ⛔ M2 (E6/E15): a Traditional-script owner never gets a Simplified name —
+    a Simplified value is passed over for English, and with no English the
+    place has no name rather than a Simplified one."""
+    tags = tags or {}
+    trad = is_traditional(language)
     for tag in name_tags(language):
-        if details.get(tag):
-            return pick_variant(details[tag], language), tag
-    if data.get("name"):
-        return pick_variant(data["name"], language), "name"
+        if tags.get(tag):
+            value = pick_variant(tags[tag], language)
+            if trad and is_simplified(value, tags):
+                continue
+            return value, tag
+    value = neutral if neutral is not None else tags.get("name")
+    if value:
+        value = pick_variant(value, language)
+        if not (trad and is_simplified(value, tags)):
+            return value, "name"
     return None, None
+
+
+def read_name(data, language):
+    """-> (name, the tag it came from), or (None, None), for a Nominatim
+    reply: `read_tags` over its `namedetails`, the reply's `name` last."""
+    return read_tags(data.get("namedetails") or {}, language,
+                     neutral=data.get("name") or None)
 
 
 # 0,0 is the Atlantic off Ghana. No camera has ever been there, and a device
@@ -556,11 +633,15 @@ def parse_gps(row):
     return gps_point(row.get("GPSPosition", "-"))
 
 
-# ⛔ RS7c (owner ruling 20260929): every Nominatim reverse request is built
-# here and sends the point at 2 decimal places (~1.1 km), the precision the
-# cache key already keeps — so no call site can send a finer position than
-# the engine remembers. Overpass is NOT built here: it needs ~400 m.
+# ⛔ Every Nominatim reverse request is built here. Two precisions, chosen by
+# the CALLER per lookup, never globally (ADR 0006, M1):
+#   * coarse, 2 dp (~1.1 km) — the default, and the ONLY one a lookup near a
+#     home may use (`city_admin`, R13). RS7c's rule, kept for that path.
+#   * precise, PRECISE_DP (~0.1 m: full GPS precision) — a point outside
+#     PLACE_SUPPRESS_KM of every home, so a landmark can be found at all.
+# The caller has already proved the point is away; nothing here can tell.
 REVERSE_DP = 2
+PRECISE_DP = 6
 NOMINATIM_REVERSE = "https://nominatim.openstreetmap.org/reverse"
 
 
@@ -568,13 +649,177 @@ def coarse_point(pt):
     return round(pt[0], REVERSE_DP), round(pt[1], REVERSE_DP)
 
 
-def reverse_url(pt, zoom, language, detail):
-    """-> the Nominatim reverse URL for `pt`, coarsened. `detail` is the
-    Nominatim flag the caller reads back (`namedetails` / `addressdetails`)."""
-    lat, lon = coarse_point(pt)
+def precise_point(pt):
+    return round(pt[0], PRECISE_DP), round(pt[1], PRECISE_DP)
+
+
+def reverse_url(pt, zoom, language, detail, precise=False):
+    """-> the Nominatim reverse URL for `pt`, coarsened unless `precise`.
+    `detail` is the Nominatim flag the caller reads back (`namedetails` /
+    `addressdetails`)."""
+    lat, lon = precise_point(pt) if precise else coarse_point(pt)
     return (f"{NOMINATIM_REVERSE}?format=jsonv2&zoom={zoom}&{detail}=1&"
             + urllib.parse.urlencode({"lat": lat, "lon": lon,
                                       "accept-language": language}))
+
+
+# ---------------------------------------------------------------------------
+# M1 / ADR 0006 — the landmark, looked up at full precision away from homes.
+#
+# One Overpass query per day (or stop) for NAMED sights, parks, beaches,
+# temples, museums, old streets, hotels and restaurants within
+# LANDMARK_RADIUS_M of its photos, worldwide. Ranked by how many of the
+# day's photos sit within the radius (D3), a sight before a hotel or
+# restaurant (D4); a second landmark joins with `+` only when it holds about
+# a third of the photos; never more than two. Nominatim zoom 18 is the
+# fallback, and it is accepted only when it answers with a landmark class.
+# ⛔ The caller passes ONLY points outside PLACE_SUPPRESS_KM of every home.
+# ---------------------------------------------------------------------------
+OVERPASS = "https://overpass-api.de/api/interpreter"
+USER_AGENT = "kcc-photo-manager/0.1"
+# 📐 `{n}` — how near a photo must be to a landmark to count for it.
+LANDMARK_RADIUS_M = 300
+# 📐 `{n}` — D3: the share of the day's photos a second landmark needs.
+LANDMARK_SECOND_SHARE = 1 / 3
+MAX_LANDMARKS = 2
+# OSM key -> values that make a feature a SIGHT (D4 rank 0) or a STAY
+# (hotel / restaurant, rank 1). `*` = any value of the key.
+SIGHT_TAGS = {
+    "tourism": ("attraction", "museum", "gallery", "viewpoint", "zoo",
+                "theme_park", "aquarium"),
+    "leisure": ("park", "nature_reserve", "garden", "beach_resort", "marina"),
+    "natural": ("beach", "peak", "bay", "cape", "volcano", "waterfall",
+                "spring", "cave_entrance", "glacier"),
+    "historic": "*",
+    "amenity": ("place_of_worship",),
+    "highway": ("pedestrian",),
+    "waterway": ("waterfall",),
+}
+STAY_TAGS = {
+    "tourism": ("hotel", "guest_house", "hostel", "motel", "chalet",
+                "camp_site"),
+    "amenity": ("restaurant", "cafe"),
+}
+
+
+def landmark_rank(tags):
+    """-> 0 for a sight, 1 for a hotel or restaurant, None for neither."""
+    for rank, table in ((0, SIGHT_TAGS), (1, STAY_TAGS)):
+        for key, values in table.items():
+            v = tags.get(key)
+            if v and (values == "*" or v in values):
+                return rank
+    return None
+
+
+def landmark_query(bbox):
+    s, w, n, e = bbox
+    box = f"({s},{w},{n},{e})"
+    parts = []
+    for table in (SIGHT_TAGS, STAY_TAGS):
+        for key, values in table.items():
+            match = (f'["{key}"]' if values == "*"
+                     else f'["{key}"~"^({"|".join(values)})$"]')
+            parts.append(f'nwr{match}["name"]{box};')
+    return ("[out:json][timeout:60];\n(\n  " + "\n  ".join(parts)
+            + "\n);\nout tags bb;")
+
+
+def overpass_post(query, backoffs=(0, 15, 45)):
+    """-> the elements of one Overpass answer, or None when it failed. The
+    one Overpass caller: `photo_where`'s peak query posts through here too."""
+    err = None
+    for backoff in backoffs:
+        time.sleep(backoff)
+        try:
+            req = urllib.request.Request(OVERPASS, data=query.encode(),
+                                         headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=90) as r:
+                return json.loads(r.read().decode()).get("elements", [])
+        except Exception as ex:                       # noqa: BLE001
+            err = ex
+    print(f"overpass failed after retries: {err}", file=sys.stderr)
+    return None
+
+
+def points_bbox(pts, margin_m):
+    lat_m = margin_m / 111_000
+    mid = sum(p[0] for p in pts) / len(pts)
+    lon_m = lat_m / max(math.cos(math.radians(mid)), 0.2)
+    return (min(p[0] for p in pts) - lat_m, min(p[1] for p in pts) - lon_m,
+            max(p[0] for p in pts) + lat_m, max(p[1] for p in pts) + lon_m)
+
+
+def feature_km(pt, el):
+    """km from `pt` to an Overpass element: its node, or its bounding box (0
+    inside it — a photo taken in a park is AT the park)."""
+    if "lat" in el and "lon" in el:
+        return haversine_km(pt, (el["lat"], el["lon"]))
+    b = el.get("bounds")
+    if not b:
+        c = el.get("center")
+        return haversine_km(pt, (c["lat"], c["lon"])) if c else 1e9
+    lat = min(max(pt[0], b["minlat"]), b["maxlat"])
+    lon = min(max(pt[1], b["minlon"]), b["maxlon"])
+    return haversine_km(pt, (lat, lon))
+
+
+def rank_landmarks(elements, pts, language):
+    """-> [{name, rank, photos, km}] ranked: a sight before a stay (D4), then
+    by photos within the radius (D3), then nearest. One row per name."""
+    best = {}
+    radius = LANDMARK_RADIUS_M / 1000
+    for el in elements or ():
+        tags = el.get("tags") or {}
+        rank = landmark_rank(tags)
+        name, _tag = read_tags(tags, language)
+        if rank is None or not name or is_address(name):
+            continue
+        dists = [feature_km((p[0], p[1]), el) for p in pts]
+        photos = sum(1 for d in dists if d <= radius)
+        if not photos:
+            continue
+        row = {"name": name, "rank": rank, "photos": photos, "km": min(dists)}
+        key = (row["rank"], -row["photos"], row["km"])
+        if name not in best or key < (best[name]["rank"], -best[name]["photos"],
+                                      best[name]["km"]):
+            best[name] = row
+    return sorted(best.values(), key=lambda r: (r["rank"], -r["photos"], r["km"]))
+
+
+def pick_landmarks(ranked, total):
+    """D3/D4 -> at most MAX_LANDMARKS names. A hotel or restaurant names a
+    day only when no sight does; a second joins only at about a third of the
+    day's photos and only from the first one's class."""
+    if not ranked:
+        return []
+    picks = [ranked[0]]
+    for row in ranked[1:]:
+        if len(picks) >= MAX_LANDMARKS:
+            break
+        if row["rank"] == picks[0]["rank"] and \
+                row["photos"] >= LANDMARK_SECOND_SHARE * total - 1e-9:
+            picks.append(row)
+    return [r["name"] for r in picks]
+
+
+# Nominatim zoom-18 answers that count as a landmark: the category, and for
+# `amenity`/`tourism` the types that are one (a bench or a parking lot is not).
+ZOOM18_CATEGORIES = ("tourism", "leisure", "historic", "natural")
+# A reply at or above this place_rank is a country or bigger (E14): it
+# never becomes a [where].
+COUNTRY_RANK = 4
+
+
+def is_country_answer(data):
+    """E14 — a reverse answer that is a whole country, read from its
+    structure (`addresstype`, `place_rank`), never from its spelling."""
+    if (data.get("addresstype") or "") == "country":
+        return True
+    try:
+        return 0 < int(data.get("place_rank") or 0) <= COUNTRY_RANK
+    except (TypeError, ValueError):
+        return False
 
 
 class Geocoder:
@@ -598,29 +843,56 @@ class Geocoder:
         if cache_path.exists():
             self.cache = json.loads(cache_path.read_text())
 
-    def key_for(self, pt, zoom):
+    def key_for(self, pt, zoom, precise=False):
+        """⛔ Coarse unless `precise`: a key is what is written to disk, and a
+        near-home point is never written finer than 2 dp."""
+        if precise:
+            lat, lon = precise_point(pt)
+            return f"{lat:.{PRECISE_DP}f},{lon:.{PRECISE_DP}f},z{zoom},{self.language}"
         lat, lon = coarse_point(pt)
         return f"{lat:.5f},{lon:.5f},z{zoom},{self.language}"
 
+    def cached(self, pt, zoom):
+        """-> (key, row) for an AWAY lookup: the precise key, else the coarse
+        one an older cache holds (its answer is still the same town, and a
+        re-fetch would cost 1.1 s for nothing)."""
+        key = self.key_for(pt, zoom, precise=True)
+        if key in self.cache:
+            return key, self.cache[key]
+        old = self.key_for(pt, zoom)
+        return key, self.cache.get(old)
+
     def entry(self, pt, zoom):
         """-> the cached row for this point IN THIS LANGUAGE, or None."""
-        return self.cache.get(self.key_for(pt, zoom))
+        return self.cached(pt, zoom)[1]
 
     def fell_back(self, pt, zoom):
         """Whether the cached name came from the neutral `name` rather than a
         tag in the owner's language. Read by the callers so the fallback is
         reported on the batch rather than swallowed here."""
         row = self.entry(pt, zoom) or {}
-        return bool(row.get("name")) and row.get("name_tag") in ("name", "address")
+        tag = row.get("name_tag")
+        english_for_another = (tag == "name:en"
+                               and self.language.split("-")[0].lower() != "en")
+        return bool(row.get("name")) and (tag in ("name", "address")
+                                          or english_for_another)
 
-    def city(self, pt):
-        key = self.key_for(pt, 10)
-        if key in self.cache:
-            return self.cache[key].get("name") or None
+    def city(self, pt, precise=False):
+        """The town around a point outside the home suppression radius. Sent
+        at full precision only when the caller says `precise` — it has proved
+        the point is outside PLACE_SUPPRESS_KM of EVERY home (M1). A
+        country-sized answer is no name (E14)."""
+        if precise:
+            key, row = self.cached(pt, 10)
+        else:
+            key = self.key_for(pt, 10)
+            row = self.cache.get(key)
+        if row is not None:
+            return None if row.get("country") else (row.get("name") or None)
         if not self.enabled:
             return None
-        url = reverse_url(pt, 10, self.language, "namedetails")
-        req = urllib.request.Request(url, headers={"User-Agent": "kcc-photo-manager/0.1"})
+        url = reverse_url(pt, 10, self.language, "namedetails", precise=precise)
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         try:
             time.sleep(1.1)  # Nominatim usage policy: max 1 req/s
             with urllib.request.urlopen(req, timeout=10) as r:
@@ -632,13 +904,69 @@ class Geocoder:
                 name = (data.get("address", {}).get("city")
                         or data.get("display_name", "").split(",")[0])
                 tag = "address" if name else None
+            country = is_country_answer(data)
             self.cache[key] = {"name": name, "name_tag": tag,
                                "display": data.get("display_name", ""),
-                               "cat": data.get("category", ""), "type": data.get("type", "")}
+                               "cat": data.get("category", ""), "type": data.get("type", ""),
+                               **({"country": True} if country else {})}
             self.dirty = True
-            return name or None
+            return None if country else (name or None)
         except Exception:
             return None
+
+    def landmarks(self, pts):
+        """-> the D3/D4 landmark names (at most two) for one day's or stop's
+        AWAY photos, from Overpass, else a zoom-18 landmark, else []. Cached:
+        Overpass elements by their full-precision box, zoom 18 by point and
+        language. ⛔ `pts` holds no point within PLACE_SUPPRESS_KM of a home
+        — `away_points()` is how a caller gets them."""
+        if not pts:
+            return []
+        bbox = points_bbox(pts, LANDMARK_RADIUS_M)
+        key = "landmarks:" + ",".join(f"{v:.{PRECISE_DP}f}" for v in bbox)
+        elements = self.cache.get(key)
+        if elements is None and self.enabled:
+            got = overpass_post(landmark_query(bbox), backoffs=(1.1, 15))
+            if got is not None:
+                elements = [{k: el[k] for k in ("type", "lat", "lon", "bounds", "center")
+                             if k in el}
+                            | {"tags": {t: v for t, v in (el.get("tags") or {}).items()
+                                        if t == "name" or t.startswith("name:")
+                                        or landmark_rank({t: v}) is not None}}
+                            for el in got if landmark_rank(el.get("tags") or {}) is not None]
+                self.cache[key] = elements
+                self.dirty = True
+        names = pick_landmarks(rank_landmarks(elements, pts, self.language), len(pts))
+        if names:
+            return names
+        center = (median(p[0] for p in pts), median(p[1] for p in pts))
+        name = self.zoom18(center)
+        return [name] if name else []
+
+    def zoom18(self, pt):
+        """Nominatim zoom 18 at an AWAY point: a name only when the answer is
+        a landmark (category, or a SIGHT/STAY tag), never a road or house."""
+        key, row = self.cached(pt, 18)
+        if row is None:
+            if not self.enabled:
+                return None
+            url = reverse_url(pt, 18, self.language, "namedetails", precise=True)
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            try:
+                time.sleep(1.1)  # Nominatim usage policy: max 1 req/s
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    data = json.loads(r.read().decode())
+            except Exception:
+                return None
+            cat, typ = data.get("category", ""), data.get("type", "")
+            ok = (cat in ZOOM18_CATEGORIES
+                  or landmark_rank({cat: typ}) is not None) and not is_country_answer(data)
+            name, tag = read_name(data, self.language) if ok else (None, None)
+            row = {"name": name or "", "name_tag": tag, "cat": cat, "type": typ}
+            self.cache[key] = row
+            self.dirty = True
+        name = row.get("name") or None
+        return None if not name or is_address(name) else name
 
     # 📐 The administrative fields Nominatim returns, coarsest-useful first.
     # ⛔ `road`, `neighbourhood`, `suburb` and `display_name` are DELIBERATELY
@@ -1049,7 +1377,10 @@ def main():
                 # R9 — every day, in travel order, not the median one.
                 found = batch_places(part, day_files, geocoder, all_homes,
                                      labelled_homes=labelled_homes,
-                                     named_places=named, place_km=place_km)
+                                     named_places=named, place_km=place_km,
+                                     guard_homes=all_homes + (
+                                         [(auto_anchor[0], auto_anchor[1], None, None)]
+                                         if auto_anchor else []))
                 if found:
                     place = "+".join(found)
                     # D-06 — said out loud rather than swallowed. OSM has no

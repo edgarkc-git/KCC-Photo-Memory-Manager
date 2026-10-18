@@ -76,6 +76,19 @@ class _FakeCache:
             photo_cluster, "DEFAULT_GEOCODE_LANGUAGE", "en")
 
 
+def offline_env(env, log=None):
+    """`env` with the test harness's network refusal on PYTHONPATH (M1: the
+    landmark lookup runs worldwide, so an unseeded stop would otherwise reach
+    the network). `log` names a file that collects every refused request."""
+    env = dict(env)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(Path(__file__).resolve().parent / "offline")]
+        + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
+    if log:
+        env["PHOTO_TEST_NET_LOG"] = str(log)
+    return env
+
+
 def run(tmp, profile, anchor=None, make="Apple"):
     """-> (returncode, parsed where.json or None, stdout, stderr).
 
@@ -113,6 +126,7 @@ def run(tmp, profile, anchor=None, make="Apple"):
     profile_file.write_text(json.dumps(profile))
     env = {k: v for k, v in os.environ.items() if k != "PHOTO_PROFILE"}
     env["PHOTO_PROFILE"] = str(profile_file)
+    env = offline_env(env, root / "net.log")
 
     cmd = [sys.executable, str(SCRIPTS / "photo_where.py"), str(workdir),
            "--batch", "1"]
@@ -390,6 +404,7 @@ def run_layout(tmp, profile, layout, overpass=None, names=None):
     profile_file.write_text(json.dumps(profile))
     env = {k: v for k, v in os.environ.items() if k != "PHOTO_PROFILE"}
     env["PHOTO_PROFILE"] = str(profile_file)
+    env = offline_env(env, root / "net.log")
     proc = subprocess.run(
         [sys.executable, str(SCRIPTS / "photo_where.py"), str(workdir),
          "--batch", "1"], capture_output=True, text=True, env=env)
@@ -974,13 +989,12 @@ def k20_a_packless_trip_only_folder_is_its_own_home_by_choice():
 
 
 @case
-def k20_an_owner_with_no_day_test_asks_no_overpass():
-    """GUARD (K20, owner ruling 20261001: "country only, no day test yet"). Overpass
-    runs only inside the owner's own country, and only a country with a day
-    test has an inside. ⛔ FAILS on 2559783 for the US owner: the Taiwan box
-    sent ANY owner's stop there to the peak query. A declared-US owner on a
-    stop inside the TW row gets the town name and no peak; a Taiwan owner on
-    the same stop still gets the peak (the positive control)."""
+def k20_an_owner_with_no_day_test_asks_overpass_too():
+    """INVERTED by M1 / ADR 0006 (owner, 20261011): the peak query runs
+    WORLDWIDE, so an owner with no day test for their country gets the peak
+    as a Taiwan owner does. Was the K20 guard "Overpass only inside the
+    owner's own country" (owner ruling 20261001), which ADR 0006 reverses.
+    ⛔ FAILS on 11f5353: the US owner got the town name and no peak."""
     peak = "Birkhorn"
     seed = {stop_bbox_key(TW_HOME_POINT): [
         {"type": "node", "id": 2, "lat": TW_HOME_POINT[0], "lon": TW_HOME_POINT[1],
@@ -996,8 +1010,8 @@ def k20_an_owner_with_no_day_test_asks_no_overpass():
                 tmp, pack, layout, overpass=seed, names={TW_HOME_POINT: "Town-TW"})
         day = (out or {}).get("days", {}).get("2026-04-20") or {}
         got[owner] = (rc, day.get("mode"), day.get("names"))
-    return (got["US"] == (0, "area_z13", ["Town-TW"])
-            and got["TW"][:2] == (0, "overpass") and peak in (got["TW"][2] or [])), \
+    return all(got[o][:2] == (0, "overpass") and peak in (got[o][2] or [])
+               for o in ("US", "TW")), \
         f"{got}"
 
 

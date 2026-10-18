@@ -906,8 +906,13 @@ class StubGeocoder:
     that only inspects the returned names cannot tell a suppressed day from a
     day the geocoder happened to answer nothing for."""
 
-    def __init__(self, answers, admin=None):
+    def __init__(self, answers, admin=None, landmarks=None):
         self.answers = answers
+        # M1 — what a landmark lookup would answer for a day's away points,
+        # keyed by the first point; and every point it was ever handed.
+        self.landmark_answers = landmarks or {}
+        self.asked_landmarks = []
+        self.precise = []
         # R13 — what an ADMINISTRATIVE lookup would answer, kept apart from
         # `answers` on purpose. A near-home day may be named, but only from
         # Nominatim's structured address dict; if the two lookups shared one
@@ -916,9 +921,18 @@ class StubGeocoder:
         self.asked = []
         self.asked_admin = []
 
-    def city(self, pt):
+    def city(self, pt, precise=False):
         self.asked.append(pt)
+        if precise:
+            self.precise.append(pt)
         return self.answers.get((round(pt[0], 4), round(pt[1], 4)))
+
+    def landmarks(self, pts):
+        self.asked_landmarks.extend(pts)
+        if not pts:
+            return []
+        return list(self.landmark_answers.get(
+            (round(pts[0][0], 4), round(pts[0][1], 4)), []))
 
     def city_admin(self, pt):
         self.asked_admin.append(pt)
@@ -1579,8 +1593,15 @@ def case_a_missing_language_tag_falls_back_and_says_so():
     """The fallback has to be VISIBLE. OSM holds no name in this owner's
     language, so the neutral one is used — and the returned tag says which,
     because a place named in the wrong language silently is the whole
-    defect."""
+    defect. M2 (E6/E15): English comes before the neutral name, and the
+    neutral name only when there is no English either."""
     got, tag = resolved(OSM_REPLY, "fi")
+    if got != "Neutral Town" or tag != "name:en":
+        return f"the English step returned {got!r} from {tag!r}"
+    no_en = dict(OSM_REPLY, namedetails={k: v for k, v in
+                                         OSM_REPLY["namedetails"].items()
+                                         if k != "name:en"})
+    got, tag = resolved(no_en, "fi")
     if got != "Neutralia" or tag != "name":
         return f"fallback returned {got!r} from {tag!r}"
     hit, hit_tag = resolved(OSM_REPLY, "en")
@@ -1998,7 +2019,11 @@ def case_every_reverse_lookup_sends_at_most_2_dp():
     `Geocoder.city()` and `photo_where.area_name()` sent the batch or stop
     centre at full precision; only `city_admin()` rounded. Every Nominatim
     reverse request now leaves at 2 dp, the cache key's own precision.
-    Asserted on the URL each site builds, with the network never reached."""
+    Asserted on the URL each site builds, with the network never reached.
+    ⚠️ M1 / ADR 0006 narrowed this to each site's DEFAULT: a caller that has
+    proved the point is outside every home's radius passes `precise=True`
+    (landmark_cases.py holds that half); the near-home lookup has no such
+    flag at all."""
     import re as _re
     import time as _time
     import urllib.request as ur

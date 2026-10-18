@@ -46,10 +46,9 @@ import photo_profile  # noqa: E402
 import photo_sample  # noqa: E402
 from photo_cluster import (is_address, parse_date, parse_gps, in_country,  # noqa: E402
                            haversine_km, place_label, no_pack_anchor,
-                           owner_country, read_day_files,
-                           pick_variant, read_name, Geocoder, reverse_url)
-
-OVERPASS = "https://overpass-api.de/api/interpreter"
+                           owner_country, read_day_files, away_points,
+                           near_any_home, overpass_post, read_tags,
+                           read_name, Geocoder, reverse_url)
 
 # i18n-guard:allow-begin — locale detection data, not user-facing output.
 # Words OpenStreetMap puts at the end of a Chinese trail name; stripping them
@@ -206,19 +205,11 @@ def overpass_query(bbox, cache):
   way["highway"~"^(path|footway|track|steps)$"]["name"]({s},{w},{n},{e});
 );
 out body geom;"""
-    for attempt, backoff in enumerate((0, 15, 45)):
-        time.sleep(backoff)
-        try:
-            req = urllib.request.Request(OVERPASS, data=q.encode(),
-                                         headers={"User-Agent": "kcc-photo-manager/0.1"})
-            with urllib.request.urlopen(req, timeout=90) as r:
-                data = json.loads(r.read().decode())
-            cache[key] = data.get("elements", [])
-            return cache[key]
-        except Exception as ex:
-            err = ex
-    print(f"overpass failed after retries: {err}", file=sys.stderr)
-    return []
+    got = overpass_post(q)
+    if got is None:
+        return []
+    cache[key] = got
+    return got
 
 
 def strip_trail_name(name):
@@ -291,7 +282,8 @@ def rank_features(elements, pts, language=None):
     reaches a folder name."""
     feats = []
     for el in elements:
-        name = (el.get("tags") or {}).get("name")
+        # M2 — the owner's language, then English, then the neutral name.
+        name, _tag = read_tags(el.get("tags") or {}, language)
         if not name:
             continue
         if el["type"] == "node":
@@ -312,7 +304,7 @@ def rank_features(elements, pts, language=None):
                 near += 1
                 if first is None or ts < first:
                     first = ts
-        feats.append({"name": pick_variant(name, language), "kind": kind,
+        feats.append({"name": name, "kind": kind,
                       "min_d": round(min_d), "near": near,
                       "first_touch": first.isoformat() if first else None})
     feats.sort(key=lambda f: (-f["near"], f["min_d"]))
@@ -340,7 +332,7 @@ def select_names(feats):
     return [name for _, name in sorted(picks)][:4]
 
 
-def area_name(center, geocoder, reject_fine=False):
+def area_name(center, geocoder, reject_fine=False, precise=False):
     """Nominatim reverse at zoom 13 — a district or city label, never a peak.
 
     Zoom 13 is the level the SPEC allows precisely because it cannot name a
@@ -359,10 +351,18 @@ def area_name(center, geocoder, reject_fine=False):
     # D-06 — the key carries the LANGUAGE (`Geocoder.key_for`). Without it a
     # pack that changes language keeps being served the old language's name
     # out of the cache, forever and with nothing to see.
-    key = geocoder.key_for(center, 13)
-    if key in geocoder.cache:
-        return usable(geocoder.cache[key].get("name"))
-    url = reverse_url(center, 13, geocoder.language, "namedetails")
+    # M1 — full precision only when the caller proved the centre is outside
+    # every home's suppression radius.
+    if precise:
+        key, row = geocoder.cached(center, 13)
+    else:
+        key = geocoder.key_for(center, 13)
+        row = geocoder.cache.get(key)
+    if row is not None:
+        return usable(row.get("name"))
+    if not geocoder.enabled:
+        return None
+    url = reverse_url(center, 13, geocoder.language, "namedetails", precise=precise)
     try:
         time.sleep(1.1)
         req = urllib.request.Request(url, headers={"User-Agent": "kcc-photo-manager/0.1"})
@@ -416,28 +416,38 @@ def name_stop(pts, day, homes, home_km, geocoder, op_cache, area_fallback,
         return dict(span, mode="named", names=[label],
                     note="the owner's own name for this place "
                          "(frequent_places) — no map lookup")
-    # K20 — the peak/trail query runs ONLY inside the owner's own country
-    # (opened everywhere, it names a city trip after a viewpoint). An owner
-    # with no day test for their country gets the town-level name everywhere.
-    inside = in_country(center, country)
-    if inside is None:
-        name = area_name(center, geocoder)
-        return dict(span, mode="area_z13", names=[name] if name else [],
-                    note="no day test for the owner's country — town-level "
-                         "name, no peak query (K20)")
-    if not inside:
-        name = area_name(center, geocoder)
-        return dict(span, mode="overseas_z13", names=[name] if name else [])
-    lat_m = 0.0045  # ~500 m
-    lon_m = 0.0045 / max(math.cos(math.radians(center[0])), 0.2)
-    bbox = (min(p[0] for p in pts) - lat_m, min(p[1] for p in pts) - lon_m,
-            max(p[0] for p in pts) + lat_m, max(p[1] for p in pts) + lon_m)
-    feats = rank_features(overpass_query(bbox, op_cache), pts,
-                          geocoder.language)
+    # ⭐ M1 / ADR 0006 — worldwide, from the stop's photos outside every
+    # home's suppression radius: the landmark first (photo_cluster's one
+    # lookup, the same one batch naming uses), then the peak/trail query that
+    # names hikes, then the town. K20's "own country only" is gone; the
+    # country still decides the town fallback's shape.
+    away = away_points(pts, homes)
+    names = geocoder.landmarks(away)
+    if names:
+        return dict(span, mode="landmark", names=names,
+                    note="the landmark at the stop's photos (ADR 0006)")
+    feats = []
+    if away:
+        lat_m = 0.0045  # ~500 m
+        lon_m = 0.0045 / max(math.cos(math.radians(center[0])), 0.2)
+        bbox = (min(p[0] for p in away) - lat_m, min(p[1] for p in away) - lon_m,
+                max(p[0] for p in away) + lat_m, max(p[1] for p in away) + lon_m)
+        feats = rank_features(overpass_query(bbox, op_cache), away,
+                              geocoder.language)
     names = select_names(feats)
-    if names or not area_fallback:
+    inside = in_country(center, country)
+    if names or (inside and not area_fallback):
         return dict(span, mode="overpass", names=names, candidates=feats[:12])
-    name = area_name(center, geocoder, reject_fine=True)
+    precise = not near_any_home(center, homes)
+    if inside is None:
+        name = area_name(center, geocoder, precise=precise)
+        return dict(span, mode="area_z13", names=[name] if name else [],
+                    note="no landmark or peak, and no day test for the "
+                         "owner's country — town-level name")
+    if not inside:
+        name = area_name(center, geocoder, precise=precise)
+        return dict(span, mode="overseas_z13", names=[name] if name else [])
+    name = area_name(center, geocoder, reject_fine=True, precise=precise)
     return dict(span, mode="area_z13", names=[name] if name else [],
                 note="district-level name — no named feature on the track")
 

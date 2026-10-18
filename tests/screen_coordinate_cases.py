@@ -89,6 +89,11 @@ def env():
     e = {k: v for k, v in os.environ.items() if k != "PHOTO_PROFILE"}
     dead = "http://127.0.0.1:9"
     e.update(HTTPS_PROXY=dead, HTTP_PROXY=dead, https_proxy=dead, http_proxy=dead)
+    # M1: the landmark lookup retries Overpass with a back-off; the harness
+    # refuses every request at once and skips the waits.
+    e["PYTHONPATH"] = os.pathsep.join(
+        [str(Path(__file__).resolve().parent / "offline")]
+        + ([e["PYTHONPATH"]] if e.get("PYTHONPATH") else []))
     return e
 
 
