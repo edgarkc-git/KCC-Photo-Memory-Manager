@@ -1781,10 +1781,14 @@ def outing_with_a_home_photo(root, bind=True, nogps=False):
 
 @case
 def a_home_photo_names_no_outing_folder():
-    """⭐ REPRODUCTION (U6-28, UAT01-6). ⛔ FAILS on 99ca388: the one Lotus photo
-    on the Harbour day were taken at home, and the Harbour folder took Lotus
-    AND their sofa [what] from them (owner decision D1: both slots). Now that photo stays in the folder and names
-    nothing there; the home folder still names Lotus from its own photo."""
+    """⭐ REPRODUCTION (U6-28, UAT01-6). ⛔ FAILS on 99ca388: the Lotus photos
+    on the Harbour day were taken at home, and the Harbour folder took their
+    sofa [what] from them. Now that photo stays in the folder and gives it no
+    [what]; the home folder still names Lotus from its own photo.
+
+    owner ruling 20261018, SPEC G30 (E45/E46): R2 wins for [who] only — a confirmed
+    pet on a photo in the folder is in its [who], home or not, so the Harbour
+    folder names Lotus. ⛔ FAILS on 523050f (Lotus left out of [who])."""
     with tempfile.TemporaryDirectory() as tmp, no_env():
         wd, _pack = outing_with_a_home_photo(tmp)
         run("init", wd)
@@ -1793,8 +1797,9 @@ def a_home_photo_names_no_outing_folder():
     f = folders_of(index)
     kept = [x["folder"] for x in index["files"]
             if Path(x["source"]).name == HOME_SHOT]
-    return (code == 0 and f["F002"]["rendered"] == "20241102_Harbour_harbour walk"
-            and not f["F002"]["validation"]["who"]
+    who = [w["name"] for w in f["F002"]["validation"]["who"]]
+    return (code == 0 and f["F002"]["rendered"] == "20241102_Harbour_Lotus_harbour walk"
+            and who == ["Lotus"] and f["F002"]["validation"]["what_pick"] == "harbour walk"
             and f["F001"]["rendered"] == "20241101_Ford_Lotus_sofa nap"
             and kept == ["F002"]), \
         f"code={code} F001={f['F001']['rendered']} F002={f['F002']['rendered']} kept={kept} err={err[-200:]!r}"
@@ -1836,8 +1841,10 @@ def own_place_reads_the_parent_and_the_nearest_home():
 
 
 def own_place_route_case(how):
-    """LL-PHO-132: the homes that decide [who] come from the pack — one case
-    per route, each rendering the Harbour folder without the home photo's cat."""
+    """LL-PHO-132: the homes that decide [what] come from the pack — one case
+    per route, each rendering the Harbour folder without the home photo's
+    sofa (it outnumbers the outing, so a missed home would name it). The cat
+    is in [who] on every route (SPEC G30)."""
     with tempfile.TemporaryDirectory() as tmp, no_env():
         wd, pack = outing_with_a_home_photo(tmp, bind=how == "collection")
         extra = []
@@ -1848,7 +1855,7 @@ def own_place_route_case(how):
         codes = [run(cmd, wd, *extra)[0] for cmd in ("init", "render")]
         index, _v, _ = index_of(tmp)
     name = folders_of(index)["F002"]["rendered"]
-    return codes == [0, 0] and name == "20241102_Harbour_harbour walk", \
+    return codes == [0, 0] and name == "20241102_Harbour_Lotus_harbour walk", \
         f"codes={codes} name={name}"
 
 

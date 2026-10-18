@@ -889,11 +889,14 @@ def settle_file(index, f, r, path_ids, words):
 
 def at_own_place(members, fo, parent, gps, homes):
     """FIX8 F8-7 (U6-28, owner decision "name from own place") — the members
-    whose photo may give this folder its [who] and [what].
+    whose photo may give this folder its [what].
 
     A day is named after its last AWAY stop, so a day with photos at home and
     one outing takes the outing's place word while its home photos stay in it
-    and lent it their pet's name. A photo taken at a home (inside
+    and lent it their sofa. ⛔ [who] is NOT read from this list (owner
+    ruling 20261018, SPEC G30, E45/E46): a confirmed pet on a photo the owner picked
+    or the agent agreed is in [who] of the folder holding that photo, home or
+    not. A photo taken at a home (inside
     `PLACE_SUPPRESS_KM`, the ring that already calls a stop home, nearest home
     first) counts only when that home is one of the folder's own places — a
     leg with none of its own uses its parent's. Nothing moves: the file stays
@@ -986,7 +989,8 @@ def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
     """-> (name, validation) for a day folder, or for a leg when
     `parent_words` (its parent's place words) is given: a leg names its place
     only when it differs from the parent's (D-I13). `own` is the members
-    taken at the folder's own place (F8-7); [who] and [what] read only those."""
+    taken at the folder's own place (F8-7); [what] reads only those, [who]
+    reads every member (SPEC G30)."""
     hard, soft = budget
     own = members if own is None else own
     dates = sorted(f["date"][:10] for f in members if f["date"])
@@ -998,7 +1002,7 @@ def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
         # creates no folder nothing lands in.
         start, end = min(s[0] for s in spans), max(s[1] for s in spans)
     where, unknown = where_words(fo, labels)
-    backed = backed_subjects(own, cells, keep)
+    backed = backed_subjects(members, cells, keep)
     who = (photo_plan.render_who([b[1] for b in backed], [b[2] for b in backed],
                                  cap, profile, rmsg) if backed else "")
     mine = {f["source"]: cells[f["source"]] for f in own if cells.get(f["source"])}

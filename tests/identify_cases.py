@@ -79,9 +79,10 @@ STRANGERS = [(f"CAT_{k}.jpg", 2, [e(0)], True, None) for k in range(1, 5)] + [
     ("CAT_5.jpg", 2, [mix((0, 0.6), (2, 0.8))], True, None)]
 
 
-def id_dump(tmp, frames, route="collection", clip=None):
+def id_dump(tmp, frames, route="collection", clip=None, gps=None, place="Ford"):
     """-> (work dir, pack dir, extra argv). `clip` maps a frame name to its CLIP
-    vector (default: one no subject matches)."""
+    vector (default: one no subject matches); `gps` a frame name to its point
+    (default: the home); `place` is every batch's place."""
     root = Path(tmp)
     base = root.resolve() / "raw" / "dump-a"
     base.mkdir(parents=True)
@@ -91,10 +92,11 @@ def id_dump(tmp, frames, route="collection", clip=None):
         (base / name).write_bytes(JPEG + b"\xff\xfe" + (len(note) + 2).to_bytes(2, "big")
                                   + note + b"\xff\xd9")
         rows.append(ix.row(name, when=f"2024:11:0{day} 10:{k:02d}:00",
+                           gps=(gps or {}).get(name, ix.HOME),
                            SourceFile=str(base / name)))
     days = sorted({f[1] for f in frames})
     batches = [{"batch": d, "from": f"2024-11-0{d}", "to": f"2024-11-0{d}",
-                "place": "Ford"} for d in days]
+                "place": place} for d in days]
     wd = ix.make_dump(root, rows=rows, batches=batches, bind=route == "collection")
     pack = ix.make_pack(root)
 
@@ -566,6 +568,27 @@ def an_agreed_photo_names_the_folder_end_to_end():
                 f"{rerr[-200:]!r} name={name!r} who={who} check={ccode} {cout[-300:]!r}"
                 f"{cerr[-200:]!r} freeze={fcode} {ferr[-200:]!r} finish={r.returncode} "
                 f"got={got} {r.stderr[-300:]!r} registry_same={unchanged}")
+
+
+@case
+def an_agreed_photo_taken_at_home_names_the_outing_folder():
+    """⭐ REPRODUCTION (E46, owner ruling 20261018, SPEC G30). ⛔ FAILS on 523050f: the
+    agreed photo was taken at home on a day named after an outing, and F8-7
+    kept the pet out of that folder's [who]. A confirmed pet the agent agreed
+    is in [who] of the folder holding the photo, home or not."""
+    out = ("IMG_0301.jpg", 3, None, True, None)
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack, _ = id_dump(tmp, [NAMED, PET, out], place="Harbour",
+                               gps={"IMG_0301.jpg": ix.FAR})
+        ix.run("identify", wd)
+        answer(wd, {"PET_3.jpg": "agree"})
+        gcode, gout, _ = go(wd)
+        rcode, _r, rerr = ix.run("render", wd)
+        fo = folder_of_day(tmp, 3)
+    who = [w["name"] for w in fo["validation"]["who"]]
+    return (gcode == 0 and rcode == 0 and fo["where"] == [{"ref": "fsl-0001"}]
+            and who == ["Lotus"] and "Lotus" in fo["rendered"]), \
+        f"go={gcode} {gout[-200:]!r} render={rcode} {rerr[-200:]!r} fo={fo}"
 
 
 @case

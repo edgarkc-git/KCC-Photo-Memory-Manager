@@ -460,6 +460,47 @@ def a_split_piece_takes_the_places_of_its_own_days():
 
 
 @case
+def a_split_piece_keeps_the_pets_on_its_own_days():
+    """⭐ REPRODUCTION (E45, owner ruling 20261018, SPEC G30). ⛔ FAILS on 523050f: a
+    split piece named after an outing left out the pet whose photo was taken
+    at home that day. Each piece's [who] is now the confirmed pets on its own
+    photos, home or not; the home photo still gives the outing no [what]."""
+    base = "/raw/dump-a"
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        rows = [ix.row("IMG_0101.jpg", when="2024:11:01 10:00:00", gps=TRIP),
+                ix.row("IMG_0102.jpg", when="2024:11:01 11:00:00", gps=ix.HOME),
+                ix.row("IMG_0201.jpg", when="2024:11:02 10:00:00", gps=ix.FAR2)]
+        wd = ix.make_dump(tmp, rows=rows, batches=[
+            {"batch": 1, "from": "2024-11-01", "to": "2024-11-02",
+             "place": "Westvale+Farview"}])
+        pack = ix.make_pack(tmp)
+        reg = pack / "photo-subjects" / "subjects.json"
+        data = json.loads(reg.read_text(encoding="utf-8"))
+        data["subjects"] = [ix.subject("subj-0001", "Lotus"),
+                            ix.subject("subj-0002", "Birk")]
+        reg.write_text(json.dumps(data), encoding="utf-8")
+        ix.write_see(wd, 1, [
+            ix.see_label(base, "IMG_0101.jpg", what="lake walk"),
+            ix.see_label(base, "IMG_0102.jpg", [{"subject_id": "subj-0001"}],
+                         "sofa nap"),
+            ix.see_label(base, "IMG_0201.jpg", [{"subject_id": "subj-0002"}],
+                         "beach run")])
+        ix.seed_cache(tmp, {TRIP: "Westvale", ix.FAR2: "Farview"})
+        must(run("init", wd), "init")
+        must(run("group", "split", wd, "F001", "--at", "2024-11-02",
+                 "--reason", "two outings"), "split")
+        render(wd)
+        f = folders(tmp)
+    new = next(fid for fid, fo in f.items() if fo.get("split_from") == "F001")
+    who = {fid: [w["name"] for w in f[fid]["validation"]["who"]]
+           for fid in ("F001", new)}
+    return (who == {"F001": ["Lotus"], new: ["Birk"]}
+            and f["F001"]["rendered"] == "20241101_Westvale_Lotus_lake walk"
+            and f[new]["rendered"] == "20241102_Farview_Birk_beach run"), \
+        f"who={who} names={f['F001']['rendered']!r} {f[new]['rendered']!r}"
+
+
+@case
 def render_dry_run_says_a_split_moved_files_and_places():
     """REPRODUCTION (M3). ⛔ FAILS on 4739665 (no reason printed). A group
     command clears the names it touches, so the dry run names the command and
