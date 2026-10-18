@@ -3732,7 +3732,8 @@ def engine_names(workdir, plans):
 
 
 def owner_words(ctx, debug):
-    """R6 — [(word, spot, earlier folder, dump)] the OWNER chose for a place
+    """R6 — [(word, spot, earlier folder, dump, when)] the OWNER chose for a
+    place
     in an earlier dump of this collection. Read-only on every earlier dump.
 
     (1) A `set-where` word in its index. (2) A hand rename: each folder the
@@ -3755,15 +3756,18 @@ def owner_words(ctx, debug):
         pointer = read_pointer(wd)
         index_path = (index_dir(ctx["pack"], pointer["dump_key"]) / INDEX_NAME
                       if pointer and ctx["pack"].dir else None)
-        if index_path and index_path.is_file():
-            earlier = json.loads(index_path.read_text(encoding="utf-8"))
+        earlier = (json.loads(index_path.read_text(encoding="utf-8"))
+                   if index_path and index_path.is_file() else None)
+        # "The latest dump" for a tie: its freeze time, else its name.
+        when = ((earlier or {}).get("frozen") or {}).get("at") or "", wd.name
+        if earlier:
             for fo in live(earlier):
                 if fo.get("where_set"):
                     spot = centroid(points.get(f["source"]) for f in earlier["files"]
                                     if f["folder"] == fo["id"])
                     if spot:
                         out.append((fo["where_set"]["text"], spot,
-                                    fo.get("rendered") or fo["id"], wd.name))
+                                    fo.get("rendered") or fo["id"], wd.name, when))
         plans_path = wd / "plans.json"
         plans = json.loads(plans_path.read_text(encoding="utf-8")) \
             if plans_path.is_file() else {}
@@ -3798,7 +3802,7 @@ def owner_words(ctx, debug):
                 continue
             spot = centroid(points.get(src) for src, _v in copies)
             if spot:
-                out.append((word, spot, best[0], wd.name))
+                out.append((word, spot, best[0], wd.name, when))
     return out
 
 
@@ -3807,7 +3811,8 @@ def rule_r6(ctx):
     A one-batch folder of this dump with no set-where of its own whose GPS
     centroid lies within LANDMARK_RADIUS_M of a spot the owner named in an
     earlier dump (`owner_words()`) is offered that word; the nearest spot
-    wins, a tie the latest dump. ⛔ Never near a home: a folder or a spot
+    wins, a tie the latest dump (its freeze time, else its work dir name).
+    ⛔ Never near a home: a folder or a spot
     within PLACE_SUPPRESS_KM of any home (every home of the pack) is
     skipped. Applied through set-where, the owner's own path."""
     index = ctx["index"]
@@ -3832,13 +3837,14 @@ def rule_r6(ctx):
         day = min((f.get("date") or "")[:10] for f in members) if members else ""
         if not spot or near_home(spot, day):
             continue
-        near = sorted(((photo_cluster.haversine_km(spot, w[1]), -k, w)
-                       for k, w in enumerate(words)
-                       if not near_home(w[1], day)), key=lambda x: x[:2])
+        near = [(photo_cluster.haversine_km(spot, w[1]), w) for w in words
+                if not near_home(w[1], day)]
         near = [x for x in near if x[0] <= reach]
         if not near:
             continue
-        word, _spot, earlier, dump = near[0][2]
+        near.sort(key=lambda x: x[1][4], reverse=True)
+        near.sort(key=lambda x: x[0])
+        word, _spot, earlier, _dump, _when = near[0][1]
         slots = fo["rendered"].split(photo_name.SLOT_SEP)
         have = where_words(fo, id_labels(ctx["pack"]))[0]
         if have and len(slots) > 1 and slots[1] == photo_name.NAME_SEP.join(have):

@@ -658,24 +658,24 @@ HARBOUR_DAY = "20241102_Harbour_harbour walk"
 PIER_DAY = "2024/20241102_Old Pier_harbour walk"
 
 
-def later_dump(tmp, gps=ix.FAR, day="2024:11:05", place="Harbour"):
-    """dump-b of the same collection: two photos at `gps` on `day`, labelled
-    `pier walk`, initialised, rendered and checked. -> work dir."""
-    base = Path(tmp).resolve() / "raw" / "dump-b"
+def later_dump(tmp, gps=ix.FAR, day="2024:11:05", place="Harbour", name="dump-b"):
+    """A later dump of the same collection: two photos at `gps` on `day`,
+    labelled `pier walk`, initialised, rendered and checked. -> work dir."""
+    base = Path(tmp).resolve() / "raw" / name
     base.mkdir(parents=True)
     rows = []
-    for k, name in enumerate(("IMG_0501.jpg", "IMG_0502.jpg")):
-        (base / name).write_bytes(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00"
-                                  + name.encode() + b"\xff\xd9")
-        rows.append(ix.row(name, SourceFile=str(base / name),
+    for k, file in enumerate(("IMG_0501.jpg", "IMG_0502.jpg")):
+        (base / file).write_bytes(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00"
+                                  + f"{name}/{file}".encode() + b"\xff\xd9")
+        rows.append(ix.row(file, SourceFile=str(base / file),
                            when=f"{day} 1{k}:00:00", gps=gps))
     iso = day.replace(":", "-")
-    wd = ix.make_dump(tmp, rows=rows, name="dump-b", batches=[
+    wd = ix.make_dump(tmp, rows=rows, name=name, batches=[
         {"batch": 1, "from": iso, "to": iso, "place": place}])
     ix.write_see(wd, 1, [ix.see_label(base, n, what="pier walk")
                          for n in ("IMG_0501.jpg", "IMG_0502.jpg")])
     for cmd in ("init", "render", "check"):
-        must(ix.run(cmd, wd), f"{cmd} b")
+        must(ix.run(cmd, wd), f"{cmd} {name}")
     return wd
 
 
@@ -717,6 +717,34 @@ def a_word_the_owner_gave_by_renaming_and_moving_is_reused():
             and n["F001"] == "20241105_Old Pier_pier walk"
             and held and held["text"] == "Old Pier"), \
         f"code={code} rows={got} apply={acode} {aout[-300:]!r} names={n} held={held}"
+
+
+@case
+def two_owner_words_at_one_spot_the_latest_frozen_dump_wins():
+    """GUARD (Lead, the tie). dump-a's folder became `Old Pier`, dump-c's
+    `Pier End`, both at the same spot. dump-a was frozen LATER (its name sorts
+    first): its word is offered — the freeze time decides, the name only when
+    no freeze time is known."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        _wa, pack, root = copied_dump_a(tmp)
+        hand_move(root, HARBOUR_DAY, PIER_DAY)
+        wc = later_dump(tmp, name="dump-c")
+        ix.run("freeze", wc)
+        answer(wc, *["skip"] * len(rows(wc)))
+        must(apply(wc), "skip c")
+        must(ix.run("freeze", wc), "freeze c")
+        if fin.finish(wc).returncode:
+            raise RuntimeError("finish c")
+        hand_move(root, "20241105_Harbour_pier walk", "2024/20241105_Pier End_pier walk")
+        index_a = ix.index_of(tmp, "dump-a")[2] / "index.json"
+        doc = json.loads(index_a.read_text())
+        doc["frozen"]["at"] = "2099-01-01 00:00"
+        index_a.write_text(json.dumps(doc))
+        wd = later_dump(tmp, day="2024:11:07", name="dump-d")
+        _c, out, _ = ix.run("fix-plan", wd)
+        got = [r for r in rows(wd) if "(R6)" in r]
+    return (len(got) == 1 and "`20241107_Old Pier_pier walk`" in got[0]
+            and f"in {PIER_DAY}" in got[0]), f"rows={got} out={out[-400:]!r}"
 
 
 @case
