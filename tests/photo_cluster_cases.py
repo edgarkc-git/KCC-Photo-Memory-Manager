@@ -927,7 +927,7 @@ class StubGeocoder:
             self.precise.append(pt)
         return self.answers.get((round(pt[0], 4), round(pt[1], 4)))
 
-    def landmarks(self, pts):
+    def landmarks(self, pts, guard_homes=()):
         self.asked_landmarks.extend(pts)
         if not pts:
             return []

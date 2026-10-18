@@ -27,7 +27,7 @@ outside the destination, is here.
 |---|---|
 | `collection.json` | the configuration: owner, memory root, raw folders, destination, groups |
 | `quickscan.json`, `quickscan.md` | the first read-only inventory: counts, sizes, estimated years |
-| `geocode-cache.json` | place names from OpenStreetMap, keyed by position rounded to 2 decimal places (about 1 km) and language |
+| `geocode-cache.json` | place names and landmarks from OpenStreetMap, keyed by position and language: at full precision (6 decimal places) for a point more than 3 km from every home, rounded to 2 decimal places (about 1 km) for a point near a home. Landmark entries keep only the named places near the photos (from the code) |
 | `overpass-cache.json` | map features (peaks, trails) keyed by an area around the photos, to 4 decimal places. Written only by `photo_where.py` (the `photo-classify` stage); measured by running that script by hand |
 | `photo-memory/` | the owner pack, **when `collection.json` sets no `memory_root`** (section 2) |
 | `<dump>/` | one work dir per dump (below) |
@@ -153,8 +153,8 @@ Network calls the product makes itself (from the code):
 
 | Call | When | What is sent |
 |---|---|---|
-| OpenStreetMap Nominatim (`nominatim.openstreetmap.org`) | naming places: `cluster` (also run by `prep`) and `photo_where.py`. `photo_index.py` reads the cache only | one position per batch or stop away from home, and per home day that has no label: the centre worked out from its photos, **rounded to 2 decimal places (about 1 km)** before it is sent, plus the owner's language. A day at a home with a label sends nothing. |
-| OpenStreetMap Overpass (`overpass-api.de`) | `photo_where.py` only, for a stop inside the owner's own country, when the engine has a day test for that country (today only Taiwan: the pack's `country`, or its first home; any other owner sends none) (naming peaks and trails) | a box around the stop: the southernmost, westernmost, northernmost and easternmost photo positions, each widened by about 500 m, **not rounded**. Hike naming needs about 400 m, so this box is sent at full precision. `cluster`, `prep` and the index flow never send it |
+| OpenStreetMap Nominatim (`nominatim.openstreetmap.org`) | naming places: `cluster` (also run by `prep`) and `photo_where.py`. `photo_index.py` reads the cache only | for a day or stop **more than 3 km from every home** (any home you ever had): the centre worked out from its photos, **at full precision**, plus the owner's language — once at zoom 18 when no landmark was found, and once at zoom 10 or 13 for the town. For a day at a home that has no label: the centre **rounded to 2 decimal places (about 1 km)**, asking for the city only. A day at a home with a label sends nothing (from the code; ADR 0006). |
+| OpenStreetMap Overpass (`overpass-api.de`) | `cluster` (also run by `prep`) and `photo_where.py`, anywhere in the world (naming landmarks; `photo_where.py` also names peaks and trails) | a box around each stop's photos, **at full precision**, widened by about 300 m (landmarks) or 500 m (peaks and trails). ⛔ A photo within 3 km of any home is left out of every box, so no box is drawn around a home (from the code; ADR 0006) |
 | Nominatim, reachability only | `doctor` | no position, just a request to see that the service answers |
 | model downloads (Hugging Face, PyTorch, GitHub) | first vision run only | nothing about your photos |
 

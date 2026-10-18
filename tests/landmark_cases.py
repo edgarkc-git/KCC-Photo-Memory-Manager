@@ -109,16 +109,29 @@ def day_center(pts):
     return (median(p[0] for p in pts), median(p[1] for p in pts))
 
 
+def timed(day, pts):
+    """A day's points as the manifest gives them: one photo an hour from 10."""
+    base = datetime.fromisoformat(day)
+    return [(p[0], p[1], base.replace(hour=10 + i)) for i, p in enumerate(pts)]
+
+
 def build_fixture():
-    """-> the recorded cache, keyed with the engine's own key functions —
-    exactly what a run over DAYS asks for and nothing else."""
+    """-> the hand-built map cache, keyed with the engine's own key functions
+    — exactly what a run over DAYS asks for and nothing else. ⚠️ Hand-built
+    in the shape the engine caches, NOT a recorded live reply: the points
+    are synthetic, so nothing real could answer them (Rule 7)."""
+    import photo_where
     g = geocoder()
     cache = {}
+    radius = pc.LANDMARK_RADIUS_M / 1000
     for day, pts in DAYS.items():
-        if day in ELEMENTS:
-            box = pc.points_bbox(pts, pc.LANDMARK_RADIUS_M)
-            cache["landmarks:" + ",".join(f"{v:.{pc.PRECISE_DP}f}" for v in box)] = \
-                ELEMENTS[day]
+        if day not in ELEMENTS:
+            continue
+        for stop in photo_where.segment(timed(day, pts)):
+            box = pc.points_bbox(stop, pc.LANDMARK_RADIUS_M)
+            cache["landmarks:" + ",".join(f"{v:.{pc.PRECISE_DP}f}" for v in box)] = [
+                el for el in ELEMENTS[day]
+                if any(pc.feature_km((p[0], p[1]), el) <= radius for p in stop)]
     cache[g.key_for(day_center(DAYS["2025-05-04"]), 18, precise=True)] = {
         "name": "Seaview Point", "name_tag": "name", "cat": "tourism",
         "type": "viewpoint"}
@@ -237,11 +250,15 @@ def the_index_flow_names_folders_after_the_landmark():
         if code:
             return False, err[-300:]
         code, _o, err = ix.run("render", wd, "--no-vision")
-        names = sorted(fo["rendered"] for fo in ix.index_of(tmp)[0]["folders"]
-                       if fo.get("rendered") and fo["kind"] == "day")
+        days = [fo for fo in ix.index_of(tmp)[0]["folders"]
+                if fo.get("rendered") and fo["kind"] == "day"]
+        names = sorted(fo["rendered"] for fo in days)
+        refused = {fo["rendered"]: fo["validation"]["refusals"] for fo in days
+                   if (fo.get("validation") or {}).get("refusals")}
     want = ["20250501_Lotus Garden", "20250502_Old Mill Museum+Harbour Beach",
             "20250503_Birk Inn", "20250504_Seaview Point", "20250505_Townfield"]
-    return all(w in names for w in want), f"rc={code} names={names} {err[-200:]!r}"
+    return all(w in names for w in want) and not refused, \
+        f"rc={code} names={names} refused={refused} {err[-200:]!r}"
 
 
 @case
@@ -335,6 +352,40 @@ def nothing_near_a_home_is_sent_precisely_or_to_overpass():
     return (proc.returncode == 0 and not bad and len(admin_near) == 1
             and kinds["overpass"] >= 1), \
         f"rc={proc.returncode} kinds={kinds} bad={bad[:3]} {proc.stderr[-200:]!r}"
+
+
+# Photos 4.4 km either side of the home: the day's centre is the north group
+# (3 of 5), so the day is away and no stop splits it by its centre alone.
+EITHER_SIDE = {"2025-05-08": [(40.0400, 140.0000)] * 3 + [(39.9600, 140.0000)] * 2}
+
+
+@case
+def one_overpass_box_per_stop_and_none_holds_the_home():
+    """⭐ REPRODUCTION (M1, privacy). A box drawn round the whole day would
+    hold the home between its two groups of photos; one box per stop never
+    does, and each stays small. ⛔ FAILS on 11f5353 (no landmark request at
+    all); on the first M1 draft the single day box held the home."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd = dump(tmp, days=EITHER_SIDE, cache={})
+        log = Path(tmp) / "net.log"
+        proc = cluster(wd, log, answer="stub")
+        boxes = []
+        for r in requests(log):
+            if "overpass" in r["url"]:
+                for box in re.findall(r"\((-?[0-9.]+),(-?[0-9.]+),(-?[0-9.]+),(-?[0-9.]+)\)",
+                                      r["data"] or ""):
+                    boxes.append(tuple(float(v) for v in box))
+    boxes = sorted(set(boxes))
+    bad = []
+    for s_, w, n, e in boxes:
+        lat = min(max(HOME[0], s_), n)
+        lon = min(max(HOME[1], w), e)
+        if pc.haversine_km(HOME, (lat, lon)) <= pc.PLACE_SUPPRESS_KM:
+            bad.append("a box comes within the suppression radius of the home")
+        if pc.haversine_km((s_, w), (n, e)) > 7:
+            bad.append("a box wider than 7 km")
+    return (proc.returncode == 0 and len(boxes) == 2 and not bad), \
+        f"rc={proc.returncode} boxes={len(boxes)} bad={bad}"
 
 
 @case
@@ -472,6 +523,50 @@ def a_country_sized_answer_is_never_a_place():
 
 
 @case
+def an_old_2_dp_town_row_is_asked_again_online_and_kept_offline():
+    """⭐ REPRODUCTION (E14 in an existing cache). A row written before M1 was
+    never checked for a country-sized answer: an online run asks again at
+    full precision (and drops the country), while an offline stage
+    (relabel, split) or a failed fetch still reads the old town."""
+    import urllib.request as ur
+    import time as _time
+    pt = (50.0, 150.0)
+    reply = {"name": "Countryland", "addresstype": "country", "place_rank": 4,
+             "namedetails": {"name": "Countryland"}}
+
+    class R:
+        def read(self):
+            return json.dumps(reply).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def legacy_geocoder(enabled):
+        g = geocoder(enabled=enabled)
+        g.cache = {g.key_for(pt, 10): {"name": "Countryland", "name_tag": "name"}}
+        return g
+
+    real, real_sleep = ur.urlopen, _time.sleep
+    _time.sleep = lambda s: None
+    try:
+        ur.urlopen = lambda *a, **k: R()
+        online = legacy_geocoder(True).city(pt, precise=True)
+
+        def refuse(*a, **k):
+            raise OSError("refused")
+        ur.urlopen = refuse
+        failed = legacy_geocoder(True).city(pt, precise=True)
+        offline = legacy_geocoder(False).city(pt, precise=True)
+    finally:
+        ur.urlopen, _time.sleep = real, real_sleep
+    return (online is None and failed == "Countryland" and offline == "Countryland"), \
+        f"online={online!r} failed={failed!r} offline={offline!r}"
+
+
+@case
 def zoom_18_names_only_a_landmark_class():
     """REPRODUCTION (M1). ⛔ FAILS on 11f5353 (no zoom-18 step). A road or a
     house number at zoom 18 is never a place name — an English owner has no
@@ -550,6 +645,20 @@ def a_traditional_owner_gets_english_before_a_simplified_name():
                         "zh-TW")
     return got == ("Hermosa Beach", "name:en") and hant[0] == TRADITIONAL, \
         f"{got} {hant}"
+
+
+@case
+def a_traditional_owner_keeps_a_traditional_neutral_name_before_english():
+    """⭐ GUARD (M2, the owner's own country). A small place in Taiwan often
+    carries only `name` (Traditional) and `name:en`: the Traditional name is
+    the owner's language and beats English. Kana or hangul is not."""
+    tags = {"name": TRADITIONAL, "name:en": "Hermosa Beach"}
+    got = pc.read_name({"namedetails": tags, "name": TRADITIONAL}, "zh-TW")
+    kana = pc.read_name({"namedetails": {"name": TRADITIONAL + "\u306e",
+                                         "name:en": "Hermosa Beach"}}, "zh-TW")
+    en = pc.read_name({"namedetails": tags}, "en")
+    return (got == (TRADITIONAL, "name") and kana[0] == "Hermosa Beach"
+            and en[0] == "Hermosa Beach"), f"{got} {kana} {en}"
 
 
 @case

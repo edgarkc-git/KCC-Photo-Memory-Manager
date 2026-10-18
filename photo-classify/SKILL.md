@@ -4,8 +4,9 @@ description: >
   Stage 3 of the photo-manager pipeline (photo-scan -> photo-classify ->
   photo-plan -> photo-execute) — the ONLY stage that needs a vision model.
   For each pending batch in batches.json: sample images, LOOK at them, assign
-  a [type] from the SPEC's taxonomy, generate [where] candidates (Overpass
-  peaks+trails for local hikes, zoom-13 city for overseas), and record the
+  a [type] from the SPEC's taxonomy, generate [where] candidates (the landmark
+  first, worldwide; then Overpass peaks+trails for hikes; then the zoom-13
+  town), and record the
   result. Trigger when the owner asks to classify batches, assign types,
   name a hike/trip, or continue sorting after photo-scan (e.g. "classify
   batch 4", "what is this batch?").
@@ -50,7 +51,8 @@ only under the work dir (`classify/batch-NN/`, batches.json fields).
    signage when present — that is the OSM-name-gap mitigation.
 3. **[where] candidates**:
    `python3 scripts/photo_where.py "<workdir>" --batch N`
-   Local legs -> Overpass peaks+trails ranking; overseas -> zoom-13 city
+   Every leg -> the landmark (ADR 0006), then Overpass peaks+trails ranking,
+   then the zoom-13 town
    names. Cross-check against what you saw in step 2; prefer the owner's
    naming style (their existing hand-named folders are the reference — D6).
    Never name home coordinates (privacy rule — the script reads the pack's

@@ -8,15 +8,15 @@ Implements the SPEC v0.3 algorithm (tested 2026-07-03):
     disappearing (LL-PHO-97), and its [where] is the last stop the engine
     could NAME — Operational Rule 4 / L09 in the shape the pipeline can act
     on, and not merely the last non-home stop (see day_entry).
-  Stops inside the owner's own country (K20: only a country with a day test
-in photo_cluster.COUNTRY_BOXES, today the TW row): ONE Overpass query per
-stop bbox +500 m: natural=peak/saddle,
+  Every stop, worldwide (M1 / ADR 0006): first the LANDMARK — the same
+    `Geocoder.landmarks()` batch naming uses, from the stop's photos outside
+    every home's suppression radius, at full precision. Then ONE Overpass
+    query per stop bbox +500 m: natural=peak/saddle,
     named viewpoints, named trails -> rank by #track-points within 400 m then
     min distance (peaks keep min_d < 350 m); trail names reduce to a place
     name via strip_trail_name -> top 2-4 names, first-touch order.
-  Every other stop (abroad, or anywhere for an owner whose country has no
-day test): Nominatim reverse at zoom 13 (city level), in the OWNER PACK'S
-  language (D-06) — the engine names no language of its own.
+  A stop neither names: Nominatim reverse at zoom 13 (city level), in the
+  OWNER PACK'S language (D-06) — the engine names no language of its own.
   A stop on a MOVED day that no peak query can name falls back to the same
     zoom-13 district label; a stop under MIN_NAME_POINTS is counted, not named.
   Privacy: every STOP within --home-km of any home is never named — the check
@@ -355,13 +355,14 @@ def area_name(center, geocoder, reject_fine=False, precise=False):
     # every home's suppression radius.
     if precise:
         key, row = geocoder.cached(center, 13)
+        old = geocoder.legacy(center, 13)
     else:
         key = geocoder.key_for(center, 13)
-        row = geocoder.cache.get(key)
+        row, old = geocoder.cache.get(key), None
     if row is not None:
         return usable(row.get("name"))
     if not geocoder.enabled:
-        return None
+        return usable((old or {}).get("name"))
     url = reverse_url(center, 13, geocoder.language, "namedetails", precise=precise)
     try:
         time.sleep(1.1)
@@ -376,7 +377,7 @@ def area_name(center, geocoder, reject_fine=False, precise=False):
         geocoder.dirty = True
         return usable(name or "")
     except Exception:
-        return None
+        return usable((old or {}).get("name"))
 
 
 def name_stop(pts, day, homes, home_km, geocoder, op_cache, area_fallback,
@@ -422,7 +423,7 @@ def name_stop(pts, day, homes, home_km, geocoder, op_cache, area_fallback,
     # names hikes, then the town. K20's "own country only" is gone; the
     # country still decides the town fallback's shape.
     away = away_points(pts, homes)
-    names = geocoder.landmarks(away)
+    names = geocoder.landmarks(away, homes)
     if names:
         return dict(span, mode="landmark", names=names,
                     note="the landmark at the stop's photos (ADR 0006)")

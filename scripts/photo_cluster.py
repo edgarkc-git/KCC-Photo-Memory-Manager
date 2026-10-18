@@ -28,8 +28,9 @@ Leg detection:
      boundary with the largest GPS jump (approximates real travel legs).
   4. Labels are provisional and human-facing, written in the owner's language
      via photo_profile.messages() — a run with no pack keeps the legacy
-     legacy wording. Place names come from Nominatim zoom-10 reverse
-     geocoding in the OWNER PACK'S language (D-06), cached in the shared
+     legacy wording. Place names are the LANDMARK at the day's photos
+     (M1 / ADR 0006: Overpass, then Nominatim zoom 18), else the zoom-10
+     town, in the OWNER PACK'S language (D-06), cached in the shared
      geocode-cache.json under a key that carries that language
      (1 req/s). Final naming happens in photo-classify / photo-plan.
      status/flags stay as machine codes.
@@ -219,8 +220,8 @@ def batch_places(part, day_files, geocoder, all_homes,
         wrong is an address in a folder name, and the check is free.
 
     ⚠️ Cost: the geocoder sleeps 1.1 s per UNCACHED lookup (Nominatim's usage
-    policy). Its cache key is the coordinate rounded to 2 decimal places, so a
-    batch that stays in one place pays once, not once per day.
+    policy). An away key is at full precision (M1), so each day pays once; a
+    near-home key stays at 2 decimal places.
 
     ⛔ M1. `guard_homes` (default `all_homes`) is the set no full-precision
     lookup may come near; a packless run adds its auto-detected anchor, which
@@ -308,7 +309,7 @@ def batch_places(part, day_files, geocoder, all_homes,
             # when no landmark answers. ⛔ The centroid is sent precisely only
             # when it too is outside every home's radius (any window).
             found = geocoder.landmarks(away_points(day_files[d].get("points") or [],
-                                                   guard))
+                                                   guard), guard)
             if found:
                 for w in found:
                     if w not in names:
@@ -576,7 +577,13 @@ def read_tags(tags, language, neutral=None):
     place has no name rather than a Simplified one."""
     tags = tags or {}
     trad = is_traditional(language)
+    neutral_value = neutral if neutral is not None else tags.get("name")
     for tag in name_tags(language):
+        if tag == "name:en" and trad and is_han_traditional(neutral_value, tags):
+            # A Traditional owner's script with no language tag — common for
+            # a small place in their own country — is their language, and it
+            # comes before English.
+            return pick_variant(neutral_value, language), "name"
         if tags.get(tag):
             value = pick_variant(tags[tag], language)
             if trad and is_simplified(value, tags):
@@ -588,6 +595,16 @@ def read_tags(tags, language, neutral=None):
         if not (trad and is_simplified(value, tags)):
             return value, "name"
     return None, None
+
+
+def is_han_traditional(value, tags=None):
+    """True for a name written in Han characters only (no kana, no hangul)
+    that is not Simplified — readable as Traditional script."""
+    if not value:
+        return False
+    han = any("\u4e00" <= c <= "\u9fff" or "\u3400" <= c <= "\u4dbf" for c in value)
+    other = any("\u3040" <= c <= "\u30ff" or "\uac00" <= c <= "\ud7af" for c in value)
+    return han and not other and not is_simplified(value, tags)
 
 
 def read_name(data, language):
@@ -722,7 +739,7 @@ def landmark_query(bbox):
                      else f'["{key}"~"^({"|".join(values)})$"]')
             parts.append(f'nwr{match}["name"]{box};')
     return ("[out:json][timeout:60];\n(\n  " + "\n  ".join(parts)
-            + "\n);\nout tags bb;")
+            + "\n);\nout body bb;")
 
 
 def overpass_post(query, backoffs=(0, 15, 45)):
@@ -853,18 +870,21 @@ class Geocoder:
         return f"{lat:.5f},{lon:.5f},z{zoom},{self.language}"
 
     def cached(self, pt, zoom):
-        """-> (key, row) for an AWAY lookup: the precise key, else the coarse
-        one an older cache holds (its answer is still the same town, and a
-        re-fetch would cost 1.1 s for nothing)."""
+        """-> (key, row) for an AWAY lookup at the precise key, or (key, None).
+        `legacy()` is the coarse row an older cache holds."""
         key = self.key_for(pt, zoom, precise=True)
-        if key in self.cache:
-            return key, self.cache[key]
-        old = self.key_for(pt, zoom)
-        return key, self.cache.get(old)
+        return key, self.cache.get(key)
+
+    def legacy(self, pt, zoom):
+        """The 2 dp row a cache written before M1 holds for `pt`. Served only
+        when the geocoder is OFF or a fresh lookup failed: it was never
+        checked for a country-sized answer (E14), so an online run asks
+        again at full precision."""
+        return self.cache.get(self.key_for(pt, zoom))
 
     def entry(self, pt, zoom):
         """-> the cached row for this point IN THIS LANGUAGE, or None."""
-        return self.cached(pt, zoom)[1]
+        return self.cached(pt, zoom)[1] or self.legacy(pt, zoom)
 
     def fell_back(self, pt, zoom):
         """Whether the cached name came from the neutral `name` rather than a
@@ -884,13 +904,14 @@ class Geocoder:
         country-sized answer is no name (E14)."""
         if precise:
             key, row = self.cached(pt, 10)
+            old = self.legacy(pt, 10)
         else:
             key = self.key_for(pt, 10)
-            row = self.cache.get(key)
+            row, old = self.cache.get(key), None
         if row is not None:
             return None if row.get("country") else (row.get("name") or None)
         if not self.enabled:
-            return None
+            return (old or {}).get("name") or None
         url = reverse_url(pt, 10, self.language, "namedetails", precise=precise)
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         try:
@@ -912,34 +933,49 @@ class Geocoder:
             self.dirty = True
             return None if country else (name or None)
         except Exception:
-            return None
+            return (old or {}).get("name") or None
 
-    def landmarks(self, pts):
+    def landmarks(self, pts, guard_homes=()):
         """-> the D3/D4 landmark names (at most two) for one day's or stop's
-        AWAY photos, from Overpass, else a zoom-18 landmark, else []. Cached:
-        Overpass elements by their full-precision box, zoom 18 by point and
-        language. ⛔ `pts` holds no point within PLACE_SUPPRESS_KM of a home
-        — `away_points()` is how a caller gets them."""
+        AWAY photos, from Overpass, else a zoom-18 landmark, else [].
+
+        One Overpass box per STOP (`photo_where.segment`), never per day: a
+        day that spans a region would ask for every restaurant in it, and a
+        box around photos on both sides of a home would hold the home. The
+        rows are pooled, so D3/D4 still count the whole day's photos.
+        Cached: a stop's landmark elements (only those near its photos) by
+        its full-precision box; zoom 18 by point and language.
+        ⛔ `pts` holds no point within PLACE_SUPPRESS_KM of a home —
+        `away_points()` is how a caller gets them — and zoom 18 is refused
+        when the photos' centre is near one of `guard_homes`."""
         if not pts:
             return []
-        bbox = points_bbox(pts, LANDMARK_RADIUS_M)
-        key = "landmarks:" + ",".join(f"{v:.{PRECISE_DP}f}" for v in bbox)
-        elements = self.cache.get(key)
-        if elements is None and self.enabled:
-            got = overpass_post(landmark_query(bbox), backoffs=(1.1, 15))
-            if got is not None:
-                elements = [{k: el[k] for k in ("type", "lat", "lon", "bounds", "center")
-                             if k in el}
-                            | {"tags": {t: v for t, v in (el.get("tags") or {}).items()
-                                        if t == "name" or t.startswith("name:")
-                                        or landmark_rank({t: v}) is not None}}
-                            for el in got if landmark_rank(el.get("tags") or {}) is not None]
-                self.cache[key] = elements
-                self.dirty = True
+        import photo_where
+        elements = []
+        radius = LANDMARK_RADIUS_M / 1000
+        for stop in photo_where.segment(pts):
+            bbox = points_bbox(stop, LANDMARK_RADIUS_M)
+            key = "landmarks:" + ",".join(f"{v:.{PRECISE_DP}f}" for v in bbox)
+            got = self.cache.get(key)
+            if got is None and self.enabled:
+                got = overpass_post(landmark_query(bbox), backoffs=(1.1, 15))
+                if got is not None:
+                    got = [{k: el[k] for k in ("type", "lat", "lon", "bounds", "center")
+                            if k in el}
+                           | {"tags": {t: v for t, v in (el.get("tags") or {}).items()
+                                       if t == "name" or t.startswith("name:")
+                                       or landmark_rank({t: v}) is not None}}
+                           for el in got if landmark_rank(el.get("tags") or {}) is not None
+                           and any(feature_km((p[0], p[1]), el) <= radius for p in stop)]
+                    self.cache[key] = got
+                    self.dirty = True
+            elements.extend(got or [])
         names = pick_landmarks(rank_landmarks(elements, pts, self.language), len(pts))
         if names:
             return names
         center = (median(p[0] for p in pts), median(p[1] for p in pts))
+        if near_any_home(center, guard_homes):
+            return []
         name = self.zoom18(center)
         return [name] if name else []
 
