@@ -204,6 +204,22 @@ def the_allowlist_reaches_the_runner_verbatim():
             and "photo_execute" not in body), f"{body[-300:]}"
 
 
+@contextlib.contextmanager
+def tampered_templates(tmp):
+    """A COPY of the schedule templates for a case to tamper with, and
+    `photo_schedule.TEMPLATES` pointed at it. ⛔ Never the tracked files: a
+    suite killed between tampering and restoring left `--go` in the repo,
+    and a parallel `doctor` read the tree as dirty meanwhile."""
+    copy = Path(tmp) / "schedule-templates"
+    shutil.copytree(sch.TEMPLATES, copy)
+    real = sch.TEMPLATES
+    sch.TEMPLATES = copy
+    try:
+        yield copy
+    finally:
+        sch.TEMPLATES = real
+
+
 @case
 def a_template_that_regains_go_is_refused_at_render_time():
     """The guard runs at render, not only in this suite: a template edited by
@@ -211,19 +227,17 @@ def a_template_that_regains_go_is_refused_at_render_time():
     anyone is watching."""
     with tempfile.TemporaryDirectory() as tmp:
         pack, coll_dir, coll, schmsg = build(tmp)
-        original = (sch.TEMPLATES / "run-unattended.sh.tmpl").read_text()
-        tampered = original.replace('  --model "$MODEL" \\',
-                                    '  --model "$MODEL" --go \\')
         config = {"enabled": True, "collection": str(coll_dir),
                   "window": "01:00-06:00", "at": [185], "notify": "none",
                   "label": sch.label_for(pack)}
-        path = sch.TEMPLATES / "run-unattended.sh.tmpl"
-        try:
-            path.write_text(tampered, encoding="utf-8")
+        with tampered_templates(tmp) as templates:
+            path = templates / "run-unattended.sh.tmpl"
+            original = path.read_text()
+            path.write_text(original.replace('  --model "$MODEL" \\',
+                                             '  --model "$MODEL" --go \\'),
+                            encoding="utf-8")
             code, message = run(sch.render, pack, coll_dir, coll, config,
                                 schmsg, claude="/bin/echo")
-        finally:
-            path.write_text(original, encoding="utf-8")
     return code == 2 and "--go" in message, f"{code} {message[:160]}"
 
 
@@ -234,18 +248,16 @@ def a_prompt_that_stops_stating_the_rule_is_refused():
     how the next session finds no reason not to widen the allowlist."""
     with tempfile.TemporaryDirectory() as tmp:
         pack, coll_dir, coll, schmsg = build(tmp)
-        path = sch.TEMPLATES / "unattended-prompt.md.tmpl"
-        original = path.read_text()
         config = {"enabled": True, "collection": str(coll_dir),
                   "window": "01:00-06:00", "at": [185], "notify": "none",
                   "label": sch.label_for(pack)}
-        try:
+        with tampered_templates(tmp) as templates:
+            path = templates / "unattended-prompt.md.tmpl"
+            original = path.read_text()
             path.write_text(original.replace("Stop before anything is copied",
                                              "Be careful"), encoding="utf-8")
             code, message = run(sch.render, pack, coll_dir, coll, config,
                                 schmsg, claude="/bin/echo")
-        finally:
-            path.write_text(original, encoding="utf-8")
     return code == 2 and "Stop before anything is copied" in message, \
         f"{code} {message[:160]}"
 
