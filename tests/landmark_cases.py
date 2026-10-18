@@ -45,6 +45,7 @@ D = (42.4000, 142.4000)
 E = (43.0000, 143.0000)
 F = (43.6000, 143.6000)
 G = (44.2000, 144.2000)
+H = (44.8000, 144.8000)
 
 
 def off(pt, dlat=0.0, dlon=0.0):
@@ -72,6 +73,11 @@ DAYS = {
     # F1: the same, plus 2 of 6 photos on the park's lawn, nearer the park
     # than the tower — a third, so the park joins second
     "2025-05-10": [off(G, 0.0001 * i) for i in range(4)] + [off(G, 0.0020)] * 2,
+    # F3, the shape of the Lead's live probe (synthetic): photos under a
+    # notable tower inside a notable park, beside a tiny office node and a
+    # small viewpoint inside the tower, a notable memorial 37 m off, and
+    # plain pedestrian streets — the tower names the day, alone
+    "2025-05-11": [off(H, 0.0001 * i) for i in range(4)],
 }
 WANT = {"2025-05-01": "Lotus Garden",
         "2025-05-02": "Old Mill Museum+Harbour Beach",
@@ -80,7 +86,8 @@ WANT = {"2025-05-01": "Lotus Garden",
         "2025-05-05": "Townfield",
         "2025-05-06": "Homecity",
         "2025-05-09": "Birk Tower",
-        "2025-05-10": "Birk Tower+Lotus Commons"}
+        "2025-05-10": "Birk Tower+Lotus Commons",
+        "2025-05-11": "Lotus Spire"}
 
 
 def bounds(pt, half):
@@ -114,6 +121,20 @@ for _day, _pt in (("2025-05-09", F), ("2025-05-10", G)):
          "tags": {"leisure": "park", "name": "Lotus Commons"}},
         {"type": "way", "bounds": bounds(off(_pt, 0.0002), 0.0003),
          "tags": {"tourism": "attraction", "name": "Birk Tower"}}]
+ELEMENTS["2025-05-11"] = [
+    {"type": "way", "bounds": bounds(H, 0.0100),
+     "tags": {"leisure": "park", "name": "Birk Fields", "wikidata": "Q1"}},
+    {"type": "way", "bounds": bounds(H, 0.0012),
+     "tags": {"tourism": "attraction", "name": "Lotus Spire", "wikidata": "Q2"}},
+    {"type": "way", "bounds": bounds(off(H, 0.0001), 0.0002),
+     "tags": {"tourism": "viewpoint", "name": "Spire Second Floor"}},
+    {"type": "node", "lat": off(H, 0.00008)[0], "lon": H[1],
+     "tags": {"tourism": "attraction", "name": "Keeper's Office"}},
+    {"type": "node", "lat": H[0], "lon": off(H, 0.0, 0.00047)[1],
+     "tags": {"historic": "memorial", "name": "Founder Memorial", "wikidata": "Q3"}},
+    {"type": "way", "bounds": {"minlat": H[0] - 0.002, "minlon": H[1] - 0.00005,
+                               "maxlat": H[0] + 0.002, "maxlon": H[1] + 0.00005},
+     "tags": {"highway": "pedestrian", "name": "Lotus Walk"}}]
 
 
 def geocoder(cache=None, enabled=False):
@@ -502,7 +523,7 @@ def each_photo_votes_once_for_the_landmark_it_is_at():
     t = (46.0, 146.0)
     park = {"type": "way", "bounds": bounds(t, 0.005),
             "tags": {"leisure": "park", "name": "Lotus Commons"}}
-    tower = {"type": "node", "lat": t[0], "lon": t[1],
+    tower = {"type": "way", "bounds": bounds(t, 0.0003),
              "tags": {"tourism": "attraction", "name": "Birk Tower"}}
     at_tower = pts_at((off(t, 0.0002), 4))
     lawn = at_tower + pts_at((off(t, 0.0020), 2))
@@ -570,6 +591,55 @@ def the_execution_log_carries_the_failed_landmark_count():
     said = "landmark lookup failed for 2 stop(s)"
     return (r.returncode == 0 and said in md and said in r.stdout), \
         f"rc={r.returncode} md={md[-200:]!r} {r.stderr[-200:]!r}"
+
+
+@case
+def a_notable_outline_beats_a_room_inside_it():
+    """⭐ REPRODUCTION (F3, the Lead's live probe on 90d299e: photos under a
+    tower named a small office node inside it). Among the features a photo
+    is at: notable (wikidata) first, then an outline that contains the
+    photo, then the smallest. ⛔ FAILS on 90d299e ("Keeper's Office")."""
+    pts = pts_at(*((off(H, 0.0001 * i), 1) for i in range(4)))
+    got = pc.pick_landmarks(pc.rank_landmarks(ELEMENTS["2025-05-11"], pts, "en"),
+                            len(pts))
+    return got == ["Lotus Spire"], f"{got}"
+
+
+@case
+def a_plain_pedestrian_street_is_never_a_landmark():
+    """⭐ REPRODUCTION (F3). A pedestrian street with only a name is a
+    street, not a sight: never named, and never asked of Overpass without a
+    notable tag. ⛔ FAILS on 90d299e (named "Lotus Lane")."""
+    p = (47.0, 147.0)
+    street = {"type": "way", "bounds": bounds(p, 0.0005),
+              "tags": {"highway": "pedestrian", "name": "Lotus Lane"}}
+    got = pc.pick_landmarks(pc.rank_landmarks([street], pts_at((p, 3)), "en"), 3)
+    query = pc.landmark_query((1, 2, 3, 4))
+    plain = [ln for ln in query.splitlines()
+             if "pedestrian" in ln and "wiki" not in ln]
+    return got == [] and not plain, f"{got} plain={plain}"
+
+
+@case
+def a_tagged_old_street_names_a_day_with_no_other_sight():
+    """GUARD (F3). A historic or notable pedestrian street names a day spent
+    walking it when nothing else is there; a temple on it takes the photos
+    taken at both — by the street rule, not only by size."""
+    p = (47.5, 147.5)
+    old = {"type": "way", "bounds": bounds(p, 0.0005),
+           "tags": {"highway": "pedestrian", "historic": "yes",
+                    "name": "Old Birk Street"}}
+    wiki = {"type": "way", "bounds": bounds(p, 0.0005),
+            "tags": {"highway": "pedestrian", "wikidata": "Q4",
+                     "name": "Lotus Arcade"}}
+    temple = {"type": "way", "bounds": bounds(p, 0.0001),
+              "tags": {"amenity": "place_of_worship", "name": "Birk Temple"}}
+    pts = pts_at((p, 3))
+    alone = pc.pick_landmarks(pc.rank_landmarks([old], pts, "en"), 3)
+    notable = pc.pick_landmarks(pc.rank_landmarks([wiki], pts, "en"), 3)
+    beside = pc.pick_landmarks(pc.rank_landmarks([old, temple], pts, "en"), 3)
+    return (alone == ["Old Birk Street"] and notable == ["Lotus Arcade"]
+            and beside == ["Birk Temple"]), f"{alone} {notable} {beside}"
 
 
 @case

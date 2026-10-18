@@ -146,5 +146,80 @@
    },
    "type": "way"
   }
+ ],
+ "landmarks:44.797297,144.796191,44.803003,144.803809": [
+  {
+   "bounds": {
+    "maxlat": 44.809999999999995,
+    "maxlon": 144.81,
+    "minlat": 44.79,
+    "minlon": 144.79000000000002
+   },
+   "tags": {
+    "leisure": "park",
+    "name": "Birk Fields",
+    "wikidata": "Q1"
+   },
+   "type": "way"
+  },
+  {
+   "bounds": {
+    "maxlat": 44.801199999999994,
+    "maxlon": 144.80120000000002,
+    "minlat": 44.7988,
+    "minlon": 144.7988
+   },
+   "tags": {
+    "name": "Lotus Spire",
+    "tourism": "attraction",
+    "wikidata": "Q2"
+   },
+   "type": "way"
+  },
+  {
+   "bounds": {
+    "maxlat": 44.8003,
+    "maxlon": 144.80020000000002,
+    "minlat": 44.7999,
+    "minlon": 144.7998
+   },
+   "tags": {
+    "name": "Spire Second Floor",
+    "tourism": "viewpoint"
+   },
+   "type": "way"
+  },
+  {
+   "lat": 44.80008,
+   "lon": 144.8,
+   "tags": {
+    "name": "Keeper's Office",
+    "tourism": "attraction"
+   },
+   "type": "node"
+  },
+  {
+   "lat": 44.8,
+   "lon": 144.80047,
+   "tags": {
+    "historic": "memorial",
+    "name": "Founder Memorial",
+    "wikidata": "Q3"
+   },
+   "type": "node"
+  },
+  {
+   "bounds": {
+    "maxlat": 44.802,
+    "maxlon": 144.80005,
+    "minlat": 44.797999999999995,
+    "minlon": 144.79995000000002
+   },
+   "tags": {
+    "highway": "pedestrian",
+    "name": "Lotus Walk"
+   },
+   "type": "way"
+  }
  ]
 }

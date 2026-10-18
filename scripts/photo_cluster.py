@@ -711,9 +711,13 @@ SIGHT_TAGS = {
                 "spring", "cave_entrance", "glacier"),
     "historic": "*",
     "amenity": ("place_of_worship",),
-    "highway": ("pedestrian",),
     "waterway": ("waterfall",),
 }
+# F3 — a pedestrian street is a sight only when it is also notable; with a
+# tourism=attraction or historic tag it already is one through those keys.
+# Either way it is the last sight a photo votes for (`is_street`).
+STREET = ("highway", "pedestrian")
+NOTABLE_TAGS = ("wikidata", "wikipedia")
 STAY_TAGS = {
     "tourism": ("hotel", "guest_house", "hostel", "motel", "chalet",
                 "camp_site"),
@@ -728,7 +732,17 @@ def landmark_rank(tags):
             v = tags.get(key)
             if v and (values == "*" or v in values):
                 return rank
+    if tags.get(STREET[0]) == STREET[1] and is_notable(tags):
+        return 0
     return None
+
+
+def is_notable(tags):
+    return any(tags.get(t) for t in NOTABLE_TAGS)
+
+
+def is_street(tags):
+    return STREET[0] in tags
 
 
 def landmark_query(bbox):
@@ -740,6 +754,8 @@ def landmark_query(bbox):
             match = (f'["{key}"]' if values == "*"
                      else f'["{key}"~"^({"|".join(values)})$"]')
             parts.append(f'nwr{match}["name"]{box};')
+    for tag in NOTABLE_TAGS:
+        parts.append(f'nwr["{STREET[0]}"="{STREET[1]}"]["name"]["{tag}"]{box};')
     return ("[out:json][timeout:60];\n(\n  " + "\n  ".join(parts)
             + "\n);\nout body bb;")
 
@@ -798,9 +814,12 @@ def rank_landmarks(elements, pts, language):
     Each photo VOTES ONCE (the Lead's F1, 20261018): every feature within
     LANDMARK_RADIUS_M used to count every photo, so a large park tied with
     the sight inside it and D3 passed both. A photo AT one or more features
-    (within LANDMARK_AT_M of the outline) votes for the sight before the
-    stay, then the SMALLEST — at the tower inside a park is at the tower;
-    a photo at none votes for the nearest, sight first on a tie."""
+    (within LANDMARK_AT_M of the outline) votes, in order (F3, the Lead's
+    live probe): a sight before a stay (D4); any sight before a pedestrian
+    street; a NOTABLE feature (wikidata/wikipedia) before one that is not;
+    an outline that CONTAINS the photo before a nearby node; the smallest;
+    the nearest. "Smallest" alone picked a room inside the sight. A photo
+    at none votes for the nearest, sight first on a tie."""
     radius, at = LANDMARK_RADIUS_M / 1000, LANDMARK_AT_M / 1000
     cands = []
     for el in elements or ():
@@ -809,17 +828,21 @@ def rank_landmarks(elements, pts, language):
         name, _tag = read_tags(tags, language)
         if rank is None or not name or is_address(name):
             continue
-        cands.append((name, rank, el, feature_extent_km(el)))
+        cands.append((name, rank, el, (is_street(tags), not is_notable(tags)),
+                      feature_extent_km(el)))
     best = {}
     for p in pts:
-        near = [(feature_km((p[0], p[1]), el), name, rank, extent)
-                for name, rank, el, extent in cands]
+        near = [(feature_km((p[0], p[1]), el), name, rank, kind, extent,
+                 "bounds" in el and "lat" not in el)
+                for name, rank, el, kind, extent in cands]
         near = [c for c in near if c[0] <= radius]
         if not near:
             continue
         inside = [c for c in near if c[0] <= at]
-        d, name, rank, _extent = (min(inside, key=lambda c: (c[2], c[3], c[0]))
-                                  if inside else min(near, key=lambda c: (c[0], c[2])))
+        d, name, rank, *_rest = (
+            min(inside, key=lambda c: (c[2], *c[3], not (c[5] and c[0] == 0),
+                                       c[4], c[0]))
+            if inside else min(near, key=lambda c: (c[0], c[2])))
         row = best.setdefault(name, {"name": name, "rank": rank, "photos": 0,
                                      "km": d})
         row["photos"] += 1
@@ -992,6 +1015,7 @@ class Geocoder:
                             if k in el}
                            | {"tags": {t: v for t, v in (el.get("tags") or {}).items()
                                        if t == "name" or t.startswith("name:")
+                                       or t in NOTABLE_TAGS or t == STREET[0]
                                        or landmark_rank({t: v}) is not None}}
                            for el in got if landmark_rank(el.get("tags") or {}) is not None
                            and any(feature_km((p[0], p[1]), el) <= radius for p in stop)]
