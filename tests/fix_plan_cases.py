@@ -456,16 +456,15 @@ def a_merge_into_a_folder_named_after_a_pet_not_in_this_dump_passes_e48():
 @case
 def a_trip_abroad_stays_out_of_an_existing_folder():
     """GUARD (E52). A day of a batch abroad (OVERSEAS) is never merged into
-    an existing folder: no R4 row."""
-    batches = [dict(b, type="OVERSEAS") for b in ix.G3_BATCHES]
+    an existing folder: no R4 row (an R5 trip row may be offered)."""
+    batches = [dict(b, day_type="OVERSEAS") for b in ix.G3_BATCHES]
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         owner_folder(tmp)
         wd, pack = ix.g3_dump(tmp, batches=batches)
         for cmd in ("init", "render", "check"):
             must(ix.run(cmd, wd), cmd)
-        code, out, _ = ix.run("fix-plan", wd)
-    return code == 0 and photo_index.NOTHING_TO_CHANGE in out, \
-        f"code={code} out={out[-400:]!r}"
+        _code, out, _ = ix.run("fix-plan", wd)
+    return "(R4)" not in out, f"out={out[-400:]!r}"
 
 
 def second_dump(tmp):
@@ -604,61 +603,51 @@ def each_row_lists_up_to_three_previews_the_work_dir_already_has():
 
 
 # ---------------------------------------------------------------------------
-# R5 — one trip folder per trip abroad (A2's interface, stubbed here)
+# R5 — one trip folder per trip abroad (A2's trip_candidates and make-trip)
 # ---------------------------------------------------------------------------
 
-TRIP = "20241101-1102_Ruritania_Ford"
-
-
-def fake_candidates(index, batches, pack):
-    """A stand-in for A2's `photo_index.trip_candidates(index, batches,
-    pack)` in its relayed shape, until A2 merges."""
-    assert isinstance(batches, list) and hasattr(pack, "profile")
-    return [{"folders": ["F001", "F002"], "to": TRIP,
-             "days": ["2024-11-01", "2024-11-02"], "span": "1101-1102",
-             "photos": 3, "where": ["Ford"], "country": "Ruritania"}]
+TRIP = "20241101-1102_Ruritania_Ford+Harbour"
 
 
 @case
-def a_trip_candidate_becomes_a_make_trip_row_and_ok_runs_make_trip():
-    """⭐ REPRODUCTION (M6 R5, stub-tested: A2's `trip_candidates` and its
-    `group make-trip` with repeatable --where and --country are faked until
-    A2 merges). ⛔ FAILS on c8f1dac. A candidate becomes one MAKE-TRIP row
-    (from "2 day folders 1101-1102", to the trip name, folder = the first
-    id); `ok` calls make-trip with the candidate's folders, where list and
-    country; `word:` is refused on R5. With no `trip_candidates`, no row."""
-    got, calls = {}, []
-
-    def fake_make_trip(index, args, pack, by_number, cmd, reason):
-        calls.append((list(args.folders), list(args.where), args.country,
-                      sorted(by_number)))
-        return "a trip (stub)"
-
-    real = photo_index.group_make_trip
-    try:
-        photo_index.trip_candidates = fake_candidates
-        photo_index.group_make_trip = fake_make_trip
-        for given in ("ok", "word: Somewhere"):
-            with tempfile.TemporaryDirectory() as tmp, ix.no_env():
-                wd, _pack = ready(tmp)
-                code, _o, _ = ix.run("freeze", wd)
-                r = rows(wd)
-                answer(wd, given)
-                acode, aout, _ = apply(wd)
-                got[given] = (code, r, acode, aout[-300:])
-    finally:
-        del photo_index.trip_candidates
-        photo_index.group_make_trip = real
+def a_trip_abroad_becomes_a_make_trip_row_and_ok_makes_that_trip():
+    """⭐ REPRODUCTION (M6 R5, end to end with A2). ⛔ FAILS on e552a87. Two
+    days abroad: `trip_candidates` gives one MAKE-TRIP row (from "2 day
+    folders 1101-1102", to the trip name, folder = the first id); `ok` runs
+    `group make-trip`, and the trip parent then renders exactly `to` with
+    F001 and F002 as its legs; `word:` is refused on R5; a dump at home gets
+    no R5 row."""
+    batches = [dict(b, day_type="OVERSEAS", country_word="Ruritania")
+               for b in ix.G3_BATCHES]
+    got = {}
+    for given in ("ok", "word: Somewhere"):
+        with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+            wd, _pack = ix.g3_dump(tmp, batches=batches)
+            for cmd in ("init", "render", "check"):
+                must(ix.run(cmd, wd), cmd)
+            code, _o, _ = ix.run("freeze", wd)
+            r = [x for x in rows(wd) if "(R5)" in x]
+            answer(wd, *["ok" if "(R5)" in x else "skip" for x in rows(wd)]
+                   if given == "ok" else
+                   [given if "(R5)" in x else "skip" for x in rows(wd)])
+            acode, aout, _ = apply(wd)
+            must(ix.run("render", wd), "render")
+            folders = ix.index_of(tmp)[0]["folders"]
+            trip = [fo for fo in folders if fo["kind"] == "trip"]
+            legs = sorted((fo["id"], fo.get("parent")) for fo in folders
+                          if fo["kind"] == "leg")
+            got[given] = (code, r, acode, [t["rendered"] for t in trip], legs,
+                          aout[-300:])
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         wd, _pack = ready(tmp)
-        none_code, none_out, _ = ix.run("fix-plan", wd)
+        _c, home_out, _ = ix.run("fix-plan", wd)
     ok, word = got["ok"], got["word: Somewhere"]
+    tid = ok[4][0][1] if ok[4] else None
     return (ok[0] == 3 and len(ok[1]) == 1
-            and f"1. MAKE-TRIP (R5) · F001 · `2 day folders 1101-1102` → `{TRIP}`" in ok[1][0]
-            and ok[2] == 0 and calls == [(["F001", "F002"], ["Ford"], "Ruritania", [1, 2])]
-            and word[2] == 1 and "takes `ok` or `skip`" in word[3]
-            and none_code == 0 and photo_index.NOTHING_TO_CHANGE in none_out), \
-        f"{got} calls={calls}"
+            and f"MAKE-TRIP (R5) · F001 · `2 day folders 1101-1102` → `{TRIP}`" in ok[1][0]
+            and ok[2] == 0 and ok[3] == [TRIP] and ok[4] == [("F001", tid), ("F002", tid)]
+            and word[2] == 1 and "takes `ok` or `skip`" in word[5] and word[3] == []
+            and "(R5)" not in home_out), f"{got}"
 
 
 # ---------------------------------------------------------------------------

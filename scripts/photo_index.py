@@ -3651,7 +3651,8 @@ def rule_r4(ctx):
         if (fo["kind"] != "day" or fo.get("parent") or fo["dest"]["mode"] != "new"
                 or not fo.get("rendered")):
             continue
-        if any((ctx["by_number"].get(b) or {}).get("type") == "OVERSEAS"
+        if any(((ctx["by_number"].get(b) or {}).get("day_type")
+                or (ctx["by_number"].get(b) or {}).get("type")) == "OVERSEAS"
                for b in fo["batches"]):
             continue
         members = copy_members(index, fo["id"])
@@ -3675,11 +3676,8 @@ def rule_r5(ctx):
     [YYYY-MM-DD], span "MMDD-MMDD", photos, where [w1, w2?], country}]; the
     pack lets A read a leg's named-place label. Each becomes a MAKE-TRIP
     op applied through `group make-trip` (--where repeatable, --country).
-    Year folders are no op: the layout applies them at the freeze. With no
-    `trip_candidates` (A2 not merged) there is no op."""
-    find = globals().get("trip_candidates")
-    if find is None:
-        return []
+    Year folders are no op: the layout applies them at the freeze."""
+    find = trip_candidates
     index = ctx["index"]
     by_id = {fo["id"]: fo for fo in live(index)}
     out = []
