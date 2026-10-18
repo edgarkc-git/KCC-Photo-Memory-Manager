@@ -79,10 +79,12 @@ STRANGERS = [(f"CAT_{k}.jpg", 2, [e(0)], True, None) for k in range(1, 5)] + [
     ("CAT_5.jpg", 2, [mix((0, 0.6), (2, 0.8))], True, None)]
 
 
-def id_dump(tmp, frames, route="collection", clip=None, gps=None, place="Ford"):
+def id_dump(tmp, frames, route="collection", clip=None, gps=None, place="Ford",
+            kinds=None):
     """-> (work dir, pack dir, extra argv). `clip` maps a frame name to its CLIP
     vector (default: one no subject matches); `gps` a frame name to its point
-    (default: the home); `place` is every batch's place."""
+    (default: the home); `place` is every batch's place; `kinds` a frame name
+    to its detections' kind (default: cat)."""
     root = Path(tmp)
     base = root.resolve() / "raw" / "dump-a"
     base.mkdir(parents=True)
@@ -123,7 +125,8 @@ def id_dump(tmp, frames, route="collection", clip=None, gps=None, place="Ford"):
         clip_vecs.append((clip or {}).get(name, e(5)))
         for d, vec in enumerate(boxes or []):
             id_rows.append({"SourceFile": src, "sha256": "", "status": photo_identity.STATUS_OK,
-                            "det_index": d, "det_count": len(boxes), "kind": "cat",
+                            "det_index": d, "det_count": len(boxes),
+                            "kind": (kinds or {}).get(name, "cat"),
                             "det_score": 0.9, "box": "0,0,10,10", "box_share": 0.5,
                             "error": ""})
             id_vecs.append(vec)
@@ -138,6 +141,7 @@ def id_dump(tmp, frames, route="collection", clip=None, gps=None, place="Ford"):
     (embed / "identity-meta.json").write_text(json.dumps(
         {**photo_identity.meta_identity(DIM), "created_at": "2029-01-01 00:00"}))
 
+    kinds_of = kinds
     for day in days:
         bdir = wd / "classify" / f"batch-{day:02d}"
         (bdir / "samples").mkdir(parents=True)
@@ -146,7 +150,8 @@ def id_dump(tmp, frames, route="collection", clip=None, gps=None, place="Ford"):
             if d != day:
                 continue
             src = str(base / name)
-            kinds = [{"subject_kind": "cat"} for _ in (boxes or [None])]
+            kinds = [{"subject_kind": (kinds_of or {}).get(name, "cat")}
+                     for _ in (boxes or [None])]
             subjects = [{"subject_id": named}] if named else kinds
             if viewed:
                 (bdir / "samples" / name).write_bytes(JPEG)
@@ -833,6 +838,142 @@ def the_views_and_the_index_carry_no_coordinate():
         text = views(wd) + json.dumps(index_now(tmp))
     needles = [str(ix.HOME[0]), str(ix.HOME[1]), str(ix.FAR[0]), str(ix.FAR[1])]
     return not any(n in text for n in needles), [n for n in needles if n in text]
+
+
+# ---------------------------------------------------------------------------
+# E49 — an animal at a home that recognition cannot match
+# ---------------------------------------------------------------------------
+
+BIRK = "subj-0004"
+SEEN = ("SEEN_1.jpg", 1, [e(3)], True, BIRK)        # Birk, named, at the home
+BACK = ("BACK_2.jpg", 2, [e(4)], True, None)        # an unmatched cat there
+HOME2 = (ix.FAR2[0], ix.FAR2[1])
+
+
+def home_dump(tmp, frames, homes=None, only_birk=True, **kw):
+    """id_dump with Birk: a confirmed cat with NO look (E34/E37 — names only).
+    `only_birk` leaves it the only subject, so nothing can recognise."""
+    ix.make_pack(tmp, homes=homes)
+    wd, pack, extra = id_dump(tmp, frames, **kw)
+    reg = pack / "photo-subjects" / "subjects.json"
+    data = json.loads(reg.read_text())
+    data["subjects"] = ([] if only_birk else data["subjects"]) + [
+        ix.subject(BIRK, "Birk")]
+    reg.write_text(json.dumps(data))
+    return wd, pack, extra
+
+
+def home_rows_of(wd):
+    return [r for r in views(wd).splitlines()
+            if photo_index.VIEW_ROW.match(r) and " · home · " in r]
+
+
+@case
+def an_unmatched_cat_at_home_is_offered_and_an_agree_names_it():
+    """⭐ REPRODUCTION (E49, Lead ruling 20261018). ⛔ FAILS on d67ced3: a pet
+    with no remembered look is never proposed, so an animal at its home went
+    unseen and the folder had no [who]. Now a cat recognition cannot match,
+    on a photo taken at a home where this dump shows Birk, gets a view row
+    with no score; `agree` names the photo and the folder, and nothing is
+    learned (the pack is byte-identical). No coordinate reaches any file."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, pack, _ = home_dump(tmp, [SEEN, BACK])
+        before = registry_state(pack)
+        ix.run("identify", wd)
+        rows_ = home_rows_of(wd)
+        answer(wd, {("BACK_2.jpg", BIRK): "agree"})
+        dcode, _d, _ = ix.run("identify", wd, "--answers", wd / photo_index.VIEWS_NAME)
+        dry_same = labels(wd, 2)["BACK_2.jpg"].get("subject_ids") is None
+        gcode, gout, _ = go(wd)
+        ix.run("render", wd)
+        fo = folder_of_day(tmp, 2)
+        text = views(wd) + json.dumps(index_now(tmp))
+        same = before == registry_state(pack)
+    who = [w["name"] for w in fo["validation"]["who"]]
+    needles = [str(ix.HOME[0]), str(ix.HOME[1])]
+    return (len(rows_) == 1 and "`subj-0004` Birk" in rows_[0]
+            and "an animal at Ford" in rows_[0] and "animal 1 of 1" in rows_[0]
+            and dcode == 0 and dry_same and gcode == 0 and who == ["Birk"]
+            and same and not any(n in text for n in needles)), \
+        f"rows={rows_} dry={dcode} {dry_same} go={gcode} {gout[-200:]!r} who={who} same={same}"
+
+
+@case
+def no_home_row_away_for_another_kind_or_without_a_sighting_there():
+    """GUARD (E49, Card 8, the narrow rule). No home row for: a photo beyond
+    every home's range; a dog when the only pet is a cat; a cat at a home
+    where this dump never shows Birk (Birk is seen at the OTHER home only)."""
+    homes = [{"id": "home-01", "label": "Ford", "lat": ix.HOME[0], "lon": ix.HOME[1]},
+             {"id": "home-02", "label": "Sea", "lat": HOME2[0], "lon": HOME2[1]}]
+    got = {}
+    for label, frames, gps, kinds in (
+            ("away", [SEEN, BACK], {"BACK_2.jpg": ix.FAR}, None),
+            ("dog", [SEEN, BACK], None, {"BACK_2.jpg": "dog"}),
+            ("other home", [SEEN, BACK], {"SEEN_1.jpg": HOME2}, None)):
+        with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+            wd, _pack, _ = home_dump(tmp, frames, homes=homes, gps=gps, kinds=kinds)
+            ix.run("identify", wd)
+            got[label] = home_rows_of(wd) if (wd / photo_index.VIEWS_NAME).is_file() \
+                else []
+    return all(v == [] for v in got.values()), f"{got}"
+
+
+@case
+def a_home_the_owner_marked_out_of_range_still_offers():
+    """GUARD (E49 evidence: the relative's house is `home_range: false`). The
+    home rule reads every home of the pack, never the range-only list."""
+    homes = [{"id": "home-01", "label": "Ford", "lat": ix.HOME[0], "lon": ix.HOME[1],
+              "home_range": False}]
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack, _ = home_dump(tmp, [SEEN, BACK], homes=homes)
+        ix.run("identify", wd)
+        rows_ = home_rows_of(wd)
+    return len(rows_) == 1 and "Birk" in rows_[0], f"{rows_}"
+
+
+@case
+def a_named_photo_with_a_second_animal_offers_only_the_other_pets():
+    """GUARD (E49 background animal). A photo naming Lotus that holds two
+    cats offers Birk once, on the whole photo (which crop is Lotus is not
+    known), and never Lotus again; a one-cat photo naming Lotus offers
+    nothing. Recognition still never re-reads a named photo."""
+    lotus_two = ("TWO_1.jpg", 1, [e(4), e(5)], True, LOTUS)
+    lotus_one = ("ONE_1.jpg", 1, [e(4)], True, LOTUS)
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack, _ = home_dump(tmp, [SEEN, lotus_two, lotus_one], only_birk=False)
+        ix.run("identify", wd)
+        rows_ = [r for r in rows(wd)]
+        text = views(wd)
+    two = [r for r in rows_ if r["sample"].endswith("TWO_1.jpg")]
+    return ([r["subject_id"] for r in two] == [BIRK]
+            and not any(r["sample"].endswith("ONE_1.jpg") for r in rows_)
+            and "the whole photo" in next(l for l in text.splitlines()
+                                          if "TWO_1.jpg" in l and "verdict" in l)), \
+        f"rows={rows_}"
+
+
+def home_route_case(route):
+    """LL-PHO-132: the homes reach the home rule by every pack route."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack, extra = home_dump(tmp, [SEEN, BACK], route=route)
+        code, _o, err = ix.run("identify", wd, *extra)
+        rows_ = home_rows_of(wd) if (wd / photo_index.VIEWS_NAME).is_file() else []
+    return len(rows_) == 1, f"code={code} rows={rows_} err={err[-200:]!r}"
+
+
+@case
+def home_rule_route_collection_json():
+    return home_route_case("collection")
+
+
+@case
+def home_rule_route_env_var():
+    return home_route_case("env")
+
+
+@case
+def home_rule_route_explicit_profile():
+    return home_route_case("profile")
 
 
 # ---------------------------------------------------------------------------

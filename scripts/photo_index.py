@@ -2080,10 +2080,31 @@ def next_view_number(index):
     return max((int(r["id"][2:]) for r in index.get("identify") or []), default=0) + 1
 
 
+def home_lookup(workdir, pack, index):
+    """E49 -> path -> (home id, label) for a photo taken at a home on its own
+    day (`nearest_home()`, every home of the pack, `home_range: false` ones
+    too), else None; None when the pack has no home. The point never leaves
+    this function."""
+    homes = photo_profile.labelled_home_points(pack.profile)
+    if not homes:
+        return None
+    with open(workdir / "manifest.csv", newline="", encoding="utf-8") as fh:
+        gps = {r["SourceFile"]: photo_cluster.gps_point(r.get("GPSPosition") or "")
+               for r in csv.DictReader(fh)}
+    day = {f["source"]: (f.get("date") or "")[:10] for f in index["files"]}
+
+    def home_of(path):
+        point = gps.get(path)
+        home = nearest_home(point, day.get(path, ""), homes) if point else None
+        return (home[5], home[4]) if home else None
+    return home_of
+
+
 def proposals_for(workdir, pack, index):
     import photo_see
     try:
-        return photo_see.identify_proposals(workdir, pack, identify_decided(index))
+        return photo_see.identify_proposals(workdir, pack, identify_decided(index),
+                                            home_of=home_lookup(workdir, pack, index))
     except ValueError as exc:
         raise Refused(f"recognition cannot run on this work dir: {exc} — nothing "
                       "written")
@@ -2169,9 +2190,17 @@ def views_text(workdir, pack, index, offered, not_offered, first, earlier=()):
         skipped = (f" · ⚠️ the owner skipped this photo on {p['skipped_on']} as "
                    f"not theirs; it holds {p['det_count']} animals and the skip "
                    "does not say which" if p.get("skipped_on") else "")
+        if p["space"] == "home":
+            # E49: no score to print — a place put this pet here, not a look.
+            more = (f" ({p['left_out']} more pet(s) seen there were left out)"
+                    if p.get("left_out") else "")
+            why = (f"home · an animal at {p.get('home') or 'a registered home'} "
+                   f"that recognition could not match — is it {p['name']}?{more}")
+        else:
+            why = f"{p['space']} {p['score']} lead {p['lead']}"
         lines.append(f"- `I-{n:04d}` · batch {p['batch']} · `{p['sample']}` · "
-                     f"`{p['subject_id']}` {p['name']} · {p['space']} "
-                     f"{p['score']} lead {p['lead']} · {box}{crop}{skipped} · verdict: ______")
+                     f"`{p['subject_id']}` {p['name']} · {why} · {box}{crop}{skipped} · "
+                     "verdict: ______")
     if earlier:
         lines += ["", "## Left blank earlier (not asked again by `finish`)", ""]
         lines += [f"- earlier · batch {p['batch']} · `{p['sample']}` · "
@@ -2261,7 +2290,8 @@ def cmd_identify(args):
             encoding="utf-8")
         for n, p in enumerate(offered, first):
             print(f"  I-{n:04d} batch {p['batch']} {Path(p['sample']).name}: "
-                  f"{p['name']}? ({p['space']} {p['score']})")
+                  f"{p['name']}? ({p['space']}"
+                  + (f" {p['score']})" if p["score"] is not None else ")"))
         print(f"identify: {len(offered)} photo(s) to view — open {workdir / VIEWS_NAME}, "
               "look at each photo and write a verdict; nothing is named yet")
         return EXIT_VIEWS_WANTED

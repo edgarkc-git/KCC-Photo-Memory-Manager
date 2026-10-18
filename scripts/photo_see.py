@@ -2035,7 +2035,7 @@ def restore_detached_subject_ids(looks, from_id, draft_id, into=None,
             "unresolved": unresolved, "outside_workdir": outside}
 
 
-def identify_proposals(workdir, pack, decided=()):
+def identify_proposals(workdir, pack, decided=(), home_of=None):
     """G7 (D-I11) — what recognition PROPOSES for the agent to view. -> (offered,
     not_offered), both lists of rows; nothing is written.
 
@@ -2055,12 +2055,18 @@ def identify_proposals(workdir, pack, decided=()):
     space and never put to the agent — measured on a real dump, a stranger's
     score sits inside a pet's band in identity space, so the view is the
     guard, and a weaker space would hand it more strangers to catch.
-    ⛔ Nothing here is an exemplar, and nothing moves a record (L3)."""
+    ⛔ Nothing here is an exemplar, and nothing moves a record (L3).
+
+    E49 (Lead ruling 20261018) — with `home_of` (path -> (home id, label) or
+    None), an animal recognition leaves unproposed on a photo taken at a home
+    is offered as `home_rows()` says. It runs with no recogniser at all: a pet
+    with no remembered look is exactly the one recognition cannot propose."""
     import numpy as np
 
     workdir = Path(workdir)
     registry = photo_subjects.load(pack=pack)
-    if not registry.recognisers:
+    recognising = bool(registry.recognisers)
+    if not recognising and home_of is None:
         return [], []
     index, identity = load_index(workdir)
     detections, id_space = photo_identity.load_detections(workdir / "embed",
@@ -2072,6 +2078,9 @@ def identify_proposals(workdir, pack, decided=()):
     not_mine = photo_identity.not_mine_keys(detections, mine_marks)
     said_on = {(m.get("sha256"), int(m.get("det_index") or 0)):
                (m.get("source") or "a page").split(" ")[0] for m in mine_marks}
+    seen_at = home_sightings(workdir, registry, home_of) if home_of else {}
+    cap = int(registry.defaults.get(
+        "names_per_folder", photo_subjects.DEFAULT_THRESHOLDS["names_per_folder"]))
     offered, not_offered = [], []
     for bdir in sorted((workdir / "classify").glob("batch-*")):
         report_path, labels_path = bdir / "see-report.json", bdir / "see-labels.json"
@@ -2091,16 +2100,32 @@ def identify_proposals(workdir, pack, decided=()):
             named = list(entry.get("subject_ids") or []) + [
                 s.get("subject_id") for s in photo_evidence.subject_list(entry)
                 if s.get("subject_id")]
-            if any((registry.get(sid) is not None and
-                    registry.get(sid).status == photo_subjects.STATUS_CONFIRMED)
-                   for sid in named):
+            confirmed = {sid for sid in named if registry.get(sid) is not None
+                         and registry.get(sid).status
+                         == photo_subjects.STATUS_CONFIRMED}
+            boxes = [(r, v) for r, v in detections.get(path, [])
+                     if r.get("status") == photo_identity.STATUS_OK]
+            sample_ref = f"classify/{bdir.name}/samples/{sample}"
+            if confirmed:
+                # Spoken for — unless it holds more animals than names: the
+                # unnamed one is E49's background animal, and only the home
+                # rule may offer it (recognition never re-reads a named photo).
+                if home_of and len(boxes) > len(confirmed):
+                    offered.extend(home_rows(
+                        registry, path, sample_ref, batch, boxes, set(),
+                        confirmed, home_of(path), seen_at, decided, not_mine,
+                        cap, skipped_on.get(path)))
                 continue
             try:
                 when = datetime.strptime(sel.get("time") or "", "%Y-%m-%d %H:%M")
             except ValueError:
                 when = None
-            boxes = [(r, v) for r, v in detections.get(path, [])
-                     if r.get("status") == photo_identity.STATUS_OK]
+            if not recognising:
+                offered.extend(home_rows(
+                    registry, path, sample_ref, batch, boxes, set(), set(),
+                    home_of(path), seen_at, decided, not_mine, cap,
+                    skipped_on.get(path)))
+                continue
             if boxes:
                 X = np.stack([index[path][1]] * len(boxes)).astype(np.float32)
                 verdicts = registry.match(
@@ -2124,7 +2149,7 @@ def identify_proposals(workdir, pack, decided=()):
                         or v["verdict"] == photo_subjects.VERDICT_NONE):
                     continue
                 row = {"batch": batch, "path": path,
-                       "sample": f"classify/{bdir.name}/samples/{sample}",
+                       "sample": sample_ref,
                        "subject_id": v["subject_id"], "name": v.get("name"),
                        "verdict": v["verdict"], "space": v.get("space"),
                        "score": v.get("score"), "lead": v.get("lead"),
@@ -2160,7 +2185,82 @@ def identify_proposals(workdir, pack, decided=()):
                 if held is None or (row["score"] or 0) > (held["score"] or 0):
                     best[v["subject_id"]] = row
             offered.extend(sorted(best.values(), key=lambda r: r["det_index"] or 0))
+            if home_of:
+                offered.extend(home_rows(
+                    registry, path, sample_ref, batch, boxes,
+                    {r["det_index"] for r in best.values()}, set(best),
+                    home_of(path), seen_at, decided, not_mine, cap,
+                    skipped_on.get(path)))
     return offered, not_offered
+
+
+def home_sightings(workdir, registry, home_of):
+    """-> {home id: {subject_id}}: the confirmed pets THIS dump shows at each
+    home — a viewed label naming them (an owner pick or an agent agree) on a
+    photo `home_of` places at that home. ⛔ This dump only: the pack keeps no
+    place for a look, so a pet seen at a home only in an earlier dump is not
+    a candidate there."""
+    out = {}
+    for path in sorted(Path(workdir).glob("classify/batch-*/see-labels.json")):
+        for entry in json.loads(path.read_text()).get("labels") or []:
+            if not photo_evidence.is_view_confirmed(entry.get("provenance")):
+                continue
+            home = home_of(entry.get("path"))
+            if home is None:
+                continue
+            for sid in list(entry.get("subject_ids") or []) + [
+                    s.get("subject_id") for s in photo_evidence.subject_list(entry)]:
+                subject = registry.get(sid) if sid else None
+                if subject is not None and \
+                        subject.status == photo_subjects.STATUS_CONFIRMED:
+                    out.setdefault(home[0], set()).add(subject.subject_id)
+    return out
+
+
+def home_rows(registry, path, sample, batch, boxes, proposed, named, home,
+              seen_at, decided, not_mine, cap, skipped=None):
+    """E49 — a view row per CANDIDATE pet for the animals on `path` that no
+    proposal covers, when the photo was taken at a home. A candidate is a
+    confirmed pet of the animal's kind that this dump shows at THAT home
+    (`home_sightings()`, Lead ruling 20261018: never any home), not already
+    named or proposed on the photo; at most `cap` per kind, by mint order, and
+    the rows say how many more qualified. Space `home`, no score: a place, not
+    a likeness, put it here, so only the agent's view can name it.
+
+    One row per pet per photo (an `agree` names the photo, L6): on the crop
+    when one unproposed animal of that kind is left, else on the whole photo.
+    ⛔ A photo beyond every home's range gets nothing (Card 8), and so does a
+    one-animal photo the owner skipped as not theirs (F-q)."""
+    if home is None or (skipped and len(boxes) == 1):
+        return []
+    free = {}
+    for r, _v in boxes:
+        det = int(r.get("det_index") or 0)
+        if det in proposed or (r.get("sha256"), det) in not_mine:
+            continue
+        free.setdefault(r.get("kind"), []).append(det)
+    rows = []
+    for kind, dets in free.items():
+        pets = sorted((s for s in registry.subjects
+                       if s.status == photo_subjects.STATUS_CONFIRMED
+                       and s.kind == kind
+                       and s.subject_id in seen_at.get(home[0], ())
+                       and s.subject_id not in named
+                       and (path, s.subject_id) not in decided),
+                      key=lambda s: registry._ordinal(s.subject_id))
+        count = boxes[0][0].get("det_count")
+        for s in pets[:cap]:
+            rows.append({"batch": batch, "path": path, "sample": sample,
+                         "subject_id": s.subject_id, "name": s.name,
+                         "verdict": "home", "space": "home", "score": None,
+                         "lead": None, "runner_up": None,
+                         "det_index": dets[0] if len(dets) == 1 else None,
+                         "det_count": int(count) if count not in (None, "")
+                         else len(boxes),
+                         "home": home[1], "left_out": len(pets) - cap
+                         if len(pets) > cap else 0,
+                         **({"skipped_on": skipped} if skipped else {})})
+    return rows
 
 
 def owner_skipped(registry):
