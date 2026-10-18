@@ -696,6 +696,8 @@ OVERPASS = "https://overpass-api.de/api/interpreter"
 USER_AGENT = "kcc-photo-manager/0.1"
 # 📐 `{n}` — how near a photo must be to a landmark to count for it.
 LANDMARK_RADIUS_M = 300
+# 📐 `{n}` — a photo this near a feature's outline was taken AT it.
+LANDMARK_AT_M = 50
 # 📐 `{n}` — D3: the share of the day's photos a second landmark needs.
 LANDMARK_SECOND_SHARE = 1 / 3
 MAX_LANDMARKS = 2
@@ -781,26 +783,47 @@ def feature_km(pt, el):
     return haversine_km(pt, (lat, lon))
 
 
+def feature_extent_km(el):
+    """km across an element's bounding box; 0 for a node."""
+    b = el.get("bounds")
+    if not b or ("lat" in el and "lon" in el):
+        return 0.0
+    return haversine_km((b["minlat"], b["minlon"]), (b["maxlat"], b["maxlon"]))
+
+
 def rank_landmarks(elements, pts, language):
     """-> [{name, rank, photos, km}] ranked: a sight before a stay (D4), then
-    by photos within the radius (D3), then nearest. One row per name."""
-    best = {}
-    radius = LANDMARK_RADIUS_M / 1000
+    by photos (D3), then nearest. One row per name.
+
+    Each photo VOTES ONCE (the Lead's F1, 20261018): every feature within
+    LANDMARK_RADIUS_M used to count every photo, so a large park tied with
+    the sight inside it and D3 passed both. A photo AT one or more features
+    (within LANDMARK_AT_M of the outline) votes for the sight before the
+    stay, then the SMALLEST — at the tower inside a park is at the tower;
+    a photo at none votes for the nearest, sight first on a tie."""
+    radius, at = LANDMARK_RADIUS_M / 1000, LANDMARK_AT_M / 1000
+    cands = []
     for el in elements or ():
         tags = el.get("tags") or {}
         rank = landmark_rank(tags)
         name, _tag = read_tags(tags, language)
         if rank is None or not name or is_address(name):
             continue
-        dists = [feature_km((p[0], p[1]), el) for p in pts]
-        photos = sum(1 for d in dists if d <= radius)
-        if not photos:
+        cands.append((name, rank, el, feature_extent_km(el)))
+    best = {}
+    for p in pts:
+        near = [(feature_km((p[0], p[1]), el), name, rank, extent)
+                for name, rank, el, extent in cands]
+        near = [c for c in near if c[0] <= radius]
+        if not near:
             continue
-        row = {"name": name, "rank": rank, "photos": photos, "km": min(dists)}
-        key = (row["rank"], -row["photos"], row["km"])
-        if name not in best or key < (best[name]["rank"], -best[name]["photos"],
-                                      best[name]["km"]):
-            best[name] = row
+        inside = [c for c in near if c[0] <= at]
+        d, name, rank, _extent = (min(inside, key=lambda c: (c[2], c[3], c[0]))
+                                  if inside else min(near, key=lambda c: (c[0], c[2])))
+        row = best.setdefault(name, {"name": name, "rank": rank, "photos": 0,
+                                     "km": d})
+        row["photos"] += 1
+        row["rank"], row["km"] = min(row["rank"], rank), min(row["km"], d)
     return sorted(best.values(), key=lambda r: (r["rank"], -r["photos"], r["km"]))
 
 
@@ -857,6 +880,9 @@ class Geocoder:
         self.language = language or DEFAULT_GEOCODE_LANGUAGE
         self.cache = {}
         self.dirty = False
+        # F2 — the stop boxes whose Overpass request failed in THIS run. Not
+        # cached, so a re-run asks again; never asked twice in one run.
+        self.landmark_failed = set()
         if cache_path.exists():
             self.cache = json.loads(cache_path.read_text())
 
@@ -957,9 +983,11 @@ class Geocoder:
             bbox = points_bbox(stop, LANDMARK_RADIUS_M)
             key = "landmarks:" + ",".join(f"{v:.{PRECISE_DP}f}" for v in bbox)
             got = self.cache.get(key)
-            if got is None and self.enabled:
+            if got is None and self.enabled and key not in self.landmark_failed:
                 got = overpass_post(landmark_query(bbox), backoffs=(1.1, 15))
-                if got is not None:
+                if got is None:
+                    self.landmark_failed.add(key)
+                else:
                     got = [{k: el[k] for k in ("type", "lat", "lon", "bounds", "center")
                             if k in el}
                            | {"tags": {t: v for t, v in (el.get("tags") or {}).items()
@@ -1409,6 +1437,7 @@ def main():
             # got a turn. Measured on a real dump: of 669 files in batches
             # with no place, 527 were in home batches stopped by this line and
             # only 142 by the radius.
+            failed_before = len(geocoder.landmark_failed)
             if centroids:
                 # R9 — every day, in travel order, not the median one.
                 found = batch_places(part, day_files, geocoder, all_homes,
@@ -1464,6 +1493,9 @@ def main():
                      "OVERSEAS": msg["cluster_label_overseas"].format(place=place_text)}[typ]
             if place_is_coordinate:
                 coordinate_batches.add(len(batches) + 1)
+            failed = len(geocoder.landmark_failed) - failed_before
+            if failed:
+                flags.append("landmark_lookup_failed")
             batches.append({
                 "batch": len(batches) + 1, "label": label,
                 # ⛔ The resolved place as its OWN field, not only inside the
@@ -1478,6 +1510,7 @@ def main():
                 "from": part[0].isoformat(), "to": part[-1].isoformat(),
                 "days": len(part), "files": rows, "gps_files": gps_n,
                 "status": "pending", "flags": flags,
+                **({"landmark_failed_stops": failed} if failed else {}),
             })
     geocoder.save()
 
@@ -1522,6 +1555,22 @@ def main():
     said = local_name_notice(batches, msg, geocoder.language)
     if said:
         print(said, file=sys.stderr)
+    said = landmark_failed_note(batches)
+    if said:
+        print(said, file=sys.stderr)
+
+
+def landmark_failed_note(batches):
+    """F2 — the batches whose landmark lookup failed, said out loud, or None.
+    A short Overpass outage otherwise leaves town names that look final.
+    Printed by this stage, `photo_index render` and the execution log.
+    ⚠️ English only: a message-table key needs every language's copy."""
+    hit = [b for b in batches or () if b.get("landmark_failed_stops")]
+    if not hit:
+        return None
+    n = sum(b["landmark_failed_stops"] for b in hit)
+    return (f"⚠️ landmark lookup failed for {n} stop(s), named by town; re-run "
+            f"to retry (batch(es) {', '.join('B%s' % b['batch'] for b in hit)})")
 
 
 def local_name_notice(batches, msg, language):

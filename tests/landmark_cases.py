@@ -43,6 +43,8 @@ B = (41.2000, 141.2000)
 C = (41.8000, 141.8000)
 D = (42.4000, 142.4000)
 E = (43.0000, 143.0000)
+F = (43.6000, 143.6000)
+G = (44.2000, 144.2000)
 
 
 def off(pt, dlat=0.0, dlon=0.0):
@@ -64,13 +66,21 @@ DAYS = {
     "2025-05-05": [off(E, 0.0001 * i) for i in range(3)],
     # near the (unlabelled) home: the 2 dp administrative lookup only (R13)
     "2025-05-06": [off(NEAR_HOME, 0.0001 * i) for i in range(3)],
+    # F1: every photo at a tower that stands inside a large park — the park
+    # holds them too, yet only the tower names the day
+    "2025-05-09": [off(F, 0.0001 * i) for i in range(4)],
+    # F1: the same, plus 2 of 6 photos on the park's lawn, nearer the park
+    # than the tower — a third, so the park joins second
+    "2025-05-10": [off(G, 0.0001 * i) for i in range(4)] + [off(G, 0.0020)] * 2,
 }
 WANT = {"2025-05-01": "Lotus Garden",
         "2025-05-02": "Old Mill Museum+Harbour Beach",
         "2025-05-03": "Birk Inn",
         "2025-05-04": "Seaview Point",
         "2025-05-05": "Townfield",
-        "2025-05-06": "Homecity"}
+        "2025-05-06": "Homecity",
+        "2025-05-09": "Birk Tower",
+        "2025-05-10": "Birk Tower+Lotus Commons"}
 
 
 def bounds(pt, half):
@@ -97,6 +107,13 @@ ELEMENTS = {
     "2025-05-04": [],
     "2025-05-05": [],
 }
+for _day, _pt in (("2025-05-09", F), ("2025-05-10", G)):
+    # the park first, as an Overpass answer may list it
+    ELEMENTS[_day] = [
+        {"type": "way", "bounds": bounds(_pt, 0.005),
+         "tags": {"leisure": "park", "name": "Lotus Commons"}},
+        {"type": "way", "bounds": bounds(off(_pt, 0.0002), 0.0003),
+         "tags": {"tourism": "attraction", "name": "Birk Tower"}}]
 
 
 def geocoder(cache=None, enabled=False):
@@ -452,7 +469,7 @@ def a_sight_beats_a_hotel_even_with_fewer_photos():
             "tags": {"tourism": "hotel", "name": "Lotus Hotel"}},
            {"type": "node", "lat": temple[0], "lon": temple[1],
             "tags": {"amenity": "place_of_worship", "name": "Birk Temple"}}]
-    pts = pts_at((hotel, 5), (off(temple, 0.004), 2))
+    pts = pts_at((hotel, 5), (off(temple, 0.0002), 2))
     got = pc.pick_landmarks(pc.rank_landmarks(els, pts, "en"), len(pts))
     only_stay = pc.pick_landmarks(pc.rank_landmarks(els[:1], pts, "en"), len(pts))
     return got == ["Birk Temple"] and only_stay == ["Lotus Hotel"], f"{got} {only_stay}"
@@ -473,6 +490,86 @@ def a_second_landmark_needs_a_third_and_never_a_third_name():
     one = pc.pick_landmarks(pc.rank_landmarks(els, few, "en"), len(few))
     two = pc.pick_landmarks(pc.rank_landmarks(els, even, "en"), len(even))
     return one == ["Alpha Falls"] and len(two) == 2, f"{one} {two}"
+
+
+@case
+def each_photo_votes_once_for_the_landmark_it_is_at():
+    """⭐ REPRODUCTION (F1, the Lead's live probe 20261018: the photos were
+    at the tower, yet the park around it came first and the tower second
+    with `+`). Every feature within the radius counted every photo, so the
+    park tied the sight and D3 passed both. Now each photo votes once, for
+    the smallest feature it is at, else the nearest. ⛔ FAILS on bd4d047."""
+    t = (46.0, 146.0)
+    park = {"type": "way", "bounds": bounds(t, 0.005),
+            "tags": {"leisure": "park", "name": "Lotus Commons"}}
+    tower = {"type": "node", "lat": t[0], "lon": t[1],
+             "tags": {"tourism": "attraction", "name": "Birk Tower"}}
+    at_tower = pts_at((off(t, 0.0002), 4))
+    lawn = at_tower + pts_at((off(t, 0.0020), 2))
+    few = at_tower * 2 + pts_at((off(t, 0.0020), 1))
+    got = {order: pc.pick_landmarks(pc.rank_landmarks(els, pts, "en"), len(pts))
+           for order, els in (("park first", [park, tower]),
+                              ("tower first", [tower, park]))
+           for pts in (at_tower,)}
+    two = pc.pick_landmarks(pc.rank_landmarks([park, tower], lawn, "en"), len(lawn))
+    one = pc.pick_landmarks(pc.rank_landmarks([park, tower], few, "en"), len(few))
+    return (all(v == ["Birk Tower"] for v in got.values())
+            and two == ["Birk Tower", "Lotus Commons"]
+            and one == ["Birk Tower"]), f"{got} lawn={two} few={one}"
+
+
+@case
+def a_failed_landmark_lookup_is_said_out_loud():
+    """⭐ REPRODUCTION (F2). With every request refused, the away days fall
+    to the town or nothing — and the stage SAYS so: batches.json carries the
+    count, stderr prints it, `render` and `photo_where` print it again, so a
+    short outage never leaves town names that look final. ⛔ FAILS on
+    bd4d047 (silent)."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        days = {k: DAYS[k] for k in ("2025-05-01", "2025-05-02")}
+        wd = dump(tmp, days=days, cache={})
+        log = Path(tmp) / "net.log"
+        proc = cluster(wd, log)
+        batches = (json.loads((wd / "batches.json").read_text())["batches"]
+                   if proc.returncode == 0 else [])
+        failed = sum(b.get("landmark_failed_stops", 0) for b in batches)
+        flagged = [b["batch"] for b in batches
+                   if "landmark_lookup_failed" in b.get("flags", [])]
+        # distinct boxes: one overpass_post retries the same box
+        overpass = len({r["data"] for r in requests(log) if "overpass" in r["url"]})
+        where = subprocess.run([sys.executable, str(SCRIPTS / "photo_where.py"),
+                                str(wd), "--batch", "1"], capture_output=True,
+                               text=True, env=offline_env(log))
+        ix.run("init", wd)
+        _c, out, _e = ix.run("render", wd, "--no-vision")
+    said = "landmark lookup failed for"
+    return (proc.returncode == 0 and failed >= 2 and len(flagged) >= 1
+            and said in proc.stderr and said in out and said in where.stderr
+            and overpass == failed), \
+        (f"rc={proc.returncode} failed={failed} flagged={flagged} "
+         f"overpass={overpass} stderr={proc.stderr[-200:]!r} out={out[-200:]!r} "
+         f"where={where.stderr[-200:]!r}")
+
+
+@case
+def the_execution_log_carries_the_failed_landmark_count():
+    """⭐ REPRODUCTION (F2). The execution log is the record an owner reads
+    after the copy, so a batch named by the town after a failed lookup says
+    so there too — only for the plan's own batches. ⛔ FAILS on bd4d047."""
+    import photo_execute_cases as ex
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        wd, _src, _trip = ex.build_dump(tmp, tmp / "drive")
+        bdata = json.loads((wd / "batches.json").read_text())
+        bdata["batches"][0].update(flags=["landmark_lookup_failed"],
+                                   landmark_failed_stops=2)
+        (wd / "batches.json").write_text(json.dumps(bdata))
+        r = ex.run_execute(wd, "--go")
+        md = (wd / "plan" / "execution-log_P1.md")
+        md = md.read_text() if md.exists() else ""
+    said = "landmark lookup failed for 2 stop(s)"
+    return (r.returncode == 0 and said in md and said in r.stdout), \
+        f"rc={r.returncode} md={md[-200:]!r} {r.stderr[-200:]!r}"
 
 
 @case

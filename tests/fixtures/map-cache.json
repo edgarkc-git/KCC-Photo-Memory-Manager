@@ -90,5 +90,61 @@
   }
  ],
  "landmarks:42.397297,142.396340,42.402903,142.403660": [],
- "landmarks:42.997297,142.996305,43.002903,143.003695": []
+ "landmarks:42.997297,142.996305,43.002903,143.003695": [],
+ "landmarks:43.597297,143.596268,43.603003,143.603732": [
+  {
+   "bounds": {
+    "maxlat": 43.605000000000004,
+    "maxlon": 143.605,
+    "minlat": 43.595,
+    "minlon": 143.595
+   },
+   "tags": {
+    "leisure": "park",
+    "name": "Lotus Commons"
+   },
+   "type": "way"
+  },
+  {
+   "bounds": {
+    "maxlat": 43.600500000000004,
+    "maxlon": 143.6003,
+    "minlat": 43.5999,
+    "minlon": 143.59969999999998
+   },
+   "tags": {
+    "name": "Birk Tower",
+    "tourism": "attraction"
+   },
+   "type": "way"
+  }
+ ],
+ "landmarks:44.197297,144.196230,44.204703,144.203770": [
+  {
+   "bounds": {
+    "maxlat": 44.205000000000005,
+    "maxlon": 144.20499999999998,
+    "minlat": 44.195,
+    "minlon": 144.195
+   },
+   "tags": {
+    "leisure": "park",
+    "name": "Lotus Commons"
+   },
+   "type": "way"
+  },
+  {
+   "bounds": {
+    "maxlat": 44.200500000000005,
+    "maxlon": 144.2003,
+    "minlat": 44.1999,
+    "minlon": 144.19969999999998
+   },
+   "tags": {
+    "name": "Birk Tower",
+    "tourism": "attraction"
+   },
+   "type": "way"
+  }
+ ]
 }

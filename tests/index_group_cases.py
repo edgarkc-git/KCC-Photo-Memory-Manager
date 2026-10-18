@@ -866,6 +866,31 @@ def set_where_survives_a_recut_that_keeps_the_folder():
             and "agent:Old Pier" in places), f"kept={kept and kept['id']} places={sorted(places)}"
 
 
+@case
+def a_recut_that_retires_a_folder_says_which_set_where_word_it_dropped():
+    """REPRODUCTION (E43, the Lead 20261018). A re-cut that changes a
+    folder's files retires it, and its set-where word goes with it — said
+    on stdout and in the log, naming the word and the folder, never silent.
+    ⛔ FAILS on 226d57b: the word was dropped without a line."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        rows = [ix.row("IMG_0101.jpg", when="2024:11:01 10:00:00", gps=TRIP),
+                ix.row("IMG_0201.jpg", when="2024:11:02 10:00:00", gps=ix.FAR2)]
+        wd = ix.make_dump(tmp, rows=rows, batches=[
+            {"batch": 1, "from": "2024-11-01", "to": "2024-11-02",
+             "place": "Westvale+Farview"}])
+        ix.make_pack(tmp)
+        ix.seed_cache(tmp, {TRIP: "Westvale", ix.FAR2: "Farview"})
+        must(run("init", wd), "init")
+        must(run("group", "set-where", wd, "F001", "Birk Bay", "--reason", "r"),
+             "set-where")
+        said = must(run("recut", wd, "--no-geocode", "--reason", "r"), "recut")
+        f = folders(tmp)
+        log = json.dumps(index(tmp).get("log") or [])
+    line = "set-where 'Birk Bay' dropped from F001"
+    return (f["F001"]["status"] == "retired" and line in said and line in log), \
+        f"status={f['F001']['status']} said={said[-300:]!r}"
+
+
 # ---------------------------------------------------------------------------
 # R8, R9 — recut, relabel, and the no-plan net
 # ---------------------------------------------------------------------------

@@ -58,6 +58,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import photo_cluster  # noqa: E402
 import photo_profile  # noqa: E402
 from photo_platform import path_key  # noqa: E402
 
@@ -425,6 +426,10 @@ def main():
                msg["exec_flags_header"], "|---|---|---|---|"]
         for kind, s, dst, note in flags:
             md.append(f"| {kind} | `{s}` | `{dst}` | {note} |")
+    failed = photo_cluster.landmark_failed_note(
+        b for b in bdata["batches"] if plan and b["batch"] in plan["batches"])
+    if failed:
+        md += ["", failed]
     if done_batches:
         md += ["", msg["exec_batches_done"].format(
             batches=', '.join('B' + str(b) for b in done_batches))]
@@ -435,6 +440,8 @@ def main():
     print(f"{label}: {counts['copied']} copied + "
           f"{counts['already_present']} already present, {len(flags)} flags, "
           f"{elapsed:.0f}s -> {log_path}")
+    if failed:
+        print(failed)
     if flags:
         sys.exit(1)
 

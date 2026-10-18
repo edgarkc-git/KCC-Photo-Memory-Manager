@@ -1380,6 +1380,9 @@ def cmd_render(args):
                 print(f"        why: {why}")
         else:
             print("no folder name would change")
+        failed = photo_cluster.landmark_failed_note(by_number.values())
+        if failed:
+            print(failed)
         if refused:
             print(f"⚠️ {len(refused)} folder name(s) would fail the validator")
         return 0
@@ -1404,6 +1407,9 @@ def cmd_render(args):
     if rerouted or folder_moves:
         print(f"{rerouted} route(s) differ from the earlier ones and {folder_moves} "
               "folder-only move(s) — each is in the log")
+    failed = photo_cluster.landmark_failed_note(by_number.values())
+    if failed:
+        print(failed)
     if refused:
         print(f"⚠️ {len(refused)} folder name(s) fail the validator — "
               "`photo_index.py check` lists them", file=sys.stderr)
@@ -1618,6 +1624,13 @@ def recut(args, workdir, pack, target, index, bpath, old_batches, backup,
         targets = {new_folder_of.get(s) for s in old_members.get(oid, ())} - {None}
         if len(targets) == 1:
             by_id[oid]["merged_into"] = next(iter(targets))
+    # A retired folder takes its set-where word with it (the Lead, 20261018):
+    # said, so the owner can set it again on the folder its files went to.
+    dropped = [f"set-where {by_id[oid]['where_set']['text']!r} dropped from "
+               f"{oid} (retired by the re-cut; its files are now in "
+               + ", ".join(sorted({new_folder_of.get(s) for s in old_members.get(oid, ())}
+                                  - {None}) or ["no folder"]) + ")"
+               for oid in retired if by_id[oid].get("where_set")]
 
     old_files = {f["source"]: f for f in index["files"]}
     files, moves = [], []
@@ -1668,14 +1681,20 @@ def recut(args, workdir, pack, target, index, bpath, old_batches, backup,
                   f"{f['folder'] or 'no folder'}")
         if len(moves) > 20:
             print(f"  … and {len(moves) - 20} more")
+        for line in dropped:
+            print(f"  {line}")
         print("DRY RUN — nothing written (batches.json and the index are as "
               "they were).")
         return 0
     log_entry(index, "index recut", summary, args.reason or RECUT_REASON, by="agent")
+    for line in dropped:
+        log_entry(index, "index recut", line, f"cluster generation {gen}")
     save(target, pack, index)
     print(f"index: {target}")
     print(f"cluster generation {gen}: {summary}")
     print(f"the cut it replaced: {backup.name}")
+    for line in dropped:
+        print(f"⚠️ {line}")
     print("next: `photo_index.py render` (and the vision pass, which reads the new "
           "batch numbers)")
     return 0

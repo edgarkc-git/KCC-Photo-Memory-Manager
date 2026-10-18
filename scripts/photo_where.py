@@ -48,7 +48,8 @@ from photo_cluster import (is_address, parse_date, parse_gps, in_country,  # noq
                            haversine_km, place_label, no_pack_anchor,
                            owner_country, read_day_files, away_points,
                            near_any_home, overpass_post, read_tags,
-                           read_name, Geocoder, reverse_url)
+                           read_name, Geocoder, reverse_url,
+                           landmark_failed_note)
 
 # i18n-guard:allow-begin — locale detection data, not user-facing output.
 # Words OpenStreetMap puts at the end of a Chinese trail name; stripping them
@@ -583,6 +584,9 @@ def main():
            "days": result_days, "suggestion": "+".join(suggestion[:4]) or None}
     if filtered_out:
         out["filtered_out"] = filtered_out
+    if geocoder.landmark_failed:
+        # F2 — the same line photo_cluster prints, in the file and on stderr.
+        out["landmark_failed_stops"] = len(geocoder.landmark_failed)
     if not result_days:
         # Written, not just printed: a batch with no GPS at all used to leave
         # no file behind, which reads downstream as "not run yet".
@@ -591,6 +595,9 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "where.json").write_text(json.dumps(out, ensure_ascii=False, indent=1))
     print(json.dumps(out, ensure_ascii=False, indent=1))
+    said = landmark_failed_note([dict(out, batch=args.batch)])
+    if said:
+        print(said, file=sys.stderr)
 
 
 if __name__ == "__main__":
