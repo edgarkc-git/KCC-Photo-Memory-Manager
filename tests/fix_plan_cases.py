@@ -288,6 +288,81 @@ def an_agent_row_is_validated_and_applied_on_ok():
 
 
 # ---------------------------------------------------------------------------
+# R1 — the landmark
+# ---------------------------------------------------------------------------
+
+def landmark_later(wd, place="Old Pier", flags=None):
+    """batches.json now names batch 2 by its landmark (A1's lookup, run after
+    the index was built), optionally flagged."""
+    path = wd / "batches.json"
+    doc = json.loads(path.read_text())
+    for b in doc["batches"]:
+        if b["batch"] == 2:
+            b["place"] = place
+            if flags is not None:
+                b["flags"] = flags
+    path.write_text(json.dumps(doc))
+
+
+@case
+def a_landmark_the_folder_does_not_carry_is_offered():
+    """⭐ REPRODUCTION (M6 R1, E29). ⛔ FAILS on 68bb0a9. The batch's landmark
+    is Old Pier and F002 still says Harbour: an R1 row offers it; `ok` makes
+    the landmark the folder's [where], and `word:` instead gives the owner's
+    own place word through set-where."""
+    got = {}
+    for given in ("ok", "word: Pier Road"):
+        with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+            wd, _pack = ready(tmp)
+            landmark_later(wd)
+            code, _o, _ = ix.run("freeze", wd)
+            r = rows(wd)
+            answer(wd, given)
+            acode, aout, aerr = apply(wd)
+            must(ix.run("render", wd), "render")
+            got[given] = (code, r, acode, names(tmp)["F002"],
+                          ix.index_of(tmp)[0]["folders"][1].get("where_set"))
+    ok, word = got["ok"], got["word: Pier Road"]
+    return (ok[0] == 3 and len(ok[1]) == 1
+            and "(R1) · F002 · `20241102_Harbour_harbour walk` → "
+                "`20241102_Old Pier_harbour walk` · the landmark is Old Pier" in ok[1][0]
+            and ok[2] == 0 and ok[3] == "20241102_Old Pier_harbour walk"
+            and word[2] == 0 and word[3] == "20241102_Pier Road_harbour walk"
+            and word[4]["text"] == "Pier Road"), f"{got}"
+
+
+@case
+def the_owners_own_place_word_is_never_proposed_over():
+    """GUARD (ADR 0001). A folder whose [where] the owner set gets no R1 row,
+    whatever the landmark."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        must(ix.run("group", "set-where", wd, "F002", "Pier Road", "--reason",
+                    "the owner's word"), "set-where")
+        must(ix.run("render", wd), "render")
+        landmark_later(wd)
+        code, out, _ = ix.run("fix-plan", wd)
+    return code == 0 and photo_index.NOTHING_TO_CHANGE in out, \
+        f"code={code} out={out[-400:]!r}"
+
+
+@case
+def a_failed_landmark_lookup_is_said_and_never_offered():
+    """GUARD (A1's flag). A batch flagged `landmark_lookup_failed` gets no
+    row to answer: the plan lists it as refused, saying to type the place,
+    and the freeze goes on."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        landmark_later(wd, flags=["landmark_lookup_failed"])
+        code, out, _ = ix.run("fix-plan", wd)
+        fcode, fout, _ = ix.run("freeze", wd)
+    return (code == 0 and "## Refused" in out and "landmark lookup failed" in out
+            and "set-where" in out and fcode == 0
+            and "landmark lookup failed" in fout), \
+        f"code={code} out={out[-500:]!r} freeze={fcode} {fout[-300:]!r}"
+
+
+# ---------------------------------------------------------------------------
 # R4 — a day that already has a folder; R2 on a folder the dump merges into
 # ---------------------------------------------------------------------------
 

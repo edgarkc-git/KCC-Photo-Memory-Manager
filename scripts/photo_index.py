@@ -3366,8 +3366,40 @@ def with_pets(name, pets, missing):
 
 
 def rule_r1(ctx):
-    """R1 — `[where]` is the landmark (needs A1's M1). Not built here."""
-    return []
+    """R1 — `[where]` is the landmark. A one-batch folder whose place refs
+    differ from its batch's landmark (`batches.json` place, A1's lookup) is
+    offered the landmark. ⛔ The owner's own word (set-where) always wins and
+    is never proposed over; a batch whose landmark lookup failed is listed,
+    never offered — the owner types a word instead."""
+    index, labels = ctx["index"], id_labels(ctx["pack"])
+    out = []
+    for fo in live(index):
+        if (fo["kind"] not in HOLDERS or fo.get("where_set") or fo.get("days")
+                or len(fo["batches"]) != 1 or not fo.get("rendered")
+                or fo["dest"]["mode"] != "new"):
+            continue
+        batch = ctx["by_number"].get(fo["batches"][0]) or {}
+        places = {}
+        refs, _coord = place_refs(batch.get("place"), labels, places, set())
+        words = where_words({"where": refs}, labels)[0]
+        have = where_words(fo, labels)[0]
+        if not words or words == have:
+            continue
+        slots = fo["rendered"].split(photo_name.SLOT_SEP)
+        joined = photo_name.NAME_SEP.join(words)
+        if have and len(slots) > 1 and slots[1] == photo_name.NAME_SEP.join(have):
+            slots[1] = joined
+        else:
+            slots.insert(1, joined)
+        op = fix_op("RENAME", "R1", fo, fo["rendered"],
+                    photo_name.SLOT_SEP.join(slots),
+                    len(copy_members(index, fo["id"])),
+                    f"the landmark is {joined}", refs=refs, places=places)
+        if "landmark_lookup_failed" in (batch.get("flags") or []):
+            op["why"] = (f"the landmark lookup failed for batch {batch.get('batch')}: "
+                         "type the place with `group set-where`")
+        out.append(op)
+    return out
 
 
 def rule_r2(ctx):
@@ -3523,7 +3555,8 @@ def draft_fix_plan(workdir, pack, index):
         (workdir / "batches.json").read_text(encoding="utf-8")).get("batches", [])}
     ctx = {"workdir": workdir, "pack": pack, "index": index, "by_number": by_number,
            "dest_root": photo_plan.resolve_dest_root(workdir, None, pack.profile)}
-    ops = [op for rule in FIX_RULES for op in rule(ctx)]
+    ops = [op for rule in FIX_RULES for op in rule(ctx)
+           if op["from"] != op["to"]]
     ops += [fix_op("RENAME", "agent", fo, fo.get("rendered") or "", a["to"],
                    len(copy_members(index, a["folder"])), a["reason"],
                    agent_name=a["to"])
@@ -3531,7 +3564,7 @@ def draft_fix_plan(workdir, pack, index):
             for fo in live(index) if fo["id"] == a["folder"]]
     offered, refused = [], []
     for op in ops:
-        why = fix_problem(op, ctx)
+        why = op.get("why") or fix_problem(op, ctx)
         (refused.append((op, why)) if why else offered.append(op))
     return offered, refused
 
@@ -3683,15 +3716,24 @@ def cmd_fix_plan(args):
         fo = next(x for x in index["folders"] if x["id"] == op["folder"])
         said = None
         if answer == "word":
-            if op["rule"] != "R3":
+            if op["rule"] not in ("R1", "R3"):
                 print(f"  ⛔ row {r['n']}: {op['rule']} takes `ok` or `skip`, not a "
                       "word — nothing written for it")
                 refused_n += 1
                 continue
-            text = agent_text(r["word"], "the [what]", "what")
-            if args.go:
-                fo["what"] = {"text": text, "source": "owner"}
-            said = f"[what] {text!r}, the owner's word"
+            if op["rule"] == "R1":
+                # The owner's own place word: set-where's own path (ADR 0001).
+                if args.go:
+                    said = group_set_where(index, argparse.Namespace(
+                        folder=fo["id"], text=r["word"], clear=False), pack,
+                        None, FIX_PLAN_CMD, "the owner's word on the fix plan")
+                else:
+                    said = f"[where] {r['word']!r}, the owner's word"
+            else:
+                text = agent_text(r["word"], "the [what]", "what")
+                if args.go:
+                    fo["what"] = {"text": text, "source": "owner"}
+                said = f"[what] {text!r}, the owner's word"
         elif answer == "ok":
             a = op["apply"]
             if op["rule"] == "R2":
@@ -3702,6 +3744,12 @@ def cmd_fix_plan(args):
                     said = f"renamed `{op['from']}` → `{op['to']}`"
                     if args.go:
                         fo["dest"]["existing_path"] = str(Path(a["path"]).parent / op["to"])
+            elif op["rule"] == "R1":
+                if args.go:
+                    fo["where"] = [dict(r) for r in a["refs"]]
+                    for ref, entry in a["places"].items():
+                        index["places"].setdefault(ref, entry)
+                said = f"[where] is the landmark ({op['reason']})"
             elif op["rule"] == "R3":
                 if args.go:
                     fo["drop_what"] = sorted(set(fo.get("drop_what") or []) | set(a["drop_what"]))
