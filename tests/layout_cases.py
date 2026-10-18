@@ -218,6 +218,49 @@ def an_ok_through_make_trip_renders_exactly_the_proposed_name():
 
 
 @case
+def a_make_trip_row_answered_ok_on_the_page_becomes_the_proposed_trip():
+    """⭐ REPRODUCTION (E28 end to end: the fix plan's R5 row, the page, the
+    stage's apply). `fix-plan` offers the real trip_candidates row as a
+    MAKE-TRIP row; the page's `apply` writes `ok` into it; `fix-plan
+    --answers --go` runs make-trip; render names the trip parent exactly the
+    row's `to`, and no leg carries the country (D-F12). ⛔ FAILS on c7b761e
+    (no candidate, no --country)."""
+    import photo_index
+    import index_group_cases as g
+    with tempfile.TemporaryDirectory() as tmp, g.ix.no_env():
+        wd, _pack, _idx, batches = group_index(tmp)
+        body = json.loads((wd / "batches.json").read_text())
+        body["batches"] = abroad(batches)
+        (wd / "batches.json").write_text(json.dumps(body))
+        g.render(wd)
+        code, out, err = g.run("fix-plan", wd)
+        md = wd / "plan" / "fix-plan.md"
+        text = md.read_text(encoding="utf-8") if md.exists() else ""
+        rows = [m for m in map(photo_index.FIX_ROW.match, text.splitlines()) if m]
+        trip = next((m for m in rows if m.group(2) == "MAKE-TRIP"), None)
+        if trip is None:
+            return False, f"no MAKE-TRIP row (rc={code}): {text[-400:]!r} {err[-200:]!r}"
+        ans = Path(tmp) / "answers.txt"
+        ans.write_text(f"{trip.group(1)}: ok\n", encoding="utf-8")
+        r = subprocess.run([sys.executable, str(ROOT / "scripts" / "photo_fixplan_page.py"),
+                            "apply", str(md), "--answer", str(ans)],
+                           capture_output=True, text=True)
+        code2, out2, err2 = g.run("fix-plan", wd, "--answers", md, "--go")
+        g.render(wd)
+        f = g.folders(tmp)
+        parent = next((fo for fo in f.values() if fo["kind"] == "trip"
+                       and fo.get("status") != "retired"), None)
+        legs = sorted(fo["rendered"] for fo in f.values()
+                      if parent and fo.get("parent") == parent["id"])
+    want = trip.group(6)
+    return (r.returncode == 0 and code2 == 0 and parent is not None
+            and parent["rendered"] == want and len(legs) == 5
+            and not any("Countryland" in leg for leg in legs)), \
+        (f"apply rc={r.returncode} {r.stderr[-150:]!r} go rc={code2} {err2[-200:]!r} "
+         f"parent={parent and parent['rendered']} want={want} legs={legs}")
+
+
+@case
 def no_trip_is_proposed_in_an_expat_period_or_without_a_country_test():
     """GUARD (Q2). A home outside the owner's country, valid on those days,
     is an expat period: the engine cannot tell the expat country from a

@@ -242,10 +242,8 @@ def the_out_of_date_and_empty_states_are_carried_in_the_data():
 
 @case
 def a_make_trip_row_is_shown_when_the_stage_writes_one():
-    """GUARD (R5 MAKE-TRIP, once the stage's FIX_ROW takes it): a trip row is
-    read and shown like any row, OK or Skip only."""
-    if "MAKE-TRIP" not in getattr(photo_index, "FIX_OPS", ()):
-        return True, "the stage writes no MAKE-TRIP row yet — skipped"
+    """REPRODUCTION (R5 MAKE-TRIP). A trip row the stage writes is read and
+    shown like any row, OK or Skip only. ⛔ FAILS on c7b761e (no page)."""
     trip = {"op": "MAKE-TRIP", "rule": "R5", "folder": "F006",
             "from": "2 day folders 1025-1031", "to": "20241025-1031_Countryland_Dunmore",
             "reason": "a trip abroad", "photos": 6}
