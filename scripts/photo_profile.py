@@ -769,6 +769,17 @@ MESSAGE_VOCAB = {
         "note_extension_corrected": "副檔名更正(D13):{old} → {new}(實際格式 {filetype})",
         "note_duplicate_name_in_plan": "同名檔已在本計畫 → _dup 後綴",
         "note_already_in_existing_folder": "既有資料夾已有相同檔案(名稱+大小+SHA-256)",
+        # G16 twins. ⚠️ English in the legacy table too, pending a translation.
+        "note_twin": "a twin: the same bytes (size + SHA-256) are already in "
+                     "the sorted tree or earlier in this dump — the destination "
+                     "column holds that file; never copied",
+        "plan_h_twins": "## Twins (G16)",
+        "twin_dest_tree": "dest tree: {n} file(s) scanned under `{root}`",
+        "twin_dest_tree_missing": "dest tree: not found, 0 files scanned (`{root}`)",
+        "twin_line": "- `{source}` = twin of `{twin}`",
+        "twin_none": "No twin in this plan.",
+        "exec_twin_copied": "twin gone or changed since the freeze, copied "
+                            "instead: `{source}` (its twin was `{twin}`)",
         "note_screenshot_duplicate_in_trip_folder":
             "為截圖,既有檔位於行程資料夾,可手動移至月度截圖資料夾",
         "note_format_undeterminable": "無法判定實際檔案格式(D13)→ 需人工確認",
@@ -955,6 +966,17 @@ MESSAGE_VOCAB = {
             "a file of the same name is already in this plan → _dup suffix",
         "note_already_in_existing_folder":
             "the existing folder already holds this file (name + size + SHA-256)",
+        # G16 twins. ⚠️ English in the legacy table too, pending a translation.
+        "note_twin": "a twin: the same bytes (size + SHA-256) are already in "
+                     "the sorted tree or earlier in this dump — the destination "
+                     "column holds that file; never copied",
+        "plan_h_twins": "## Twins (G16)",
+        "twin_dest_tree": "dest tree: {n} file(s) scanned under `{root}`",
+        "twin_dest_tree_missing": "dest tree: not found, 0 files scanned (`{root}`)",
+        "twin_line": "- `{source}` = twin of `{twin}`",
+        "twin_none": "No twin in this plan.",
+        "exec_twin_copied": "twin gone or changed since the freeze, copied "
+                            "instead: `{source}` (its twin was `{twin}`)",
         "note_screenshot_duplicate_in_trip_folder":
             "this is a screenshot and the existing copy sits in a trip folder — "
             "move it to the monthly screenshots folder by hand if you want it there",

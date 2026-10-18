@@ -137,6 +137,45 @@ def blocked_renames(todo, dest_root, pending):
     return blocked
 
 
+def load_twins(plan_dir, label):
+    """-> (dest tree meta or None, {source: twin record}) photo_plan wrote
+    beside this plan (G16); (None, {}) when the plan has no twin list."""
+    p = Path(plan_dir) / f"plan_{label}-twins.json"
+    if not p.exists():
+        return None, {}
+    data = json.loads(p.read_text(encoding="utf-8"))
+    return data.get("dest_tree"), data.get("twins") or {}
+
+
+def twin_holds(rec):
+    """Is the twin still there, same size and same SHA-256? A tree twin is
+    the sorted file; a dump twin is the kept SOURCE, copied by this run. Read
+    only on both sides."""
+    p = Path(rec["twin"])
+    try:
+        return (p.is_file() and p.stat().st_size == rec["size"]
+                and sha256_file(p) == rec["sha256"])
+    except OSError:
+        return False
+
+
+def twin_lines(dest_tree, twin_recs, kept, gone, msg):
+    """The execution log's twin section; nothing for a plan with no list."""
+    if dest_tree is None:
+        return []
+    md = [msg["plan_h_twins"], "",
+          (msg["twin_dest_tree"].format(n=dest_tree.get("files", 0),
+                                        root=dest_tree.get("root"))
+           if dest_tree.get("found") else
+           msg["twin_dest_tree_missing"].format(root=dest_tree.get("root"))), ""]
+    md += [msg["twin_line"].format(source=r["SourceFile"],
+                                   twin=twin_recs[r["SourceFile"]]["twin"])
+           for r in kept] or [msg["twin_none"]]
+    md += [msg["exec_twin_copied"].format(source=r["SourceFile"], twin=r["_twin"])
+           for r in gone]
+    return md + [""]
+
+
 def load_state(path, plan_num):
     if path.exists():
         state = json.loads(path.read_text())
@@ -244,6 +283,24 @@ def main():
     # Any non-copy action, not just skip_dupe: a new skip kind must show up in
     # the report rather than vanish between the copies and the total.
     skips = [r for r in rows if r["action"].startswith("skip")]
+    # G16 — the tree can change between the freeze and the copy. A twin whose
+    # file is gone or changed is copied where it would have gone, and said.
+    dest_tree, twin_recs = load_twins(plan_dir, label)
+    twins_gone = []
+    copied_before = verified_anywhere(plan_dir)
+    for r in skips:
+        rec = twin_recs.get(r["SourceFile"])
+        if rec and r["SourceFile"] not in copied_before and not twin_holds(rec):
+            twins_gone.append({**r, "action": "copy", "destination": rec["destination"],
+                               "FileName": rec["FileName"], "_twin": rec["twin"]})
+    if twins_gone:
+        gone = {r["SourceFile"] for r in twins_gone}
+        skips = [r for r in skips if r["SourceFile"] not in gone]
+        copies += twins_gone
+        for r in twins_gone:
+            print("  " + msg["exec_twin_copied"].format(source=r["SourceFile"],
+                                                       twin=r["_twin"]))
+    twins_kept = [r for r in skips if r["SourceFile"] in twin_recs]
 
     for r in copies:
         if not allowed(r["destination"], prefixes):
@@ -358,6 +415,7 @@ def main():
           msg["exec_stat_previously_verified"].format(n=len(copies) - len(pending)),
           msg["exec_stat_skip_dupe"].format(n=len(skips)),
           msg["exec_stat_flags"].format(n=len(flags)), "",
+          *twin_lines(dest_tree, twin_recs, twins_kept, twins_gone, msg),
           msg["exec_h_dest_counts"], "",
           msg["md_dest_count_header"], "|---|---|"]
     for d, n in sorted(dest_counts.items(), key=lambda x: -x[1]):

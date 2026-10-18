@@ -105,6 +105,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import photo_cluster  # noqa: E402
+import photo_desttree  # noqa: E402
 import photo_evidence  # noqa: E402
 import photo_execute  # noqa: E402
 from photo_platform import path_key  # noqa: E402
@@ -841,6 +842,33 @@ def run_dedupe(workdir, fo, pack):
                       + (r.stdout + r.stderr)[-600:])
 
 
+def twin_scan(workdir, sources, profile, write):
+    """G16 — -> (twin records {source: {twin, kind, sha256, size}}, dest tree
+    {root, found, files}, {source: SHA-256}). The sorted tree is re-scanned
+    (G15) and read only; `write` keeps the hash caches in the work dir, and a
+    dry run passes False so it writes nothing. A dest root that is not there
+    is an empty tree — said, never silently "no twins"."""
+    try:
+        root = photo_plan.resolve_dest_root(workdir, None, profile)
+    except SystemExit:
+        root = None
+    found = bool(root) and Path(root).is_dir()
+    try:
+        tree = photo_desttree.scan(root, workdir, write=write) if found else []
+        shas = photo_desttree.source_shas(sorted(sources), workdir, write=write)
+    except OSError as exc:
+        raise Refused(f"the twin check cannot read a file in the sorted tree: "
+                      f"{exc} — nothing rendered")
+    done = photo_execute.verified_anywhere(workdir / "plan")
+    pairs = photo_desttree.twins(shas, tree, own_copies=[v["dest"] for v in done.values()],
+                                 done=done)
+    keys = {path_key(s) for s in sources}
+    records = {s: {"twin": t, "kind": "dump" if path_key(t) in keys else "tree",
+                   "sha256": shas[s], "size": Path(s).stat().st_size}
+               for s, t in sorted(pairs.items())}
+    return records, {"root": root, "found": found, "files": len(tree)}, shas
+
+
 def settle_file(index, f, r, path_ids, words):
     """One file's route, as photo_plan settled it. `path_ids` maps each
     holder's placeholder path to its id (None for the no-date plan)."""
@@ -1175,6 +1203,14 @@ def cmd_render(args):
                       + "\n".join(f"  ⛔ {p}" for p in broken[:10]))
 
     files = {f["source"]: f for f in index["files"] if f["status"] == "present"}
+    twin_recs, dest_tree, shas = twin_scan(workdir, files, profile, write=not dry_run)
+    twins = {s: rec["twin"] for s, rec in twin_recs.items()}
+    if dest_tree["found"]:
+        print(f"dest tree: {dest_tree['files']} file(s) scanned under "
+              f"{dest_tree['root']}; {len(twins)} twin(s) in this dump")
+    else:
+        print(f"dest tree: not found, 0 files scanned ({dest_tree['root']}) — "
+              "no file can be found a twin of one already sorted")
     before = {s: (f["route"], f["folder"], f["route_source"]) for s, f in files.items()}
     for f in files.values():
         f.update(route=None, folder=None, dest_name=None, dupe_of=None, who=[],
@@ -1193,6 +1229,8 @@ def cmd_render(args):
                           "these share a date — nothing rendered")
         owner[src] = label
         settle_file(index, f, r, path_ids, words)
+        if f["route"] == "skip_dupe":
+            f["sha256"] = shas.get(src)
 
     units = export_units(index, by_number)
     paths = unit_paths(units, PLACEHOLDER_ROOT, real=False)
@@ -1202,7 +1240,7 @@ def cmd_render(args):
         plan = unit_plan(u, n, paths)
         rows, _cand, _paper, _why = photo_plan.settle_rows(
             workdir, plan, [by_number[b] for b in u["batches"] if b in by_number],
-            PLACEHOLDER_ROOT, profile, msg)
+            PLACEHOLDER_ROOT, profile, msg, twins=twins)
         visual = photo_plan.visual_columns(workdir, u["batches"], profile, pack) or {}
         for r in rows:
             if r["_action"] == ROUTE_COPY and r["_dest"] in tops:
@@ -1218,7 +1256,7 @@ def cmd_render(args):
                         photo_plan.WHO_SUBJECTS) or []]
     if (workdir / "no-date-files.csv").exists():
         rows, _counts, _root = photo_plan.settle_no_date_rows(
-            workdir, PLACEHOLDER_ROOT, profile, msg)
+            workdir, PLACEHOLDER_ROOT, profile, msg, twins=twins)
         for r in rows:
             take(r, None, "the no-date plan")
     if stray:
@@ -1297,7 +1335,11 @@ def cmd_render(args):
             fo["status"] = ("proposed" if any(f["folder"] == fo["id"]
                                               for f in files.values()) else "empty")
     index["render"] = {"at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                       "pack_fingerprint": pack_id(pack), "no_vision": bool(unseen)}
+                       "pack_fingerprint": pack_id(pack), "no_vision": bool(unseen),
+                       "dest_tree": dest_tree,
+                       "twins": {s: rec for s, rec in twin_recs.items()
+                                 if files[s]["route"] == "skip_dupe"
+                                 and files[s]["dupe_of"] == rec["twin"]}}
     named = held + grouped
     days = [fo for fo in held if fo["kind"] == "day"]
     legs = len(held) - len(days)
@@ -2912,6 +2954,11 @@ def cmd_freeze(args):
     exported, said = ["plans.json"], []
     try:
         write_json(workdir / "plans.json", body)
+        # G16 — the twins this index settled, for photo_plan to route the same.
+        (workdir / "plan").mkdir(exist_ok=True)
+        write_json(workdir / "plan" / photo_plan.TWIN_MAP,
+                   {"dest_tree": (index.get("render") or {}).get("dest_tree"),
+                    "twins": (index.get("render") or {}).get("twins") or {}})
         env = pack_env(pack)
         extra = ["--no-vision"] if index["render"].get("no_vision") else []
         for p in plans:
@@ -2922,6 +2969,10 @@ def cmd_freeze(args):
             said += plan_stage(workdir, env, ["--no-date"], "the no-date plan")
             exported.append("plan/plan_no-date-files.csv")
         compare_exports(workdir, expected, exported[1:])
+        exported.append(f"plan/{photo_plan.TWIN_MAP}")
+        exported += [f"plan/{photo_plan.twins_file(label)}"
+                     for label in [f"P{p['plan']}" for p in plans]
+                     + (["no-date"] if (workdir / "no-date-files.csv").exists() else [])]
     except Refused:
         # Everything the freeze and photo_plan write, put back as it was: a
         # refusal writes nothing (FIX8 F8-2). That includes the batch statuses
@@ -3004,29 +3055,47 @@ def finish_target(workdir):
 
 
 def copy_check(workdir, index):
-    """After the copy: every SHA-256 photo_execute verified is the one frozen."""
+    """After the copy: every SHA-256 photo_execute verified is the one frozen,
+    and every twin's bytes are in the tree (G16): its tree file still has the
+    source's size and SHA-256, or the dump file it was kept beside was copied
+    with that SHA-256. A twin photo_execute copied instead counts as copied."""
     frozen = index["frozen"]
     sha = {f["source"]: f["sha256"] for f in index["files"] if f.get("sha256")}
     labels = [f"P{n}" for n in sorted(frozen["plans"], key=int)]
     if "plan/plan_no-date-files.csv" in frozen["files"]:
         labels.append("no-date")
     copied, wrong, absent = 0, [], []
+    twins_ok, twins_bad = 0, []
     # Every state file: a file copied under another plan number is copied
     # (FIX8 F8-2 — a merge after a copy renumbers the plans).
     verified = photo_execute.verified_anywhere(workdir / "plan")
+    twin_map = (index.get("render") or {}).get("twins") or {}
+    dupes = {f["source"]: f["dupe_of"] for f in index["files"]
+             if f.get("route") == "skip_dupe" and f.get("dupe_of")}
     for label in labels:
         with open(workdir / "plan" / f"plan_{label}-files.csv", newline="",
                   encoding="utf-8") as fh:
             for r in csv.DictReader(fh):
-                if r["action"] != ROUTE_COPY:
+                src = r["SourceFile"]
+                if r["action"] == "skip_dupe" and src not in verified:
+                    # An index rendered before G16 holds no SHA-256 for a skip.
+                    if not sha.get(src):
+                        continue
+                    if twin_in_tree(src, r["destination"], sha, verified, twin_map,
+                                    dupes):
+                        twins_ok += 1
+                    else:
+                        twins_bad.append(f"{Path(src).name} ({label})")
                     continue
-                v = verified.get(r["SourceFile"])
+                if r["action"] not in (ROUTE_COPY, "skip_dupe"):
+                    continue
+                v = verified.get(src)
                 if v is None:
-                    absent.append(f"{Path(r['SourceFile']).name} ({label})")
+                    absent.append(f"{Path(src).name} ({label})")
                     continue
                 copied += 1
-                if v.get("sha256") != sha.get(r["SourceFile"]):
-                    wrong.append(f"{Path(r['SourceFile']).name} ({label})")
+                if v.get("sha256") != sha.get(src):
+                    wrong.append(f"{Path(src).name} ({label})")
     print(f"copy check: {copied} file(s) copied; {copied - len(wrong)} match the "
           f"SHA-256 frozen at {frozen['at']}"
           + (f"; {len(absent)} not copied" if absent else ""))
@@ -3034,6 +3103,12 @@ def copy_check(workdir, index):
         print(f"  ⛔ changed since the freeze: {w}")
     for a in absent[:10]:
         print(f"  ⚠️ not copied: {a}")
+    if twins_ok or twins_bad:
+        print(f"twin check: {twins_ok} twin(s) found in the tree with the same "
+              "size and SHA-256"
+              + (f"; {len(twins_bad)} NOT found" if twins_bad else ""))
+    for t in twins_bad[:10]:
+        print(f"  ⛔ twin not in the tree: {t}")
     plans = json.loads((workdir / "plans.json").read_text(encoding="utf-8"))
     todo = photo_execute.renames_to_do(plans, frozen["dest_root"])
     if todo:
@@ -3044,7 +3119,27 @@ def copy_check(workdir, index):
               f"(plan/{RENAMES_MD}):")
         for old, new in todo:
             print(f'    "{old}" -> "{new}"')
-    return 1 if wrong or absent else 0
+    return 1 if wrong or absent or twins_bad else 0
+
+
+def twin_in_tree(src, target, sha, verified, twin_map, dupes, seen=()):
+    """Is `src`'s SHA-256 in the sorted tree through its twin `target`? A
+    dump twin follows the kept file: copied with that SHA, itself a twin, or
+    a `--ref` duplicate of a file already in a merged folder (`dupes`)."""
+    want = sha.get(src)
+    if not want:
+        return False
+    if (twin_map.get(src) or {}).get("kind") == "dump":
+        if target in seen:
+            return False
+        v = verified.get(target)
+        if v is not None:
+            return v.get("sha256") == want
+        nxt = (twin_map.get(target) or {}).get("twin") or dupes.get(target)
+        return bool(nxt) and sha.get(target) == want and twin_in_tree(
+            target, nxt, sha, verified, twin_map, dupes, (*seen, src))
+    p = Path(target)
+    return p.is_file() and photo_desttree.sha256_file(p) == want
 
 
 def cmd_verify(args):

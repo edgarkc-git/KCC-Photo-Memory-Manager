@@ -908,6 +908,81 @@ def load_dedupe(workdir, batch_nums):
     return dupes, missing
 
 
+# G16 — the twins a freeze settled, written by `photo_index freeze` before it
+# runs this plan, so the plan routes exactly what the index holds:
+# {"dest_tree": {"root", "found", "files"}, "twins": {source: {"twin", "kind",
+# "sha256", "size"}}}. Absent = no twin (the flow without an index).
+TWIN_MAP = "twin-map.json"
+
+
+def twins_file(label):
+    """The per-plan twin list photo_execute re-checks at copy time."""
+    return f"plan_{label}-twins.json"
+
+
+def load_twins(workdir):
+    p = Path(workdir) / "plan" / TWIN_MAP
+    if not p.exists():
+        return None
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def apply_twins(rows, twins, msg):
+    """G16 — a row `route()` would COPY whose bytes are already in the sorted
+    tree or earlier in the dump becomes a skip row naming its twin. Only a
+    copy: route() stays the router for every other action. The folder the
+    file would have gone to is kept (`_fallback`) so the copy can still put
+    it there if the twin is gone by then."""
+    for r in rows:
+        twin = (twins or {}).get(r["SourceFile"])
+        if twin is None or r["_action"] != "copy":
+            continue
+        r["_fallback"] = (r["_dest"], r["_name"])
+        r["_action"], r["_dest"] = "skip_dupe", twin
+        r["_note"], r["_tags"] = msg["note_twin"], {"twin"}
+
+
+def twin_paths(twin_map):
+    return {s: rec["twin"] for s, rec in ((twin_map or {}).get("twins") or {}).items()}
+
+
+def write_twins(out_dir, label, rows, twin_map):
+    """-> the twin records of this plan, written beside its CSV; with no twin
+    map (no index) nothing is written and any old list is removed."""
+    path = Path(out_dir) / twins_file(label)
+    if twin_map is None:
+        if path.exists():
+            path.unlink()
+        return {}
+    records = twin_records(rows, twin_map)
+    path.write_text(json.dumps({"dest_tree": twin_map.get("dest_tree"),
+                                "twins": records}, ensure_ascii=False, indent=1),
+                    encoding="utf-8")
+    return records
+
+
+def twin_records(rows, twin_map):
+    """-> {source: twin record + the destination it would have taken}."""
+    out = {}
+    for r in rows:
+        if "twin" in r.get("_tags", ()) and r.get("_fallback"):
+            rec = dict(twin_map["twins"][r["SourceFile"]])
+            rec["destination"], rec["FileName"] = r["_fallback"]
+            out[r["SourceFile"]] = rec
+    return out
+
+
+def twin_md(records, twin_map, msg):
+    tree = twin_map.get("dest_tree") or {}
+    md = ["", msg["plan_h_twins"], "",
+          (msg["twin_dest_tree"].format(n=tree.get("files", 0), root=tree.get("root"))
+           if tree.get("found") else
+           msg["twin_dest_tree_missing"].format(root=tree.get("root"))), ""]
+    md += [msg["twin_line"].format(source=s, twin=rec["twin"])
+           for s, rec in sorted(records.items())] or [msg["twin_none"]]
+    return md
+
+
 def collect_rows(workdir, batches):
     rows = []
     with open(workdir / "manifest.csv", newline="") as f:
@@ -1012,7 +1087,7 @@ def route(row, plan, dest_root, dupes, msg, format_known=True, profile=None,
     return "copy", dest, "", set()
 
 
-def settle_rows(workdir, plan, batches, dest_root, profile, msg):
+def settle_rows(workdir, plan, batches, dest_root, profile, msg, twins=None):
     """-> (rows, screen candidates, paperwork scores, why) — every file of
     `plan`'s batches with its action, destination, note and tags settled by
     `route()`. The plan CSV is written from these rows.
@@ -1024,6 +1099,7 @@ def settle_rows(workdir, plan, batches, dest_root, profile, msg):
 
     The dedupe inputs travel with it: a plan that declares `refs` with no
     dedupe results stops here, whoever the caller is (OA-3 mandatory).
+    `twins` is {source: twin path} (G16, `apply_twins()`).
     """
     dupes, missing = ({}, [])
     if plan.get("refs"):
@@ -1046,6 +1122,7 @@ def settle_rows(workdir, plan, batches, dest_root, profile, msg):
         if ext_note and r["_action"] == "copy":
             r["_note"] = join_note(r["_note"], ext_note, msg)
             r["_tags"] = r["_tags"] | {"renamed"}
+    apply_twins(rows, twins, msg)
     suffix_in_plan_collisions(rows, msg)
     return rows, candidates, paperwork, paperwork_why
 
@@ -1138,7 +1215,8 @@ def routes_by_file_date(rows):
     return bool(rows) and "FileModifyDate" in rows[0]
 
 
-def settle_no_date_rows(workdir, dest_root, profile, msg, ai_confirmed=False):
+def settle_no_date_rows(workdir, dest_root, profile, msg, ai_confirmed=False,
+                        twins=None):
     """-> (rows, counts per class, bucket root) — every no-date file with its
     action, destination and note, as `write_no_date_plan()` writes them.
     ⛔ PURE, like `settle_rows()`: `photo_index render` reads the routes from
@@ -1188,6 +1266,8 @@ def settle_no_date_rows(workdir, dest_root, profile, msg, ai_confirmed=False):
             note = join_note(note, msg["note_unclassifiable"].format(
                 bucket=names["to_be_checked"]), msg)
         r["_note"] = note
+        r["_tags"] = set()
+    apply_twins(rows, twins, msg)
     suffix_in_plan_collisions(rows, msg)
     return rows, counts, bucket_root
 
@@ -1206,12 +1286,16 @@ def write_no_date_plan(workdir, out_dir, ai_confirmed=False, profile=None):
     pp = workdir / "plans.json"
     dest_root = resolve_dest_root(
         workdir, json.loads(pp.read_text()) if pp.exists() else {}, profile)
+    twin_map = load_twins(workdir)
     rows, counts, bucket_root = settle_no_date_rows(
-        workdir, dest_root, profile, msg, ai_confirmed=ai_confirmed)
+        workdir, dest_root, profile, msg, ai_confirmed=ai_confirmed,
+        twins=twin_paths(twin_map))
+    twin_recs = write_twins(out_dir, "no-date", rows, twin_map)
     names = photo_profile.buckets(profile)
     dest_counts = {}
     for r in rows:
-        dest_counts[r["_dest"]] = dest_counts.get(r["_dest"], 0) + 1
+        if r["_action"] == "copy":
+            dest_counts[r["_dest"]] = dest_counts.get(r["_dest"], 0) + 1
     csv_path = out_dir / "plan_no-date-files.csv"
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
@@ -1247,6 +1331,8 @@ def write_no_date_plan(workdir, out_dir, ai_confirmed=False, profile=None):
         md.append(f"| `{d}` | {n} |")
     md += ["", msg["nodate_full_list"].format(path=csv_path.name),
            msg["nodate_run_line"], ""]
+    if twin_map is not None:
+        md += twin_md(twin_recs, twin_map, msg)
     (out_dir / "plan_no-date.md").write_text("\n".join(md))
     print(f"no-date plan: {len(rows)} files -> "
           + ", ".join(f"{Path(d).name}:{n}" for d, n in sorted(dest_counts.items()))
@@ -1432,8 +1518,10 @@ def main():
               "  --no-vision plans anyway, giving up WHO/WHAT for these "
               "batches.")
 
+    twin_map = load_twins(workdir)
     rows, candidates, paperwork, paperwork_why = settle_rows(
-        workdir, plan, batches, dest_root, profile, msg)
+        workdir, plan, batches, dest_root, profile, msg,
+        twins=twin_paths(twin_map))
 
     # R12 — check the names before writing them, each folder against the days
     # it keeps (B3b). Said out loud on stderr so it
@@ -1597,6 +1685,9 @@ def main():
         if coll:
             md.append(msg["plan_dedupe_collisions"].format(n=coll))
         md.append(msg["plan_dedupe_limitation"])
+    twin_recs = write_twins(out_dir, f"P{args.plan}", rows, twin_map)
+    if twin_map is not None:
+        md += twin_md(twin_recs, twin_map, msg)
 
     if maybe_shots:
         # G-2's non-blocking half: the checkpoint the run could not stop to
