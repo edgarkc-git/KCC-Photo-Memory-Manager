@@ -354,7 +354,8 @@ def every_command_needs_a_reason_and_a_frozen_index_refuses_every_one():
                 ["move", "F007", "--to", "F008", "--dates", "2024-12-11"],
                 ["split", "F004", "--at", "2024-10-30"],
                 ["merge", "F007", "--into", "F008"],
-                ["set-what", "F006", "a walk"]]
+                ["set-what", "F006", "a walk"],
+                ["set-where", "F006", "Old Pier"]]
     bad = []
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         wd, _pack = ready(tmp, min_visits=2)
@@ -739,6 +740,130 @@ def set_what_stores_the_agents_text_and_clear_goes_back_to_the_pick():
             and second["what"] is None
             and second["rendered"] == "20241102_Harbour_harbour walk"), \
         f"first={first['rendered']} second={second['rendered']}"
+
+
+# ---------------------------------------------------------------------------
+# E43 / M3 — set-where: the owner's own [where] for one day folder or leg
+# ---------------------------------------------------------------------------
+
+@case
+def set_where_names_the_folder_and_clear_gives_the_lookup_back():
+    """REPRODUCTION (E43, M3). ⛔ FAILS on 11f5353: no `set-where` action, so
+    a day folder's [where] could not take the owner's word before the freeze.
+    The word beats the map word; `--clear` gives the looked-up place back,
+    never an empty [where]."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        must(run("group", "set-where", wd, "F006", "Old Pier+Sea Park",
+                 "--reason", "the owner's word"), "set-where")
+        render(wd)
+        first, fo = names(tmp)["F006"], folders(tmp)["F006"]
+        _i, view, _t = ix.index_of(tmp)
+        must(run("group", "set-where", wd, "F006", "--clear", "--reason", "r"),
+             "clear")
+        render(wd)
+        second, back = names(tmp)["F006"], folders(tmp)["F006"]
+    return (first == "20241208_Old Pier+Sea Park"
+            and fo["where"] == [{"ref": "agent:Old Pier"}, {"ref": "agent:Sea Park"}]
+            and "Old Pier (agent)" in view
+            and second == "20241208_Townsville" and back["where_set"] is None
+            and back["where"] == [{"ref": "map:Townsville"}]), \
+        f"first={first} second={second} where={back['where']}"
+
+
+@case
+def set_where_works_on_a_leg_and_never_on_a_parent_or_a_bucket():
+    """REPRODUCTION (E43). ⛔ FAILS on 11f5353 (no action). A leg takes the
+    word and renders it, since it differs from the trip's; a trip parent is
+    refused (its place is `make-trip --where`), so is a bucket (G10)."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        must(trip(wd), "make-trip")
+        must(run("group", "set-where", wd, "F002", "Lotus Falls", "--reason", "r"),
+             "set-where leg")
+        render(wd)
+        f = folders(tmp)
+        parent = next(fid for fid, fo in f.items() if fo["kind"] == "trip")
+        bucket = next(fid for fid, fo in f.items() if fo["kind"] == "bucket")
+        before = index(tmp)
+        p_code, _o, p_err = run("group", "set-where", wd, parent, "X", "--reason", "r")
+        b_code, _o, b_err = run("group", "set-where", wd, bucket, "X", "--reason", "r")
+        same = index(tmp) == before
+        leg = names(tmp)["F002"]
+    return (leg == "1026_Lotus Falls" and p_code and b_code and same
+            and "trip" in p_err and "bucket" in b_err), \
+        f"leg={leg} p={p_code} {p_err[-120:]!r} b={b_code} {b_err[-120:]!r}"
+
+
+@case
+def set_where_is_checked_like_a_name_part_and_warns_on_an_address():
+    """REPRODUCTION (E43). ⛔ FAILS on 11f5353 (no action). A coordinate, a
+    grammar separator or an empty text is refused and nothing changes; an
+    address-shaped word is the owner's own and is used with a warning."""
+    # i18n-guard:allow-begin — locale detection data: `is_address` reads a
+    # CJK lane number, so an ASCII text cannot exercise the warning.
+    address = "12\u5df7"
+    # i18n-guard:allow-end
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        before = index(tmp)
+        refused = [run("group", "set-where", wd, "F006", t, "--reason", "r")[0]
+                   for t in ("25.03,121.56", "Pier_Two", "  ", "Pier+")]
+        same = index(tmp) == before
+        said = must(run("group", "set-where", wd, "F006", address, "--reason", "r"),
+                    "address")
+        fo = folders(tmp)["F006"]
+    return (all(refused) and same and "street address" in said
+            and fo["where"] == [{"ref": "agent:" + address}]), \
+        f"refused={refused} same={same} said={said[-200:]!r}"
+
+
+@case
+def set_where_survives_relabel_and_split():
+    """REPRODUCTION (E43, ADR 0001). The owner's word beats the lookup, so the
+    commands that re-derive places keep it: relabel and a split (both
+    pieces). ⛔ FAILS on 11f5353 (no action)."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        rows = [ix.row("IMG_0101.jpg", when="2024:11:01 10:00:00", gps=TRIP),
+                ix.row("IMG_0201.jpg", when="2024:11:02 10:00:00", gps=ix.FAR2)]
+        wd = ix.make_dump(tmp, rows=rows, batches=[
+            {"batch": 1, "from": "2024-11-01", "to": "2024-11-02",
+             "place": "Westvale+Farview"}])
+        ix.make_pack(tmp)
+        ix.seed_cache(tmp, {TRIP: "Westvale", ix.FAR2: "Farview"})
+        must(run("init", wd), "init")
+        must(run("group", "set-where", wd, "F001", "Birk Bay", "--reason", "r"),
+             "set-where")
+        must(run("relabel", wd, "--go"), "relabel")
+        after_relabel = folders(tmp)["F001"]["where"]
+        must(run("group", "split", wd, "F001", "--at", "2024-11-02",
+                 "--reason", "two outings"), "split")
+        f = folders(tmp)
+        new = next(fid for fid, fo in f.items() if fo.get("split_from") == "F001")
+        render(wd)
+        n = names(tmp)
+    want = [{"ref": "agent:Birk Bay"}]
+    return (after_relabel == want and f["F001"]["where"] == want
+            and f[new]["where"] == want and n["F001"] == "20241101_Birk Bay"
+            and n[new] == "20241102_Birk Bay"), \
+        f"relabel={after_relabel} split={f['F001']['where']}/{f[new]['where']} names={n}"
+
+
+@case
+def set_where_survives_a_recut_that_keeps_the_folder():
+    """REPRODUCTION (E43, ADR 0001). A re-cut that keeps a folder (same files)
+    keeps the owner's word and its place entry; `--clear` afterwards gives
+    the re-cut's own refs. ⛔ FAILS on 11f5353 (no action)."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        must(run("group", "set-where", wd, "F006", "Old Pier", "--reason", "r"),
+             "set-where")
+        must(run("recut", wd, "--no-geocode", "--reason", "r"), "recut")
+        kept = next((fo for fo in folders(tmp).values() if fo.get("where_set")), None)
+        places = index(tmp)["places"]
+    return (kept is not None and kept["status"] != "retired"
+            and kept["where"] == [{"ref": "agent:Old Pier"}]
+            and "agent:Old Pier" in places), f"kept={kept and kept['id']} places={sorted(places)}"
 
 
 # ---------------------------------------------------------------------------

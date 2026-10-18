@@ -21,6 +21,7 @@
   python3 photo_index.py group split "<dump>" F011 --at 2024-10-30 --reason "..."
   python3 photo_index.py group merge "<dump>" F034 --into F033 --reason "..."
   python3 photo_index.py group set-what "<dump>" F044 "<text>" --reason "..." | --clear
+  python3 photo_index.py group set-where "<dump>" F044 "<place>" --reason "..." | --clear
 
 `group` (D-I8) is how the agent changes the folder structure, each change with a
 reason in the log: day folders become the LEGS of a trip parent or of a monthly
@@ -1582,7 +1583,13 @@ def recut(args, workdir, pack, target, index, bpath, old_batches, backup,
         key = folder_identity(nf, new_members.get(nf["id"], set()), new_by_num)
         oid = unmatched.pop(key, None)
         if oid:
-            by_id[oid].update(where=nf["where"], batches=nf["batches"],
+            held = by_id[oid].get("where_set")
+            if held:
+                held = dict(held, was=nf["where"], was_places={
+                    r["ref"]: new["places"].get(r["ref"]) or {} for r in nf["where"]})
+                by_id[oid]["where_set"] = held
+            by_id[oid].update(where=by_id[oid]["where"] if held else nf["where"],
+                              batches=nf["batches"],
                               rendered=None, validation=None, status="proposed")
             final[nf["id"]] = oid
             kept.append(oid)
@@ -1632,6 +1639,11 @@ def recut(args, workdir, pack, target, index, bpath, old_batches, backup,
     index.update(phase=PHASE_ONB, cluster_gen=gen, pack_fingerprint=pack_id(pack),
                  places=new["places"], folders=folders, files=files,
                  file_id_next=new["file_id_next"], render=None)
+    for fo in live(index):
+        if fo.get("where_set"):
+            for r in fo["where"]:
+                index["places"].setdefault(r["ref"], {"kind": AGENT,
+                                                      "text": r["ref"][len(AGENT_REF):]})
     for f, before in moves:
         log_entry(index, "index recut",
                   f"{f['file_id']} {Path(f['source']).name}: {before or '—'} → "
@@ -1704,6 +1716,9 @@ def own_places(workdir, pack, index, ids=None):
     kept, unanswered, decided = [], 0, {}
     for fo in live(index):
         if fo["kind"] not in HOLDERS or (ids is not None and fo["id"] not in ids):
+            continue
+        if fo.get("where_set"):
+            decided[fo["id"]] = fo["where"]
             continue
         days = sorted(d for d in days_of.get(fo["id"], ())
                       if d in day_files and day_files[d]["centroid"])
@@ -3407,8 +3422,10 @@ def fsl_month_min_visits(profile):
     return max(value, FSL_MONTH_MIN_VISITS_FLOOR)
 
 
-def agent_text(text, what, slot):
-    """An agent-given name part, checked as a rendered name part is (R5)."""
+def agent_text(text, what, slot, warnings=None):
+    """An agent-given name part, checked as a rendered name part is (R5).
+    With a `warnings` list an address-shaped text is used and warned about,
+    not refused: the owner's own place word (set-where, ADR 0001)."""
     text = (text or "").strip()
     seps = (photo_name.SLOT_SEP, "/") + ((photo_name.NAME_SEP,) if slot == "where" else ())
     if not text:
@@ -3421,7 +3438,10 @@ def agent_text(text, what, slot):
         raise Refused(f"{what} reads as a coordinate (Operational Rule 3) — "
                       "nothing changed")
     if photo_cluster.is_address(text):
-        raise Refused(f"{what} {text!r} reads as a street address — nothing changed")
+        if warnings is None:
+            raise Refused(f"{what} {text!r} reads as a street address — nothing changed")
+        warnings.append(f"{what} {text!r} reads as a street address — used as "
+                        "given; check it is not a home")
     return text
 
 
@@ -3612,6 +3632,8 @@ def group_split(index, args, pack, by_number, cmd, reason):
     nid = next_folder_id(index)
     new = new_folder(nid, fo["kind"], where=[dict(r) for r in fo["where"]])
     new.update(parent=fo.get("parent"), split_from=fo["id"])
+    if fo.get("where_set"):
+        new["where_set"] = json.loads(json.dumps(fo["where_set"]))
     index["folders"].insert(index["folders"].index(fo) + 1, new)
     owned[fo["id"]], owned[nid] = earlier, later
     moved = move_files(index, fo["id"], nid, later, cmd, reason)
@@ -3677,9 +3699,52 @@ def group_set_what(index, args, pack, by_number, cmd, reason):
     return f"{fo['id']}: [what] {now!r}" if now else f"{fo['id']}: [what] back to the pick"
 
 
+def group_set_where(index, args, pack, by_number, cmd, reason):
+    """E43 — the owner's own `[where]` for one day folder or leg, before the
+    freeze. It beats the lookup (ADR 0001): relabel, recut and split keep it.
+    The derived refs are kept in `where_set.was`, so `--clear` gives them
+    back rather than leaving the folder with no place."""
+    fo = group_target(index, args.folder)
+    held = fo.get("where_set")
+    old = [r["ref"] for r in fo["where"]]
+    warnings = []
+    if args.clear:
+        if args.text:
+            raise Refused("--clear takes no text — nothing changed")
+        if not held:
+            raise Refused(f"{fo['id']} has no [where] of its own — nothing changed")
+        fo["where"] = [dict(r) for r in held["was"]]
+        for ref, entry in held.get("was_places", {}).items():
+            index["places"].setdefault(ref, entry)
+        fo["where_set"] = None
+    else:
+        # `+` joins places in [where] (D3), so each place is checked alone.
+        words = [w.strip() for w in (args.text or "").split(photo_name.NAME_SEP)]
+        if len(words) > 1 and not all(words):
+            raise Refused(f"the [where] {args.text!r} has an empty place around "
+                          f"`{photo_name.NAME_SEP}` — nothing changed")
+        words = [agent_text(w, "the [where]", "where", warnings) for w in words]
+        text = photo_name.NAME_SEP.join(words)
+        was = held["was"] if held else [dict(r) for r in fo["where"]]
+        was_places = held.get("was_places", {}) if held else {
+            r["ref"]: index["places"].get(r["ref"]) or {} for r in fo["where"]}
+        fo["where"] = [{"ref": AGENT_REF + w} for w in dict.fromkeys(words)]
+        for w in words:
+            index["places"].setdefault(AGENT_REF + w, {"kind": AGENT, "text": w})
+        fo["where_set"] = {"text": text, "source": AGENT, "was": was,
+                           "was_places": was_places}
+    fo.update(rendered=None, validation=None)
+    now = [r["ref"] for r in fo["where"]]
+    log_entry(index, cmd, f"{fo['id']}: [where] {' + '.join(old) or '—'} → "
+              f"{' + '.join(now) or '—'}", reason, by="agent")
+    said = (f"{fo['id']}: [where] back to {' + '.join(now) or '(no place)'}"
+            if args.clear else f"{fo['id']}: [where] {fo['where_set']['text']!r}")
+    return said + "".join(f"\n  ⚠️ {w}" for w in warnings)
+
+
 GROUP_ACTIONS = {"make-trip": group_make_trip, "make-fsl-month": group_make_fsl_month,
                  "move": group_move, "split": group_split, "merge": group_merge,
-                 "set-what": group_set_what}
+                 "set-what": group_set_what, "set-where": group_set_where}
 
 
 def cmd_group(args):
@@ -3864,6 +3929,11 @@ def main(argv=None):
     p.add_argument("source")
     p.add_argument("--into", required=True)
     p = action("set-what", "the agent's own [what] for a folder, or --clear")
+    p.add_argument("folder")
+    p.add_argument("text", nargs="?")
+    p.add_argument("--clear", action="store_true")
+    p = action("set-where", "the owner's own [where] for a day folder or leg, "
+                            "or --clear (back to the looked-up place)")
     p.add_argument("folder")
     p.add_argument("text", nargs="?")
     p.add_argument("--clear", action="store_true")
