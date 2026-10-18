@@ -2639,8 +2639,10 @@ def run_check(workdir, pack, index):
                     for f in files if f["folder"] == fo["id"] and f["route"] == ROUTE_COPY]
             batches = fo["batches"]
         visual = photo_plan.visual_columns(workdir, batches, pack.profile, pack)
-        for u in photo_plan.unbacked_names({"dest": {"path": path}}, rows, visual,
-                                           names):
+        # E48 — an existing folder's name keeps its pets (`unbacked_names()`).
+        for u in photo_plan.unbacked_names(
+                {"dest": {"path": path, "mode": fo["dest"]["mode"]}}, rows, visual,
+                names):
             problems.append(f"{fo['id']} `{name}`: {', '.join(u['names'])} — no "
                             "file copied into this folder shows a CONFIRMED "
                             "subject of that name at viewed-image: (F12)")
@@ -3305,8 +3307,8 @@ FIX_PLAN_CMD = "index fix-plan"
 # The stop the fix plan puts to the owner: rows wait, nothing frozen.
 EXIT_FIX_PLAN = 3
 FIX_ANSWERS = ("ok", "skip")
-FIX_OPS = ("RENAME", "INTO-EXISTING")
-FIX_ROW = re.compile(r"^(\d+)\. (RENAME|INTO-EXISTING) \(([^)]+)\) · (F\d+) · "
+FIX_OPS = ("RENAME", "INTO-EXISTING", "MAKE-TRIP")
+FIX_ROW = re.compile(r"^(\d+)\. (RENAME|INTO-EXISTING|MAKE-TRIP) \(([^)]+)\) · (F\d+) · "
                      r"`([^`]*)` → `([^`]*)` · .*· answer:\s*(.*?)\s*$")
 NOTHING_TO_CHANGE = "Nothing to change."
 BY_HAND = "the engine did not create this folder: rename it by hand"
@@ -3314,6 +3316,24 @@ BY_HAND = "the engine did not create this folder: rename it by hand"
 
 def fix_key(op):
     return f"{op['rule']}|{op['folder']}|{op['op']}|{op['to']}"
+
+
+def preview_samples(workdir):
+    """-> {source: preview path relative to the work dir} for every photo the
+    see stage already made a sample of (`see-report.json` `selected`). No
+    preview is made here."""
+    out = {}
+    for report in sorted(Path(workdir).glob("classify/batch-*/see-report.json")):
+        try:
+            selected = json.loads(report.read_text(encoding="utf-8")).get("selected")
+        except (OSError, ValueError):
+            continue
+        for sel in selected or []:
+            path = report.parent / "samples" / (sel.get("sample") or "")
+            if sel.get("path") and sel.get("sample") and path.is_file():
+                out.setdefault(sel["path"],
+                               path.relative_to(workdir).as_posix())
+    return out
 
 
 def fix_op(op, rule, fo, old, new, photos, reason, **apply):
@@ -3354,7 +3374,8 @@ def copy_finished(workdir):
 
 def with_pets(name, pets, missing):
     """`name` with the `missing` pets added to its [who]: into the slot that
-    already holds one of `pets`, else as a slot after [where] (the third)."""
+    already holds one of `pets` (every confirmed pet's name), else as a slot
+    after [where] (the third)."""
     slots = name.split(photo_name.SLOT_SEP)
     for i, slot in enumerate(slots[1:], 1):
         if set(slot.split(photo_name.NAME_SEP)) & set(pets):
@@ -3408,6 +3429,9 @@ def rule_r2(ctx):
     whose name is on the drive. A RENAME of it is the engine's only when an
     engine copy record of this collection lists it as created (ADR 0007,
     Lead ruling 20261018); otherwise the row is a rename by hand."""
+    import photo_subjects
+    known = {s.name for s in photo_subjects.load(pack=ctx["pack"]).subjects
+             if s.name and s.status == photo_subjects.STATUS_CONFIRMED}
     out = []
     created = {}
     for wd in collection_dumps(ctx["workdir"]):
@@ -3425,7 +3449,7 @@ def rule_r2(ctx):
         owner = created.get(photo_execute.real_key(path), (None, None))[1]
         reason = f"adds {', '.join(missing)}" + ("" if owner else f" — {BY_HAND}")
         out.append(fix_op("RENAME", "R2", fo, path.name,
-                          with_pets(path.name, pets, missing),
+                          with_pets(path.name, known | set(pets), missing),
                           len(copy_members(ctx["index"], fo["id"])), reason,
                           path=str(path), by_hand=owner is None,
                           dump=str(owner) if owner else None))
@@ -3513,9 +3537,31 @@ def rule_r4(ctx):
 
 
 def rule_r5(ctx):
-    """R5 — year folders and one trip folder per trip abroad (needs A2's
-    M7). Not built here."""
-    return []
+    """R5 — one trip folder per trip abroad, its days kept as legs (owner
+    ruling: `YYYYMMDD-MMDD_<country>_<place>`). The candidates are A2's
+    `trip_candidates(index, batches, pack)` -> [{folders, to, days
+    [YYYY-MM-DD], span "MMDD-MMDD", photos, where [w1, w2?], country}]; the
+    pack lets A read a leg's named-place label. Each becomes a MAKE-TRIP
+    op applied through `group make-trip` (--where repeatable, --country).
+    Year folders are no op: the layout applies them at the freeze. With no
+    `trip_candidates` (A2 not merged) there is no op."""
+    find = globals().get("trip_candidates")
+    if find is None:
+        return []
+    index = ctx["index"]
+    by_id = {fo["id"]: fo for fo in live(index)}
+    out = []
+    for cand in find(index, list(ctx["by_number"].values()), ctx["pack"]):
+        ids = [f for f in cand.get("folders") or [] if f in by_id]
+        if len(ids) < 2 or not cand.get("to"):
+            continue
+        out.append(fix_op("MAKE-TRIP", "R5", by_id[ids[0]],
+                          f"{len(ids)} day folders {cand.get('span') or ''}".rstrip(),
+                          cand["to"], int(cand.get("photos") or 0),
+                          f"one trip abroad: {', '.join(ids)} become its legs",
+                          folders=ids, where=list(cand.get("where") or []),
+                          country=cand.get("country")))
+    return out
 
 
 def rule_r6(ctx):
@@ -3534,6 +3580,12 @@ def fix_problem(op, ctx):
     if op["op"] == "INTO-EXISTING":
         return ("the existing folder's path reads as a coordinate"
                 if COORDINATE_IN_NAME.search(op["to"]) else None)
+    if op["op"] == "MAKE-TRIP":
+        if COORDINATE_IN_NAME.search(op["to"]):
+            return "the trip name reads as a coordinate (Operational Rule 3)"
+        hard, soft = photo_profile.name_budget(ctx["pack"].profile)
+        refusals = photo_name.validate(op["to"], hard=hard, soft=soft)[1]
+        return "; ".join(refusals) or None
     if COORDINATE_IN_NAME.search(op["to"]):
         return "the new name reads as a coordinate (Operational Rule 3)"
     hard, soft = photo_profile.name_budget(ctx["pack"].profile)
@@ -3562,6 +3614,13 @@ def draft_fix_plan(workdir, pack, index):
                    agent_name=a["to"])
             for a in (index.get("fix_plan") or {}).get("agent") or []
             for fo in live(index) if fo["id"] == a["folder"]]
+    previews = preview_samples(workdir)
+    for op in ops:
+        # M9's thumbnails: up to 3 previews the work dir already holds for
+        # the folder's files, by capture time.
+        op["samples"] = [previews[f["source"]] for f in sorted(
+            copy_members(index, op["folder"]), key=lambda f: f.get("date") or "")
+            if f["source"] in previews][:3]
     offered, refused = [], []
     for op in ops:
         why = op.get("why") or fix_problem(op, ctx)
@@ -3581,9 +3640,13 @@ def fix_plan_text(workdir, index, ops, refused):
              f"## Rows · {len(ops)}", ""]
     if not ops:
         lines.append(NOTHING_TO_CHANGE)
-    lines += [f"{k}. {op['op']} ({op['rule']}) · {op['folder']} · `{op['from']}` → "
-              f"`{op['to']}` · {op['reason']} · {op['photos']} photo(s) · "
-              "answer: ______" for k, op in enumerate(ops, 1)]
+    for k, op in enumerate(ops, 1):
+        lines.append(f"{k}. {op['op']} ({op['rule']}) · {op['folder']} · "
+                     f"`{op['from']}` → `{op['to']}` · {op['reason']} · "
+                     f"{op['photos']} photo(s) · answer: ______")
+        if op.get("samples"):
+            # Indented, so FIX_ROW never reads it as a row.
+            lines.append("   samples: " + " | ".join(op["samples"]))
     if refused:
         lines += ["", "## Refused (never applied)", ""]
         lines += [f"- {op['op']} ({op['rule']}) · {op['folder']} · `{op['from']}` → "
@@ -3754,6 +3817,17 @@ def cmd_fix_plan(args):
                 if args.go:
                     fo["drop_what"] = sorted(set(fo.get("drop_what") or []) | set(a["drop_what"]))
                 said = f"drops {', '.join(a['drop_what'])} from [what]"
+            elif op["rule"] == "R5":
+                if args.go:
+                    by_number = {b["batch"]: b for b in json.loads(
+                        (workdir / "batches.json").read_text(encoding="utf-8"))
+                        .get("batches", [])}
+                    said = group_make_trip(index, argparse.Namespace(
+                        folders=a["folders"], where=a["where"],
+                        country=a["country"], what=None),
+                        pack, by_number, FIX_PLAN_CMD, "fix plan R5")
+                else:
+                    said = f"{', '.join(a['folders'])} would become one trip"
             elif op["rule"] == "R4":
                 if args.go:
                     fo["dest"] = {"mode": "merge", "existing_path": a["path"], "refs": []}

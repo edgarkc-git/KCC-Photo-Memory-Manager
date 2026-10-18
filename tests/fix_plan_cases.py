@@ -369,11 +369,11 @@ def a_failed_landmark_lookup_is_said_and_never_offered():
 OLD = "2024/20241101_Old trip"
 
 
-def owner_folder(tmp, day="2024:11:01 09:00:00"):
+def owner_folder(tmp, day="2024:11:01 09:00:00", rel=OLD):
     """The owner's own dated folder in the dest, holding one real photo of
     that capture day (exiftool reads its date, as M4's scan does)."""
     from PIL import Image
-    photo = Path(tmp).resolve() / "sorted" / OLD / "OLD_0001.jpg"
+    photo = Path(tmp).resolve() / "sorted" / rel / "OLD_0001.jpg"
     photo.parent.mkdir(parents=True)
     Image.new("RGB", (8, 8), (10, 20, 30)).save(photo, "JPEG")
     photo_exiftool.run(["-overwrite_original", f"-DateTimeOriginal={day}"], [photo])
@@ -420,6 +420,40 @@ def a_day_with_a_folder_in_the_dest_goes_into_it():
 
 
 @case
+def a_merge_into_a_folder_named_after_a_pet_not_in_this_dump_passes_e48():
+    """⭐ REPRODUCTION (E48). ⛔ FAILS on c8f1dac: the owner's folder is named
+    after Birk, a confirmed pet no photo of this dump shows; merging F001 into
+    it (R4) failed check F12 and photo_plan's name check, as if this dump
+    had named it. The existing name keeps its pets: check, freeze and the
+    copy pass, and Birk stays in the folder's name."""
+    rel = "2024/20241101_Old trip_Birk"
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        old_photo = owner_folder(tmp, rel=rel)
+        wd, pack = ix.g3_dump(tmp)
+        reg = pack / "photo-subjects" / "subjects.json"
+        data = json.loads(reg.read_text())
+        data["subjects"].append(ix.subject("subj-0003", "Birk"))
+        reg.write_text(json.dumps(data))
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        ix.run("freeze", wd)
+        answer(wd, "ok")
+        must(apply(wd), "apply R4")
+        must(ix.run("render", wd), "render")
+        ccode, cout, cerr = ix.run("check", wd)
+        ix.run("freeze", wd)            # R2: adds Lotus, by hand
+        answer(wd, "skip")
+        must(apply(wd), "apply R2")
+        fcode, fout, ferr = ix.run("freeze", wd)
+        run = fin.finish(wd)
+        landed = sorted(p.name for p in old_photo.parent.iterdir())
+    return (ccode == 0 and fcode == 0 and run.returncode == 0
+            and "IMG_0101.jpg" in landed), \
+        (f"check={ccode} {cout[-300:]!r}{cerr[-200:]!r} freeze={fcode} "
+         f"{fout[-200:]!r}{ferr[-300:]!r} finish={run.returncode} landed={landed}")
+
+
+@case
 def a_trip_abroad_stays_out_of_an_existing_folder():
     """GUARD (E52). A day of a batch abroad (OVERSEAS) is never merged into
     an existing folder: no R4 row."""
@@ -436,8 +470,8 @@ def a_trip_abroad_stays_out_of_an_existing_folder():
 
 def second_dump(tmp):
     """dump-b in the same collection: two photos of 2024-11-01, one naming
-    Birk and one Lotus (both confirmed; Lotus keeps check F12 satisfied for
-    the target's name), merged into the folder dump-a created."""
+    Birk (confirmed), merged into the folder dump-a created. No photo of
+    dump-b shows Lotus, whose name the folder holds (E48)."""
     base = Path(tmp).resolve() / "raw" / "dump-b"
     base.mkdir(parents=True)
     for name in ("IMG_0105.jpg", "IMG_0106.jpg"):
@@ -455,8 +489,7 @@ def second_dump(tmp):
     reg.write_text(json.dumps(data))
     ix.write_see(wd, 1, [ix.see_label(base, "IMG_0105.jpg",
                                       [{"subject_id": "subj-0003"}], "sofa nap"),
-                         ix.see_label(base, "IMG_0106.jpg",
-                                      [{"subject_id": "subj-0001"}], "sofa nap")])
+                         ix.see_label(base, "IMG_0106.jpg", what="sofa nap")])
     must(ix.run("init", wd), "init b")
     return wd
 
@@ -536,6 +569,96 @@ def r2_never_moves_a_folder_whose_earlier_copy_is_unfinished():
         same = before == ix.tree_state(sorted_root)
     return (acode == 0 and "nothing renamed" in aout and "by hand" in aout
             and "not finished" in aout and same), f"apply={acode} {aout[-400:]!r}"
+
+
+@case
+def each_row_lists_up_to_three_previews_the_work_dir_already_has():
+    """M9 thumbnails (Lead 20261018). After a row, an indented `samples:` line
+    names up to 3 see-stage previews of the folder's files, relative to the
+    work dir; no preview is made, a folder with none gets no line, and the
+    answers still parse past it."""
+    got = {}
+    for with_previews in (True, False):
+        with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+            wd, pack = ready(tmp)
+            if with_previews:
+                bdir = wd / "classify" / "batch-01"
+                (bdir / "samples").mkdir(parents=True)
+                base = Path(tmp).resolve() / "raw" / "dump-a"
+                selected = []
+                for name in ("IMG_0101.jpg", "IMG_0102.jpg"):
+                    (bdir / "samples" / name).write_bytes(b"jpeg")
+                    selected.append({"path": f"{base}/{name}", "sample": name})
+                (bdir / "see-report.json").write_text(json.dumps(
+                    {"batch": 1, "selected": selected}))
+            add_look(pack, "subj-0001", "sofa nap", wd)
+            ix.run("freeze", wd)
+            text = page(wd).read_text()
+            answer(wd, "ok")
+            acode, _a, _ = apply(wd)
+            got[with_previews] = ([l for l in text.splitlines() if "samples:" in l],
+                                  acode)
+    want = ["   samples: classify/batch-01/samples/IMG_0101.jpg | "
+            "classify/batch-01/samples/IMG_0102.jpg"]
+    return got[True] == (want, 0) and got[False] == ([], 0), f"{got}"
+
+
+# ---------------------------------------------------------------------------
+# R5 — one trip folder per trip abroad (A2's interface, stubbed here)
+# ---------------------------------------------------------------------------
+
+TRIP = "20241101-1102_Ruritania_Ford"
+
+
+def fake_candidates(index, batches, pack):
+    """A stand-in for A2's `photo_index.trip_candidates(index, batches,
+    pack)` in its relayed shape, until A2 merges."""
+    assert isinstance(batches, list) and hasattr(pack, "profile")
+    return [{"folders": ["F001", "F002"], "to": TRIP,
+             "days": ["2024-11-01", "2024-11-02"], "span": "1101-1102",
+             "photos": 3, "where": ["Ford"], "country": "Ruritania"}]
+
+
+@case
+def a_trip_candidate_becomes_a_make_trip_row_and_ok_runs_make_trip():
+    """⭐ REPRODUCTION (M6 R5, stub-tested: A2's `trip_candidates` and its
+    `group make-trip` with repeatable --where and --country are faked until
+    A2 merges). ⛔ FAILS on c8f1dac. A candidate becomes one MAKE-TRIP row
+    (from "2 day folders 1101-1102", to the trip name, folder = the first
+    id); `ok` calls make-trip with the candidate's folders, where list and
+    country; `word:` is refused on R5. With no `trip_candidates`, no row."""
+    got, calls = {}, []
+
+    def fake_make_trip(index, args, pack, by_number, cmd, reason):
+        calls.append((list(args.folders), list(args.where), args.country,
+                      sorted(by_number)))
+        return "a trip (stub)"
+
+    real = photo_index.group_make_trip
+    try:
+        photo_index.trip_candidates = fake_candidates
+        photo_index.group_make_trip = fake_make_trip
+        for given in ("ok", "word: Somewhere"):
+            with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+                wd, _pack = ready(tmp)
+                code, _o, _ = ix.run("freeze", wd)
+                r = rows(wd)
+                answer(wd, given)
+                acode, aout, _ = apply(wd)
+                got[given] = (code, r, acode, aout[-300:])
+    finally:
+        del photo_index.trip_candidates
+        photo_index.group_make_trip = real
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        none_code, none_out, _ = ix.run("fix-plan", wd)
+    ok, word = got["ok"], got["word: Somewhere"]
+    return (ok[0] == 3 and len(ok[1]) == 1
+            and f"1. MAKE-TRIP (R5) · F001 · `2 day folders 1101-1102` → `{TRIP}`" in ok[1][0]
+            and ok[2] == 0 and calls == [(["F001", "F002"], ["Ford"], "Ruritania", [1, 2])]
+            and word[2] == 1 and "takes `ok` or `skip`" in word[3]
+            and none_code == 0 and photo_index.NOTHING_TO_CHANGE in none_out), \
+        f"{got} calls={calls}"
 
 
 @case

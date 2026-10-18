@@ -413,7 +413,12 @@ def unbacked_names(plan, rows, visual, names):
     under it back its name.
     """
     parent = plan["dest"]["path"]
-    folders = [(parent, True)]
+    # E48 — a folder this plan MERGES into already holds photos: its name is
+    # the owner's (or an earlier copy's) and keeps its pets, so only the
+    # folders this plan names are judged (its legs and overrides are). ⛔ An
+    # owner's empty shell (`fill_shell`) is still judged: nothing in it backs
+    # a pet's name yet (owner ruling 5).
+    folders = ([] if plan["dest"].get("mode") == "merge" else [(parent, True)])
     folders += [(f"{parent}/{leg['name']}", False)
                 for leg in plan.get("legs") or []]
     for ov in plan.get("overrides") or []:
