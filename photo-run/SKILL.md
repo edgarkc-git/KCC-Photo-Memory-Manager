@@ -474,7 +474,7 @@ macOS shell. Write the output to a file instead:
 |---|---|---|---|
 | `photo_run.py finish` / `plan` | 0 | done (or a dry run finished) | read the status |
 | | 1 | a plan was flagged or failed during the copy | read `plan/execution-log_*.md` |
-| | 3 | a question was just put: a batch page, or `identify-views.md` | answer it (step 3a / 3b), then re-run |
+| | 3 | a question was just put: a batch page, `identify-views.md`, or (after the copy) `plan/after-check.md` | answer it (step 3a / 3b, or the after-check below), then re-run |
 | | 4 | the dump has an index and its freeze is missing or no longer holds | `render`, `check`, `freeze`, then re-run |
 | | 5 | a naming stage did not finish (a batch page, the pre-plan round, or identify); nothing was copied, and the stop prints the line to run it again | run that line, fix what it says (for a place page: the repo `.venv`), then re-run |
 | `photo_memory.py review --next-page` | 11 | a page was written | answer it |
@@ -485,7 +485,10 @@ macOS shell. Write the output to a file instead:
 | `photo_index.py identify --answers --go` | 1 | `Lift it first`: the index is frozen, nothing written | `unfreeze --reason "..."`, `--answers ... --go` again, then `render`, `check`, `freeze` (step 3b) |
 | `photo_index.py check` | 1 | a folder name or a route fails; each problem is listed | fix through the index, then `render` and `check` again |
 | `photo_index.py freeze` | 1 | refused, nothing frozen: the check fails, a target changed, or a folder copied by an earlier run was since split or merged (a folder only RENAMED after its copy freezes, and lists the renames) | fix what it names; a split or merge after the copy: stop and ask the owner (see Re-processing a folder) |
-| `photo_execute.py` (inside `finish`) | non-zero | a new file would go into a folder still to rename on the drive; nothing written | rename the listed folder by hand, then re-run `finish` |
+| `photo_execute.py` (inside `finish`) | non-zero | a new file would go into a folder still to rename on the drive; nothing written | answer the after-check row for it (or rename it by hand), then re-run `finish` |
+| `photo_index.py after-check` | 3 | rows wait in `plan/after-check.md` | put each row to the owner; write `ok` / `skip`; `--answers ... --go` |
+| | 0 | `Nothing left to fix. The dump is done.` | done |
+| | 1 | the copy proof fails (a copy missing or changed, a twin not in the tree, a source changed), or with `--answers` a row was refused (the folder changed by hand, or not one this engine created) | read the page; nothing was renamed for a refused row |
 | `photo_index.py verify` | 4 | the freeze does not hold | `render`, `check`, `freeze` |
 | `photo_index.py verify --copied` | 6 | every copied file matches its freeze, but the owner pack changed since (a later dump's onboarding, an end-of-dump page). The drive is fine; folder names may differ on a re-lock | re-lock when convenient: `render`, `check`, `freeze`, then `verify --copied` again. Never read 6 as a failed copy |
 | `photo_embed.py` / `photo_identity.py` | 3 | some files got NO preview and so no vector; the index is saved, and stderr names each cause with its count (`no_ffmpeg …`, `no_heif_decoder …`, `decode_failed`, …) | fix the named cause — most name the tool to install — and run the same line again; only the failed files are retried. ⛔ Do not go on to `photo_see` past an unexplained count: a file with no vector is invisible to every later stage. This 3 is NOT `finish`'s 3 |
@@ -520,7 +523,7 @@ nothing copied.
 **Before the freeze**, a name change re-renders: run `render`, `check` and
 `freeze` again. **After the freeze the names are locked** (D-I16): lift it with
 `photo_index.py unfreeze 202401 --reason "..."`, then render, check, freeze. A
-folder already copied is never renamed by this engine.
+folder already copied is renamed only by the after-check, on the owner's `ok`.
 
 **A name corrected after the copy** (the names are often first seen then) is
 locked the same way — unfreeze, render, check, `freeze --reason "..."` — and
@@ -528,28 +531,44 @@ nothing is copied again. When a folder already copied now renders under a new
 name, the freeze still succeeds and prints the renames:
 
 ```
-N folder(s) already copied carry an old name. Rename each one by hand on the drive, in this order — the engine never renames a folder:
+N folder(s) already copied carry an old name. The after-check of `finish --go` asks to rename each one, in this order:
   "<old>" -> "<new>"
 The list is kept in plan/folder-renames.md.
 ```
 
-The owner renames each folder by hand on the drive, **in the listed order**
-(`plan/folder-renames.md` holds the same list under `# Folders to rename by
-hand`, one `- "<old>" -> "<new>"` line each, relative to `dest_root`). Until a
-rename is done:
+**The after-check (M10, ADR 0007).** `finish --go` ends, after the copy check,
+with `photo_index.py after-check`. It writes `plan/after-check.md`: the copy
+proof (source files unchanged, copied = verified, skipped twins, missing 0)
+and one row per folder still to rename,
+`1. RENAME (R2) · \`<old>\` → \`<new>\` · <reason> · N photo(s) · answer: ______`
+(R2 when the new name adds a confirmed pet, else `re-lock`). With rows,
+`finish` stops with **exit 3**; with none it prints
+`Nothing left to fix. The dump is done.` Put each row to the owner, write
+`ok` or `skip` after `answer:` (a row left open is a skip), then:
+
+    python3 scripts/photo_index.py after-check "<work dir>" --answers "<work dir>/plan/after-check.md"        # dry run
+    python3 scripts/photo_index.py after-check "<work dir>" --answers "<work dir>/plan/after-check.md" --go
+
+An `ok` row renames ONLY a folder this engine created (the copy record lists
+them) whose files are exactly its copies (name, size, SHA-256; Finder's hidden
+files aside). It prints `before N = after N` for the size + SHA-256 + name of
+every file and logs it in `plan/after-check-log.json`. A folder changed by hand
+since the copy, or one the engine did not create, is refused:
+`The folder was changed by hand since the copy; nothing was renamed. Ask the agent to re-run the after-check.`
+Nothing is ever deleted. Run `after-check` again until nothing is left.
+
+Until a rename is done:
 - `photo_index.py verify 202401 --copied` still exits 0 and lists what is left:
   `⚠️ N folder rename(s) still to do on the drive (plan/folder-renames.md):`;
-- `finish` ends with `===== N folder(s) to rename by hand on the drive =====`
-  and the same list;
 - a copy that would put a NEW file into a folder still to rename is refused by
   `photo_execute` (non-zero exit, dry run and `--go`, nothing written):
-  `a file to copy goes into a folder that is still to be renamed on the drive — rename it by hand first, then copy again (the engine never renames a folder). Nothing written:`.
-  Rename the folder, then run `finish --go` again.
+  `a file to copy goes into a folder that is still to be renamed on the drive — rename it first (the after-check of \`finish --go\` offers it), then copy again. Nothing written:`.
 
-A rename is known to be done when the old folder is gone from the drive.
+The owner may still rename a folder by hand; a rename is known to be done when
+the old folder is gone from the drive.
 ⛔ **A split or a merge after the copy cannot be locked**: the freeze exits 1
 with `N file(s) were copied by an earlier run into a folder that has since been split or merged (or copied to a place this freeze does not name). …`
-and writes nothing, the engine never renames or moves anything on the drive.
+and writes nothing; the after-check renames a folder, never splits or merges one.
 Stop and put it to the owner: the documented way on is re-processing the dump
 (below), which removes that dump's copied folders.
 To see which names a change would move before lifting anything, run

@@ -21,7 +21,7 @@ Hard safety properties:
     nothing again). skip_dupe rows are logged, never copied.
   - A folder a freeze listed to rename (plans.json `renames`) whose old name
     is still on the drive takes no new file: the run refuses before any write.
-    The engine never renames a folder itself.
+    Only the after-check renames a folder, on the owner's `ok` (ADR 0007).
   - One plan per run — no execute-everything flag.
 
 Output: plan/execution-log_PN.md (+ state file). When every copy row of a
@@ -66,6 +66,8 @@ FREE_SPACE_MARGIN = 1 << 30  # 1 GB on top of the plan's estimated size
 # plans.json: the folders a freeze on an already-copied dump found renamed,
 # [{"old", "new"}] relative to dest_root, parents first (FIX8 F8-2).
 RENAMES_KEY = "renames"
+# execute-state: the folders this engine created (ADR 0007), absolute paths.
+CREATED_KEY = "created_dirs"
 
 
 def human_size(n):
@@ -114,6 +116,16 @@ def verified_anywhere(plan_dir):
     out = {}
     for sp in sorted(Path(plan_dir).glob("execute-state_*.json")):
         out.update(json.loads(sp.read_text()).get("verified") or {})
+    return out
+
+
+def created_anywhere(plan_dir):
+    """-> {path_key: path} of every folder an execute-state of this work dir
+    records creating (ADR 0007). A state written before v2.2 records none."""
+    out = {}
+    for sp in sorted(Path(plan_dir).glob("execute-state_*.json")):
+        for d in json.loads(sp.read_text()).get(CREATED_KEY) or []:
+            out[path_key(d)] = d
     return out
 
 
@@ -317,8 +329,8 @@ def main():
     blocked = blocked_renames(renames_to_do(config, dest_root), dest_root, pending)
     if blocked:
         sys.exit("a file to copy goes into a folder that is still to be renamed "
-                 "on the drive — rename it by hand first, then copy again "
-                 "(the engine never renames a folder). Nothing written:\n"
+                 "on the drive — rename it first (the after-check of `finish "
+                 "--go` offers it), then copy again. Nothing written:\n"
                  + "\n".join(f'  "{o}" -> "{n}"' for o, n in blocked))
     total_bytes = 0
     missing = []
@@ -367,16 +379,26 @@ def main():
     t0 = time.time()
     flags = []
     counts = {"copied": 0, "already_present": 0, "flagged": 0}
+    # ADR 0007 — the copy record names every folder the engine CREATED, its
+    # missing parents included: only those may later be renamed by an
+    # approved after-check row. A folder it only copied INTO is not one.
+    created = set(state.get(CREATED_KEY) or [])
     for d in to_create:
+        p = Path(d)
+        while not p.exists():
+            created.add(str(p))
+            p = p.parent
         Path(d).mkdir(parents=True, exist_ok=True)
+    state[CREATED_KEY] = sorted(created)
     for i, r in enumerate(pending, 1):
         status, sha = copy_one(Path(r["SourceFile"]), Path(r["destination"]),
                                r["FileName"], flags, msg)
         counts[status] += 1
         if status != "flagged":
+            dest = Path(r["destination"]) / r["FileName"]
             state["verified"][r["SourceFile"]] = {
-                "dest": str(Path(r["destination"]) / r["FileName"]),
-                "sha256": sha, "status": status,
+                "dest": str(dest), "sha256": sha, "size": dest.stat().st_size,
+                "status": status,
                 "at": datetime.now().strftime("%Y-%m-%d %H:%M")}
         if i % 50 == 0 or i == len(pending):
             save_state(state_path, state)

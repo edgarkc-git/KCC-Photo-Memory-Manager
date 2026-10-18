@@ -3058,10 +3058,11 @@ def cmd_freeze(args):
     renames_md = workdir / "plan" / RENAMES_MD
     if renames:
         renames_md.write_text(
-            "# Folders to rename by hand\n\n"
-            "Copied before their names changed. Rename each one on the drive, "
-            f"in this order, under `{dest_root}` — the engine never renames a "
-            "folder, and it copies nothing new into one still to rename.\n\n"
+            "# Folders to rename\n\n"
+            f"Copied before their names changed, under `{dest_root}`, in this "
+            "order. The after-check of `finish --go` asks the owner about each "
+            "one and renames only a folder this engine copied and created "
+            "(ADR 0007); nothing new is copied into one still to rename.\n\n"
             + "".join(f'- "{r["old"]}" -> "{r["new"]}"\n' for r in renames),
             encoding="utf-8")
     elif renames_md.exists():
@@ -3093,9 +3094,9 @@ def cmd_freeze(args):
     save(target, pack, index)
     print(f"frozen {digest} in {seconds} s")
     if renames:
-        print(f"{len(renames)} folder(s) already copied carry an old name. Rename "
-              "each one by hand on the drive, in this order — the engine never "
-              "renames a folder:")
+        print(f"{len(renames)} folder(s) already copied carry an old name. The "
+              "after-check of `finish --go` asks to rename each one, in this "
+              "order:")
         for r in renames:
             print(f'  "{r["old"]}" -> "{r["new"]}"')
         print(f"The list is kept in plan/{RENAMES_MD}.")
@@ -3122,11 +3123,12 @@ def finish_target(workdir):
     return f'"{workdir}"'
 
 
-def copy_check(workdir, index):
-    """After the copy: every SHA-256 photo_execute verified is the one frozen,
-    and every twin's bytes are in the tree (G16): its tree file still has the
-    source's size and SHA-256, or the dump file it was kept beside was copied
-    with that SHA-256. A twin photo_execute copied instead counts as copied."""
+def copy_stats(workdir, index):
+    """-> {copied, wrong, absent, twins_ok, twins_bad}: every SHA-256
+    photo_execute verified against the one frozen, and every twin's bytes in
+    the tree (G16) — its tree file still has the source's size and SHA-256, or
+    the dump file it was kept beside was copied with that SHA-256. A twin
+    photo_execute copied instead counts as copied. Read-only."""
     frozen = index["frozen"]
     sha = {f["source"]: f["sha256"] for f in index["files"] if f.get("sha256")}
     labels = [f"P{n}" for n in sorted(frozen["plans"], key=int)]
@@ -3164,6 +3166,16 @@ def copy_check(workdir, index):
                 copied += 1
                 if v.get("sha256") != sha.get(src):
                     wrong.append(f"{Path(src).name} ({label})")
+    return {"copied": copied, "wrong": wrong, "absent": absent,
+            "twins_ok": twins_ok, "twins_bad": twins_bad}
+
+
+def copy_check(workdir, index):
+    """After the copy: `copy_stats()`, said; exit 1 on any difference."""
+    frozen = index["frozen"]
+    st = copy_stats(workdir, index)
+    copied, wrong, absent = st["copied"], st["wrong"], st["absent"]
+    twins_ok, twins_bad = st["twins_ok"], st["twins_bad"]
     print(f"copy check: {copied} file(s) copied; {copied - len(wrong)} match the "
           f"SHA-256 frozen at {frozen['at']}"
           + (f"; {len(absent)} not copied" if absent else ""))
@@ -3261,6 +3273,288 @@ def cmd_unfreeze(args):
     lift(index, "index unfreeze", args.reason.strip(), by="agent")
     save(target, pack, index)
     print("freeze lifted — render, check and freeze again before copying")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# after-check — after verify (M10, SPEC G9, ADR 0007)
+# ---------------------------------------------------------------------------
+
+AFTER_CHECK_MD = "after-check.md"
+AFTER_CHECK_LOG = "after-check-log.json"
+AFTER_CHECK_CMD = "index after-check"
+# The stop the after-check puts to the owner: rows wait for an answer.
+EXIT_AFTER_CHECK = 3
+AFTER_ANSWERS = ("ok", "skip")
+AFTER_ROW = re.compile(r"^(\d+)\. (RENAME) \(([^)]+)\) · `([^`]+)` → `([^`]+)` · "
+                       r".*· answer:\s*(.*?)\s*$")
+NOTHING_LEFT = "Nothing left to fix. The dump is done."
+HAND_CHANGED = ("The folder was changed by hand since the copy; nothing was "
+                "renamed. Ask the agent to re-run the after-check.")
+
+
+def name_words(name):
+    """The words of a folder name after its date (`[where]`, `[who]`,
+    `[what]` pieces) — what a rename row says it adds or drops."""
+    return set(w for w in re.split(r"[_+]", Path(name).name)[1:] if w)
+
+
+def after_rows(workdir, index, plans):
+    """-> the leftover ops: a folder this dump copied whose name changed
+    after the copy (a re-lock freeze listed it, F8-2) and that is still on the
+    drive under its old name. R2 when the new name adds a confirmed pet of
+    that folder."""
+    dest_root = plans.get("dest_root") or ""
+    verified = photo_execute.verified_anywhere(workdir / "plan")
+    by_name = {fo["rendered"]: fo for fo in live(index) if fo.get("rendered")}
+    rows = []
+    for old, new in photo_execute.renames_to_do(plans, dest_root):
+        fo = by_name.get(Path(new).name) or {}
+        pets = {w["name"] for w in (fo.get("validation") or {}).get("who") or []}
+        added = sorted(name_words(new) - name_words(old))
+        dropped = sorted(name_words(old) - name_words(new))
+        base = Path(dest_root) / old
+        photos = sum(1 for v in verified.values()
+                     if path_key(v.get("dest") or "").startswith(path_key(base) + "/"))
+        reason = "the name changed after the copy"
+        if added:
+            reason += f": adds {', '.join(added)}"
+        if dropped:
+            reason += f"{'; ' if added else ': '}drops {', '.join(dropped)}"
+        rows.append({"op": "RENAME", "rule": "R2" if set(added) & pets else "re-lock",
+                     "from": old, "to": new, "photos": photos, "reason": reason})
+    return rows
+
+
+def on_drive(dest, plans):
+    """Is the copy `dest` on the drive — where it was copied, or under the
+    new name of a folder the freeze listed to rename that the owner renamed
+    by hand?"""
+    if Path(dest).is_file():
+        return True
+    root = Path(plans.get("dest_root") or "")
+    for r in plans.get(photo_execute.RENAMES_KEY) or []:
+        old = root / r["old"]
+        if path_key(dest).startswith(path_key(old) + "/"):
+            moved = root / r["new"] / Path(dest).relative_to(old)
+            if moved.is_file():
+                return True
+    return False
+
+
+def source_proof(workdir, index):
+    """-> (source files, [changed or unreadable since the freeze]): the dump's
+    files the freeze hashed, re-read through the hash cache (size + mtime)."""
+    frozen = {f["source"]: f["sha256"] for f in index["files"]
+              if f["status"] == "present" and f.get("sha256")}
+    now = photo_desttree.source_shas(list(frozen), workdir)
+    return len(frozen), sorted(Path(s).name for s, h in frozen.items()
+                               if now.get(s) != h)
+
+
+def after_check_text(workdir, index, stats, sources, rows):
+    n, changed = sources
+    copied, bad = stats["copied"], len(stats["wrong"])
+    lines = [f"# After-check · dump {index['dump']}", "", "## Copy proof", "",
+             f"- source files {n} ("
+             + ("unchanged)" if not changed else
+                f"{len(changed)} changed or unreadable since the freeze: "
+                + ", ".join(changed[:10]) + ")"),
+             f"- copied {copied} · verified {copied - bad}/{copied}",
+             f"- skipped twins {stats['twins_ok']} (same photo already in the tree)"
+             + (f" · {len(stats['twins_bad'])} NOT found" if stats["twins_bad"] else ""),
+             f"- missing {len(stats['absent']) + len(stats['gone'])}"
+             + (f" ({', '.join(stats['gone'][:10])} no longer on the drive)"
+                if stats["gone"] else ""), "",
+             f"## Still to fix · {len(rows)}", ""]
+    if not rows:
+        return "\n".join(lines + [NOTHING_LEFT]) + "\n"
+    lines += [f"{k}. {r['op']} ({r['rule']}) · `{r['from']}` → `{r['to']}` · "
+              f"{r['reason']} · {r['photos']} photo(s) · answer: ______"
+              for k, r in enumerate(rows, 1)]
+    lines += ["", "Answer each row `ok` or `skip`; a row left open is a skip.", "",
+              "## After you say ok", "",
+              "The engine renames only folders it copied and created itself, then "
+              "re-checks size + SHA-256 + name of every file in them: before = "
+              "after. A folder changed by hand since the copy is not renamed. "
+              "Nothing is ever deleted.", "",
+              f"    {run_line('photo_index.py')} after-check \"{workdir}\" "
+              f"--answers \"{workdir / 'plan' / AFTER_CHECK_MD}\" --go"]
+    return "\n".join(lines) + "\n"
+
+
+def parse_after(text):
+    """-> [{n, op, rule, from, to, answer}] from an `after-check.md`."""
+    out = []
+    for line in text.splitlines():
+        m = AFTER_ROW.match(line)
+        if m:
+            out.append({"n": int(m.group(1)), "op": m.group(2), "rule": m.group(3),
+                        "from": m.group(4), "to": m.group(5),
+                        "answer": m.group(6).strip("_ ").casefold()})
+    return out
+
+
+def tree_files(folder):
+    """-> Counter of (path relative to `folder`, size, SHA-256) for every
+    file under it, hidden ones included: the proof's multiset."""
+    out = Counter()
+    for p in sorted(Path(folder).rglob("*")):
+        if p.is_file():
+            out[(p.relative_to(folder).as_posix(), p.stat().st_size,
+                 photo_desttree.sha256_file(p))] += 1
+    return out
+
+
+def own_folder_problem(old, new, created, verified):
+    """-> why the engine may NOT rename `old` to `new` (ADR 0007), or None.
+    Only a folder this engine created, holding exactly the files it copied
+    there (name, size and SHA-256; a hidden file such as Finder's
+    `.DS_Store` is not the owner's change), and only onto a free name."""
+    if path_key(old) not in created:
+        return (f"{old.name} is not a folder this engine created (copied "
+                "before v2.2, or the owner's own folder)")
+    if not old.is_dir():
+        return f"{old.name} is not on the drive any more"
+    if new.exists():
+        return f"a folder named {new.name} already exists"
+    if not new.parent.is_dir():
+        return f"{new.parent} does not exist"
+    base = path_key(old) + "/"
+    want = {}
+    for v in verified.values():
+        dest = v.get("dest") or ""
+        if path_key(dest).startswith(base):
+            rel = Path(dest).relative_to(old).as_posix()
+            want[rel] = (v.get("size"), v.get("sha256"))
+    have = {rel: (size, sha) for rel, size, sha in tree_files(old)
+            if not any(part.startswith(".") for part in rel.split("/"))}
+    if set(have) != set(want):
+        extra, gone = sorted(set(have) - set(want)), sorted(set(want) - set(have))
+        return ("its files differ from the copy: "
+                + "; ".join(x for x in (
+                    f"not copied by this dump: {', '.join(extra[:5])}" if extra else "",
+                    f"gone: {', '.join(gone[:5])}" if gone else "") if x))
+    for rel, (size, sha) in want.items():
+        if have[rel][1] != sha or (size is not None and have[rel][0] != size):
+            return f"{rel} changed since the copy"
+    return None
+
+
+def move_record(workdir, old, new):
+    """Point this work dir's copy record at the renamed folder, so a later
+    freeze and verify read the copies where they now are."""
+    o = path_key(old)
+    for sp in sorted((workdir / "plan").glob("execute-state_*.json")):
+        state = json.loads(sp.read_text(encoding="utf-8"))
+        for v in (state.get("verified") or {}).values():
+            dest = v.get("dest") or ""
+            if path_key(dest).startswith(o + "/"):
+                v["dest"] = str(new / Path(dest).relative_to(old))
+        state[photo_execute.CREATED_KEY] = sorted(
+            str(new / Path(d).relative_to(old))
+            if path_key(d) == o or path_key(d).startswith(o + "/") else d
+            for d in state.get(photo_execute.CREATED_KEY) or [])
+        photo_execute.save_state(sp, state)
+
+
+def apply_after(args, workdir, index, plans):
+    """The owner's answers -> each `ok` row applied, with the proof; a dry
+    run without --go. -> exit code: 0, or 1 when a row was refused."""
+    path = Path(args.answers)
+    if not path.is_file():
+        raise Refused(f"{path} does not exist — nothing renamed")
+    answered = parse_after(path.read_text(encoding="utf-8"))
+    bad = [str(r["n"]) for r in answered
+           if r["answer"] and r["answer"] not in AFTER_ANSWERS]
+    if bad:
+        raise Refused(f"row(s) {', '.join(bad)}: an answer is `ok`, `skip` or "
+                      "blank — nothing renamed")
+    root = Path(plans.get("dest_root") or "")
+    stands = {(r["from"], r["to"]) for r in after_rows(workdir, index, plans)}
+    created = photo_execute.created_anywhere(workdir / "plan")
+    done, refused = [], 0
+    for r in (r for r in answered if r["answer"] == "ok"):
+        old, new = root / r["from"], root / r["to"]
+        if (r["from"], r["to"]) not in stands:
+            print(f"  ⛔ row {r['n']}: `{r['from']}` → `{r['to']}` is not a row "
+                  "any more (renamed, or the names changed) — nothing renamed")
+            refused += 1
+            continue
+        why = own_folder_problem(old, new, created,
+                                 photo_execute.verified_anywhere(workdir / "plan"))
+        if why:
+            print(f"  ⛔ row {r['n']}: {HAND_CHANGED} ({why})")
+            refused += 1
+            continue
+        before = tree_files(old)
+        if not args.go:
+            print(f"  would rename `{r['from']}` → `{r['to']}` "
+                  f"({sum(before.values())} file(s))")
+            continue
+        os.rename(old, new)
+        after = tree_files(new)
+        if after != before:
+            os.rename(new, old)
+            print(f"  ⛔ row {r['n']}: the files differ after the rename — put "
+                  "back, nothing renamed")
+            refused += 1
+            continue
+        move_record(workdir, old, new)
+        created = photo_execute.created_anywhere(workdir / "plan")
+        n = sum(before.values())
+        done.append({"at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                     "op": r["op"], "rule": r["rule"], "from": r["from"],
+                     "to": r["to"], "before": n, "after": sum(after.values())})
+        print(f"  renamed `{r['from']}` → `{r['to']}`: size + SHA-256 + name "
+              f"of every file, before {n} = after {sum(after.values())}")
+    skipped = sum(1 for r in answered if r["answer"] != "ok")
+    if not args.go:
+        print(f"DRY RUN — nothing renamed ({skipped} row(s) skipped). Add --go "
+              "to rename.")
+        return 1 if refused else 0
+    if done:
+        log = workdir / "plan" / AFTER_CHECK_LOG
+        old_log = json.loads(log.read_text(encoding="utf-8")) if log.is_file() else []
+        write_json(log, old_log + done)
+    print(f"after-check: {len(done)} renamed, {skipped} skipped, {refused} "
+          "refused; run the after-check again")
+    return 1 if refused else 0
+
+
+def cmd_after_check(args):
+    """M10 — after verify: the copy proof and the leftover ops. -> 0 with
+    nothing left, EXIT_AFTER_CHECK when rows wait, 1 when the copy proof
+    fails. With --answers: apply the `ok` rows (dry run without --go)."""
+    workdir = Path(args.workdir).resolve()
+    loaded = load(workdir, args.profile)
+    if loaded is None:
+        return 0
+    _pack, _target, index = loaded
+    if not index.get("frozen") or not (workdir / "plans.json").is_file():
+        raise Refused("the index is not frozen — there is no copy to check yet")
+    plans = json.loads((workdir / "plans.json").read_text(encoding="utf-8"))
+    if args.answers:
+        return apply_after(args, workdir, index, plans)
+    stats = copy_stats(workdir, index)
+    present = {f["source"] for f in index["files"] if f["status"] == "present"}
+    stats["gone"] = sorted(Path(v["dest"]).name for s, v in
+                           photo_execute.verified_anywhere(workdir / "plan").items()
+                           if s in present and not on_drive(v.get("dest") or "", plans))
+    sources = source_proof(workdir, index)
+    rows = after_rows(workdir, index, plans)
+    text = after_check_text(workdir, index, stats, sources, rows)
+    (workdir / "plan").mkdir(exist_ok=True)
+    page = workdir / "plan" / AFTER_CHECK_MD
+    page.write_text(text, encoding="utf-8")
+    print(text.rstrip())
+    if (stats["wrong"] or stats["absent"] or stats["gone"] or stats["twins_bad"]
+            or sources[1]):
+        print(f"⛔ the copy proof fails — see {page}")
+        return 1
+    if rows:
+        print(f"after-check: {len(rows)} row(s) wait for an answer in {page}")
+        return EXIT_AFTER_CHECK
     return 0
 
 
@@ -3895,6 +4189,19 @@ def main(argv=None):
     a.add_argument("--go", action="store_true")
     a.add_argument("--reason")
     a.set_defaults(fn=cmd_apply_page)
+    a = sub.add_parser("after-check", help=f"M10, after verify: the copy proof "
+                                           f"and the leftover ops in plan/"
+                                           f"{AFTER_CHECK_MD}; exit "
+                                           f"{EXIT_AFTER_CHECK} when rows wait, 0 "
+                                           "when nothing is left")
+    a.add_argument("workdir")
+    a.add_argument("--profile")
+    a.add_argument("--answers", help=f"the answered plan/{AFTER_CHECK_MD}: rename "
+                                     "each `ok` row (a folder this engine copied "
+                                     "and created only), with the proof")
+    a.add_argument("--go", action="store_true",
+                   help="with --answers: rename (default: dry run)")
+    a.set_defaults(fn=cmd_after_check)
     t = sub.add_parser("identify", help="G7: recognition proposes a pet's name on "
                                          "viewed photos; the agent views each and "
                                          f"agrees (exit {EXIT_VIEWS_WANTED} = views "

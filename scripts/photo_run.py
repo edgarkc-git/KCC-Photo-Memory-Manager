@@ -802,7 +802,7 @@ def print_status(workdir, pack=None, paths=False, write=True):
         todo = photo_execute.renames_to_do(plans, plans.get("dest_root") or "")
         if todo:
             print(f"\n⚠️  {len(todo)} folder rename(s) still to do on the drive — "
-                  "the engine never renames a folder"
+                  "the after-check of `finish --go` offers each one"
                   + (":" if paths else " (status --paths lists them)"))
             if paths:
                 for old, new in todo:
@@ -1107,6 +1107,9 @@ def run_one_plan(workdir, plans, plan_num, go, force=False,
 # `finish` / `plan` pass it on. Spelled out, like PRE_PLAN_ROUND_FIRED_RC.
 EXIT_STALE_FREEZE = 4
 # `photo_index.py verify --copied`: the copies match, only the pack moved.
+# `photo_index.py after-check` (M10): rows wait for the owner — a stop, not a
+# failure (a case holds it equal to photo_index.EXIT_AFTER_CHECK).
+AFTER_CHECK_WAITS = 3
 EXIT_PACK_MOVED = 6
 INDEX_POINTER = "index-pointer.json"
 
@@ -1431,8 +1434,8 @@ def batch_page_checkpoint(workdir, pack=None):
               "to the copy when none is due. A name confirmed now is named INTO "
               "the folder. After the copy, a name the end-of-dump page changes "
               "reaches a folder only through a re-lock (render, check, freeze), "
-              "and the engine never renames a copied folder: the freeze lists "
-              "it to rename by hand (plan/folder-renames.md).\n"
+              "and the after-check of `finish --go` asks to rename the copied "
+              "folder (plan/after-check.md).\n"
               "   To go ahead without answering, add --skip-memory.")
         return True
     if rc != 0:
@@ -1586,16 +1589,16 @@ def cmd_finish(args):
         # freeze (said above by verify). Not a failed copy, so not a flag.
         if rc not in (0, EXIT_PACK_MOVED):
             flagged.append("copy-check")
-    if frozen:
-        # FIX8 F8-2 — the folders a re-lock found renamed after their copy.
+    if frozen and not args.go:
+        # FIX8 F8-2 — the folders a re-lock found renamed after their copy;
+        # `--go` puts them to the owner in the after-check (M10).
         import photo_execute
         plans = json.loads((workdir / "plans.json").read_text())
         todo = photo_execute.renames_to_do(plans, plans.get("dest_root") or "")
         if todo:
-            print(f"\n===== {len(todo)} folder(s) to rename by hand on the drive "
-                  "=====\nCopied before their names changed. Rename each one, in "
-                  "this order — the engine never renames a folder, and copies "
-                  "nothing new into one still to rename:")
+            print(f"\n===== {len(todo)} folder(s) copied before their names "
+                  "changed =====\nThe after-check of `finish --go` asks the "
+                  "owner to rename each one:")
             for old, new in todo:
                 print(f'  "{old}" -> "{new}"')
     if args.go:
@@ -1610,6 +1613,13 @@ def cmd_finish(args):
                   "manually on this dump's destination folders")
     else:
         print("\n(extension-mismatch rename runs only with --go)")
+    after_check = 0
+    if frozen and args.go and not flagged:
+        # M10 (ADR 0007) — the copy proof and the leftover ops, after verify.
+        print("\n===== after-check =====")
+        after_check = run("photo_index.py", "after-check", workdir).returncode
+        if after_check not in (0, AFTER_CHECK_WAITS):
+            flagged.append("after-check")
 
     # ---- SNS-4's guaranteed end-of-dump round --------------------------------
     #
@@ -1679,6 +1689,10 @@ def cmd_finish(args):
         print(f"\n⚠️  plans with flags/failures needing attention: "
               f"{flagged} — see plan/execution-log_*.md")
         sys.exit(1)
+    if after_check == AFTER_CHECK_WAITS:
+        print(f"\nSTOP (exit {AFTER_CHECK_WAITS}): the after-check waits for "
+              f"the owner's answers in {workdir / 'plan' / 'after-check.md'}")
+        sys.exit(AFTER_CHECK_WAITS)
 
 
 def safe_console():

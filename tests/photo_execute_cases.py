@@ -238,7 +238,7 @@ def a_new_file_waits_for_its_folder_rename():
         dry = run_execute(wd)
         go = run_execute(wd, "--go")
         refused = (dry.returncode != 0 and go.returncode != 0
-                   and "rename it by hand first" in go.stderr
+                   and "rename it first" in go.stderr
                    and not trip.exists())
         old.rename(trip)
         after = run_execute(wd, "--go")

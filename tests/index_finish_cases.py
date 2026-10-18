@@ -180,7 +180,8 @@ def a_name_corrected_after_the_copy_relocks_and_copies_nothing():
     on 99ca388: after a copy, the pet's name is corrected and the freeze
     refuses ("copied by an earlier run to a place this freeze does not name").
     Now the re-lock holds, `finish --go` copies nothing, creates no folder,
-    and lists "old -> new" until the owner renames the folder by hand."""
+    and stops with exit 3 on the after-check row "old -> new" (M10) until the
+    folder is renamed; renamed by hand, nothing is left to fix."""
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         wd, pack = ready(tmp)
         first = finish(wd)
@@ -195,10 +196,10 @@ def a_name_corrected_after_the_copy_relocks_and_copies_nothing():
         line = f'"{LOTUS}" -> "{LOTUS.replace("Lotus", "Momo")}"'
         (sorted_root / LOTUS).rename(sorted_root / LOTUS.replace("Lotus", "Momo"))
         done = finish(wd)
-    return (first.returncode == 0 and codes == [0, 0, 0] and again.returncode == 0
-            and same and no_new_dir and line in again.stdout
-            and "to rename by hand" in again.stdout
-            and "to rename by hand" not in done.stdout and done.returncode == 0), \
+    row = f"`{LOTUS}` → `{LOTUS.replace('Lotus', 'Momo')}`"
+    return (first.returncode == 0 and codes == [0, 0, 0] and again.returncode == 3
+            and same and no_new_dir and line in again.stdout and row in again.stdout
+            and "Nothing left to fix" in done.stdout and done.returncode == 0), \
         (f"first={first.returncode} codes={codes} again={again.returncode} same={same} "
          f"no_new_dir={no_new_dir} out={again.stdout[-600:]!r} err={again.stderr[-300:]!r}")
 
@@ -663,7 +664,8 @@ def a_dry_run_without_an_index_still_approves():
 def a_not_done_batch_still_copies_after_a_relock():
     """GUARD. Keeping a `done` batch `done` must not skip one that is not: a
     batch whose copy is undone (its records and files gone) is re-copied after
-    a re-lock, and the copied batch beside it stays `done`."""
+    a re-lock, and the copied batch beside it stays `done`. The re-lock's
+    rename waits in the after-check (exit 3, M10)."""
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         wd, pack = ready(tmp)
         finish(wd)
@@ -685,7 +687,7 @@ def a_not_done_batch_still_copies_after_a_relock():
         back = [p.name for p in sorted_root.rglob("*") if p.name in dropped]
         got = statuses(wd)
     return (dropped and codes == [0, 0, 0] and mid[1] == "done" and mid[2] != "done"
-            and r.returncode == 0 and sorted(back) == sorted(dropped)
+            and r.returncode == 3 and sorted(back) == sorted(dropped)
             and got == {1: "done", 2: "done"}), \
         (f"dropped={dropped} codes={codes} mid={mid} rc={r.returncode} back={back} "
          f"got={got} out={r.stdout[-500:]!r}")
@@ -834,6 +836,216 @@ def without_an_index_finish_is_as_before():
             and "photo_index.py" not in r.stdout
             and "20241101_typed/IMG_0101.jpg" in got), \
         f"rc={r.returncode} got={got} out={r.stdout[-400:]!r}"
+
+
+# ---------------------------------------------------------------------------
+# M10 — the after-check (SPEC G9, ADR 0007)
+# ---------------------------------------------------------------------------
+
+HARBOUR = "20241102_Harbour_harbour walk"
+HARBOUR_REX = "20241102_Harbour_Rex_harbour walk"
+
+
+def confirm_rex(pack):
+    """The draft dog of the Harbour day is confirmed AFTER the copy, so its
+    folder gains a pet: a leftover rename (R2)."""
+    reg = pack / "photo-subjects" / "subjects.json"
+    data = json.loads(reg.read_text(encoding="utf-8"))
+    for subj in data["subjects"]:
+        if subj["subject_id"] == "subj-0002":
+            subj["status"] = "human-confirmed"
+    reg.write_text(json.dumps(data), encoding="utf-8")
+
+
+def rex_after_the_copy(tmp):
+    """-> (work dir, pack, first finish, second finish): copied, Rex
+    confirmed, re-locked, `finish --go` again (it stops at the after-check)."""
+    wd, pack = ready(tmp)
+    first = finish(wd)
+    confirm_rex(pack)
+    codes = [ix.run(cmd, wd)[0] for cmd in ("render", "check", "freeze")]
+    if codes != [0, 0, 0]:
+        raise RuntimeError(f"re-lock: {codes}")
+    return wd, pack, first, finish(wd)
+
+
+def after_page(wd):
+    return wd / "plan" / "after-check.md"
+
+
+def answer_after(wd, *answers):
+    lines, k = [], 0
+    for line in after_page(wd).read_text().splitlines():
+        if line.rstrip().endswith("answer: ______"):
+            line = line.replace("answer: ______", f"answer: {answers[k]}")
+            k += 1
+        lines.append(line)
+    after_page(wd).write_text("\n".join(lines) + "\n")
+
+
+def after_check(wd, *extra):
+    return ix.run("after-check", wd, *extra)
+
+
+def tree_multiset(root):
+    return sorted((p.name, p.stat().st_size, sha(p))
+                  for p in Path(root).rglob("*") if p.is_file())
+
+
+def records(wd):
+    out = {}
+    for sp in (wd / "plan").glob("execute-state_*.json"):
+        out.update(json.loads(sp.read_text())["verified"])
+    return out
+
+
+@case
+def the_after_check_renames_a_folder_the_engine_copied_with_the_proof():
+    """⭐ REPRODUCTION (M10, ADR 0007, SPEC G9). ⛔ FAILS on 43f367c: no
+    after-check; a folder copied before it gained a pet was left to rename by
+    hand. Now: the first `finish --go` ends with "Nothing left to fix"; after
+    Rex is confirmed and the dump re-locked, `finish --go` stops with exit 3
+    and plan/after-check.md holds the copy proof (sources unchanged, copied =
+    verified, twins, missing 0) and one RENAME (R2) row. A dry run renames
+    nothing; `ok` + --go renames the folder, says before N = after N, and the
+    size + SHA-256 + name multiset of the tree is the same (a Finder file
+    included); the record follows the folder, verify still passes, and the
+    after-check then says nothing is left."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack, first, again = rex_after_the_copy(tmp)
+        root = Path(tmp) / "sorted"
+        (root / HARBOUR / ".DS_Store").write_bytes(b"finder")
+        page = after_page(wd).read_text()
+        answer_after(wd, "ok")
+        tree0 = tree_multiset(root)
+        dcode, dout, _ = after_check(wd, "--answers", after_page(wd))
+        dry_same = tree0 == tree_multiset(root) and (root / HARBOUR).is_dir()
+        gcode, gout, gerr = after_check(wd, "--answers", after_page(wd), "--go")
+        moved = (root / HARBOUR_REX).is_dir() and not (root / HARBOUR).exists()
+        same = tree0 == tree_multiset(root)
+        followed = all(Path(v["dest"]).is_file() for v in records(wd).values())
+        vcode, _v, _ = ix.run("verify", wd, "--copied")
+        ncode, nout, _ = after_check(wd)
+        log = json.loads((wd / "plan" / "after-check-log.json").read_text())
+    row = f"1. RENAME (R2) · `{HARBOUR}` → `{HARBOUR_REX}` · "
+    return (first.returncode == 0 and "Nothing left to fix" in first.stdout
+            and again.returncode == 3 and row in page and "adds Rex" in page
+            and "source files 6 (unchanged)" in page
+            and "copied 6 · verified 6/6" in page and "missing 0" in page
+            and "skipped twins 0" in page
+            and dcode == 0 and "would rename" in dout and dry_same
+            and gcode == 0 and moved and same and "before 2 = after 2" in gout
+            and followed and vcode == 0
+            and ncode == 0 and "Nothing left to fix. The dump is done." in nout
+            and log[0]["before"] == log[0]["after"] == 2), \
+        (f"first={first.returncode} again={again.returncode} page={page[:900]!r} "
+         f"dry={dcode} {dout[-200:]!r} go={gcode} {gout[-300:]!r}{gerr[-300:]!r} "
+         f"moved={moved} same={same} followed={followed} verify={vcode} "
+         f"next={ncode} {nout[-200:]!r}")
+
+
+@case
+def a_folder_changed_by_hand_since_the_copy_is_not_renamed():
+    """GUARD (ADR 0007: refuse a folder changed since the copy). The owner
+    put a file of their own into the folder, or changed a copied one: the
+    `ok` row renames nothing, says so in the mockup's words, and the tree is
+    byte for byte as it was."""
+    got = {}
+    for how in ("added", "changed"):
+        with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+            wd, _pack, _first, _again = rex_after_the_copy(tmp)
+            root = Path(tmp) / "sorted"
+            if how == "added":
+                (root / HARBOUR / "mine.jpg").write_bytes(b"the owner's own")
+            else:
+                copy = next(p for p in (root / HARBOUR).iterdir() if p.is_file())
+                copy.write_bytes(copy.read_bytes() + b"edited")
+            answer_after(wd, "ok")
+            before = ix.tree_state(root)
+            code, out, _ = after_check(wd, "--answers", after_page(wd), "--go")
+            got[how] = (code, "changed by hand since the copy; nothing was renamed"
+                        in out, before == ix.tree_state(root),
+                        (root / HARBOUR).is_dir())
+    return all(v == (1, True, True, True) for v in got.values()), f"{got}"
+
+
+@case
+def a_folder_the_engine_did_not_create_is_never_renamed():
+    """GUARD (ADR 0007: only a folder the engine wrote). A copy record with no
+    created folders — a copy made before v2.2, or the owner's own folder —
+    renames nothing, whatever the answer."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack, _first, _again = rex_after_the_copy(tmp)
+        for sp in (wd / "plan").glob("execute-state_*.json"):
+            doc = json.loads(sp.read_text())
+            doc.pop("created_dirs", None)
+            sp.write_text(json.dumps(doc))
+        root = Path(tmp) / "sorted"
+        answer_after(wd, "ok")
+        before = ix.tree_state(root)
+        code, out, _ = after_check(wd, "--answers", after_page(wd), "--go")
+        same = before == ix.tree_state(root)
+    return (code == 1 and "not a folder this engine created" in out and same), \
+        f"code={code} same={same} out={out[-300:]!r}"
+
+
+@case
+def skip_blank_and_a_bad_answer_rename_nothing():
+    """GUARD. `skip` and a row left open rename nothing and the row stays;
+    an answer that is not ok/skip is refused whole."""
+    got = {}
+    for answer in ("skip", "______", "yes"):
+        with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+            wd, _pack, _first, _again = rex_after_the_copy(tmp)
+            root = Path(tmp) / "sorted"
+            if answer != "______":
+                answer_after(wd, answer)
+            before = ix.tree_state(root)
+            code, out, err = after_check(wd, "--answers", after_page(wd), "--go")
+            again, _o, _e = after_check(wd)
+            got[answer] = (code, before == ix.tree_state(root), again)
+    return (got["skip"] == (0, True, 3) and got["______"] == (0, True, 3)
+            and got["yes"][1:] == (True, 3) and got["yes"][0] != 0), f"{got}"
+
+
+@case
+def the_copy_record_names_the_folders_the_engine_created():
+    """⭐ REPRODUCTION (ADR 0007: "the copy record must know which folders the
+    engine wrote"). ⛔ FAILS on 43f367c. Each execute-state lists the folders
+    it created, the dest root it had to make included, and each copy's size."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        finish(wd)
+        root = (Path(tmp) / "sorted").resolve()
+        made = set()
+        for sp in (wd / "plan").glob("execute-state_*.json"):
+            made |= {str(Path(d).resolve()) for d in
+                     json.loads(sp.read_text()).get("created_dirs") or []}
+        sizes = all(v.get("size") == Path(v["dest"]).stat().st_size
+                    for v in records(wd).values())
+    want = {str(root), str(root / LOTUS), str(root / HARBOUR)}
+    return want <= made and sizes, f"made={sorted(made)} sizes={sizes}"
+
+
+@case
+def a_copy_gone_from_the_drive_fails_the_proof():
+    """GUARD. "missing 0" is measured on the drive: a copy deleted after the
+    copy is missing, and the after-check exits 1."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        finish(wd)
+        gone = Path(next(iter(records(wd).values()))["dest"])
+        gone.unlink()
+        code, out, _ = after_check(wd)
+    return code == 1 and "missing 1" in out and gone.name in out, \
+        f"code={code} out={out[-400:]!r}"
+
+
+@case
+def the_after_check_stop_is_exit_3_in_both_scripts():
+    import photo_index
+    return photo_run.AFTER_CHECK_WAITS == photo_index.EXIT_AFTER_CHECK == 3, \
+        f"{photo_run.AFTER_CHECK_WAITS} {photo_index.EXIT_AFTER_CHECK}"
 
 
 def main():
