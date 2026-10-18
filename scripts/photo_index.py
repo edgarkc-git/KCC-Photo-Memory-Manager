@@ -3109,7 +3109,10 @@ def cmd_freeze(args):
                       + "\n".join(f"  ⛔ {p}" for p in problems[:10]))
     # M6 (SPEC G18) — the fix plan runs on the index before the freeze. A row
     # with no answer stops it: exit 3, nothing frozen.
-    ops, refused_ops = draft_fix_plan(workdir, pack, index)
+    debug = []
+    ops, refused_ops = draft_fix_plan(workdir, pack, index, debug)
+    for line in debug:
+        print(f"  (fix plan, no word: {line})")
     waiting = fix_waiting(index, ops)
     if waiting:
         page = write_fix_plan(workdir, index, waiting, refused_ops)
@@ -3693,10 +3696,161 @@ def rule_r5(ctx):
     return out
 
 
+def manifest_points(workdir):
+    """-> {SourceFile: (lat, lon)} from a work dir's own manifest, read-only
+    and kept in memory (G33: no coordinate is written anywhere)."""
+    path = Path(workdir) / "manifest.csv"
+    if not path.is_file():
+        return {}
+    with open(path, newline="", encoding="utf-8") as fh:
+        return {r["SourceFile"]: pt for r in csv.DictReader(fh)
+                if (pt := photo_cluster.gps_point(r.get("GPSPosition") or ""))}
+
+
+def centroid(points):
+    pts = [p for p in points if p]
+    if not pts:
+        return None
+    return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+
+
+def where_slot(name):
+    """The [where] slot of a dated folder name (its second `_` slot)."""
+    slots = Path(name).name.split(photo_name.SLOT_SEP)
+    return slots[1] if len(slots) > 1 else None
+
+
+def engine_names(workdir, plans):
+    """-> the folder names the ENGINE gave this dump's copies: where it
+    copied them, the re-lock renames, and the after-check / fix-plan moves.
+    A folder under one of these names carries no owner word."""
+    names = {Path(v.get("dest") or "").parent.name for v in
+             photo_execute.verified_anywhere(Path(workdir) / "plan").values()}
+    names |= {Path(r["new"]).name for r in plans.get(photo_execute.RENAMES_KEY) or []}
+    log = Path(workdir) / "plan" / AFTER_CHECK_LOG
+    if log.is_file():
+        names |= {Path(e["to"]).name for e in json.loads(log.read_text(encoding="utf-8"))}
+    return names
+
+
+def owner_words(ctx, debug):
+    """R6 — [(word, spot, earlier folder, dump)] the OWNER chose for a place
+    in an earlier dump of this collection. Read-only on every earlier dump.
+
+    (1) A `set-where` word in its index. (2) A hand rename: each folder the
+    engine copied that dump into is found again by its copies' SHA-256 in
+    this run's dest-tree scan, at any depth (the owner also moved folders
+    into year folders); the folder holding MORE than half of its copies is
+    its home now, and a [where] there that differs from the engine's name —
+    and is no engine rename — is the owner's word. A copy in 2+ folders, or
+    no majority, gives no word and is only counted in `debug`."""
+    out = []
+    tree = {}
+    root = Path(ctx["dest_root"])
+    rows = photo_desttree.scan(root, ctx["workdir"]) if root.is_dir() else []
+    for t in rows:
+        tree.setdefault((t["size"], t["sha256"]), set()).add(t["folder"])
+    for wd in collection_dumps(ctx["workdir"]):
+        if wd.resolve() == ctx["workdir"].resolve():
+            continue
+        points = manifest_points(wd)
+        pointer = read_pointer(wd)
+        index_path = (index_dir(ctx["pack"], pointer["dump_key"]) / INDEX_NAME
+                      if pointer and ctx["pack"].dir else None)
+        if index_path and index_path.is_file():
+            earlier = json.loads(index_path.read_text(encoding="utf-8"))
+            for fo in live(earlier):
+                if fo.get("where_set"):
+                    spot = centroid(points.get(f["source"]) for f in earlier["files"]
+                                    if f["folder"] == fo["id"])
+                    if spot:
+                        out.append((fo["where_set"]["text"], spot,
+                                    fo.get("rendered") or fo["id"], wd.name))
+        plans_path = wd / "plans.json"
+        plans = json.loads(plans_path.read_text(encoding="utf-8")) \
+            if plans_path.is_file() else {}
+        named = engine_names(wd, plans)
+        groups = {}
+        for src, v in photo_execute.verified_anywhere(wd / "plan").items():
+            groups.setdefault(Path(v.get("dest") or "").parent.name, []).append((src, v))
+        for engine_name, copies in sorted(groups.items()):
+            homes, split = {}, False
+            for src, v in copies:
+                found = tree.get((v.get("size"), v.get("sha256")))
+                if found is None and v.get("size") is None:
+                    found = {f for (sz, sh), fs in tree.items()
+                             if sh == v.get("sha256") for f in fs}
+                if found and len(found) > 1:
+                    split = True
+                    break
+                for f in found or ():
+                    homes[f] = homes.get(f, 0) + 1
+            best = max(homes.items(), key=lambda kv: kv[1], default=(None, 0))
+            if split:
+                debug.append(f"{wd.name} {engine_name}: a copy is in 2+ folders")
+                continue
+            if not best[0] or best[1] * 2 <= len(copies):
+                if best[0]:
+                    debug.append(f"{wd.name} {engine_name}: no folder holds more "
+                                 "than half of its copies")
+                continue
+            now = Path(best[0]).name
+            word, was = where_slot(now), where_slot(engine_name)
+            if now in named or not word or word == was:
+                continue
+            spot = centroid(points.get(src) for src, _v in copies)
+            if spot:
+                out.append((word, spot, best[0], wd.name))
+    return out
+
+
 def rule_r6(ctx):
-    """R6 — reuse the owner's own place word for the same spot. Not built
-    here."""
-    return []
+    """R6 — reuse the owner's own place word for the same spot (card E47).
+    A one-batch folder of this dump with no set-where of its own whose GPS
+    centroid lies within LANDMARK_RADIUS_M of a spot the owner named in an
+    earlier dump (`owner_words()`) is offered that word; the nearest spot
+    wins, a tie the latest dump. ⛔ Never near a home: a folder or a spot
+    within PLACE_SUPPRESS_KM of any home (every home of the pack) is
+    skipped. Applied through set-where, the owner's own path."""
+    index = ctx["index"]
+    words = owner_words(ctx, ctx.setdefault("debug", []))
+    if not words:
+        return []
+    homes = photo_profile.labelled_home_points(ctx["pack"].profile)
+    points = manifest_points(ctx["workdir"])
+
+    def near_home(point, day):
+        return bool(homes) and nearest_home(point, day, homes) is not None
+
+    reach = photo_cluster.LANDMARK_RADIUS_M / 1000
+    out = []
+    for fo in live(index):
+        if (fo["kind"] not in HOLDERS or fo.get("where_set") or fo.get("days")
+                or len(fo["batches"]) != 1 or not fo.get("rendered")
+                or fo["dest"]["mode"] != "new"):
+            continue
+        members = copy_members(index, fo["id"])
+        spot = centroid(points.get(f["source"]) for f in members)
+        day = min((f.get("date") or "")[:10] for f in members) if members else ""
+        if not spot or near_home(spot, day):
+            continue
+        near = sorted(((photo_cluster.haversine_km(spot, w[1]), -k, w)
+                       for k, w in enumerate(words)
+                       if not near_home(w[1], day)), key=lambda x: x[:2])
+        near = [x for x in near if x[0] <= reach]
+        if not near:
+            continue
+        word, _spot, earlier, dump = near[0][2]
+        slots = fo["rendered"].split(photo_name.SLOT_SEP)
+        have = where_words(fo, id_labels(ctx["pack"]))[0]
+        if have and len(slots) > 1 and slots[1] == photo_name.NAME_SEP.join(have):
+            slots[1] = word
+        else:
+            slots.insert(1, word)
+        out.append(fix_op("RENAME", "R6", fo, fo["rendered"],
+                          photo_name.SLOT_SEP.join(slots), len(members),
+                          f"you named this spot {word} in {earlier}", word=word))
+    return out
 
 
 FIX_RULES = (rule_r1, rule_r2, rule_r3, rule_r4, rule_r5, rule_r6)
@@ -3730,14 +3884,20 @@ def fix_problem(op, ctx):
     return None
 
 
-def draft_fix_plan(workdir, pack, index):
-    """-> (ops offered, [(op, why)] refused). Nothing is written."""
+def draft_fix_plan(workdir, pack, index, debug=None):
+    """-> (ops offered, [(op, why)] refused). Nothing is written. `debug`
+    gathers what a rule looked at and could not use (R6's counts)."""
     by_number = {b["batch"]: b for b in json.loads(
         (workdir / "batches.json").read_text(encoding="utf-8")).get("batches", [])}
     ctx = {"workdir": workdir, "pack": pack, "index": index, "by_number": by_number,
            "dest_root": photo_plan.resolve_dest_root(workdir, None, pack.profile)}
     ops = [op for rule in FIX_RULES for op in rule(ctx)
            if op["from"] != op["to"]]
+    # ADR 0001 — the owner's word beats the lookup: R6 over R1, per folder.
+    owned = {op["folder"] for op in ops if op["rule"] == "R6"}
+    ops = [op for op in ops if not (op["rule"] == "R1" and op["folder"] in owned)]
+    if debug is not None:
+        debug.extend(ctx.get("debug") or [])
     ops += [fix_op("RENAME", "agent", fo, fo.get("rendered") or "", a["to"],
                    len(copy_members(index, a["folder"])), a["reason"],
                    agent_name=a["to"])
@@ -3874,7 +4034,10 @@ def cmd_fix_plan(args):
         save(target, pack, index)
         print(f"{fo['id']}: agent row added; the fix plan offers it, validated")
         return 0
-    ops, refused = draft_fix_plan(workdir, pack, index)
+    debug = []
+    ops, refused = draft_fix_plan(workdir, pack, index, debug)
+    for line in debug:
+        print(f"  (fix plan, no word: {line})")
     if not args.answers:
         waiting = fix_waiting(index, ops)
         page = write_fix_plan(workdir, index, waiting, refused)
@@ -3908,12 +4071,12 @@ def cmd_fix_plan(args):
         fo = next(x for x in index["folders"] if x["id"] == op["folder"])
         said = None
         if answer == "word":
-            if op["rule"] not in ("R1", "R3"):
+            if op["rule"] not in ("R1", "R3", "R6"):
                 print(f"  ⛔ row {r['n']}: {op['rule']} takes `ok` or `skip`, not a "
                       "word — nothing written for it")
                 refused_n += 1
                 continue
-            if op["rule"] == "R1":
+            if op["rule"] in ("R1", "R6"):
                 # The owner's own place word: set-where's own path (ADR 0001).
                 if args.go:
                     said = group_set_where(index, argparse.Namespace(
@@ -3936,6 +4099,13 @@ def cmd_fix_plan(args):
                     said = f"renamed `{op['from']}` → `{op['to']}`"
                     if args.go:
                         fo["dest"]["existing_path"] = str(Path(a["path"]).parent / op["to"])
+            elif op["rule"] == "R6":
+                if args.go:
+                    said = group_set_where(index, argparse.Namespace(
+                        folder=fo["id"], text=a["word"], clear=False), pack,
+                        None, FIX_PLAN_CMD, "fix plan R6: the owner's own word")
+                else:
+                    said = f"[where] {a['word']!r}, the owner's own word"
             elif op["rule"] == "R1":
                 if args.go:
                     fo["where"] = [dict(r) for r in a["refs"]]

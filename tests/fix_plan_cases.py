@@ -661,6 +661,167 @@ def a_trip_candidate_becomes_a_make_trip_row_and_ok_runs_make_trip():
         f"{got} calls={calls}"
 
 
+# ---------------------------------------------------------------------------
+# R6 — the owner's own place word for the same spot
+# ---------------------------------------------------------------------------
+
+HARBOUR_DAY = "20241102_Harbour_harbour walk"
+PIER_DAY = "2024/20241102_Old Pier_harbour walk"
+
+
+def later_dump(tmp, gps=ix.FAR, day="2024:11:05", place="Harbour"):
+    """dump-b of the same collection: two photos at `gps` on `day`, labelled
+    `pier walk`, initialised, rendered and checked. -> work dir."""
+    base = Path(tmp).resolve() / "raw" / "dump-b"
+    base.mkdir(parents=True)
+    rows = []
+    for k, name in enumerate(("IMG_0501.jpg", "IMG_0502.jpg")):
+        (base / name).write_bytes(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00"
+                                  + name.encode() + b"\xff\xd9")
+        rows.append(ix.row(name, SourceFile=str(base / name),
+                           when=f"{day} 1{k}:00:00", gps=gps))
+    iso = day.replace(":", "-")
+    wd = ix.make_dump(tmp, rows=rows, name="dump-b", batches=[
+        {"batch": 1, "from": iso, "to": iso, "place": place}])
+    ix.write_see(wd, 1, [ix.see_label(base, n, what="pier walk")
+                         for n in ("IMG_0501.jpg", "IMG_0502.jpg")])
+    for cmd in ("init", "render", "check"):
+        must(ix.run(cmd, wd), f"{cmd} b")
+    return wd
+
+
+def copied_dump_a(tmp):
+    wa, pack = fin.ready(tmp)
+    if fin.finish(wa).returncode:
+        raise RuntimeError("dump-a finish")
+    return wa, pack, Path(tmp).resolve() / "sorted"
+
+
+def hand_move(root, old, new):
+    (root / new).parent.mkdir(parents=True, exist_ok=True)
+    (root / old).rename(root / new)
+
+
+@case
+def a_word_the_owner_gave_by_renaming_and_moving_is_reused():
+    """⭐ REPRODUCTION (M6 R6, E47 "reuse the owner's place word"). ⛔ FAILS on
+    e552a87. dump-a was copied on v2.1-style flow; the owner then renamed its
+    Harbour folder to `Old Pier` and moved it into a year folder. dump-b
+    photographs the same spot: R6 finds the folder again by its copies'
+    SHA-256, at any depth, and offers `Old Pier`; `ok` sets it through
+    set-where, and the folder renders with the owner's word."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        _wa, _pack, root = copied_dump_a(tmp)
+        hand_move(root, HARBOUR_DAY, PIER_DAY)
+        wb = later_dump(tmp)
+        code, _o, _ = ix.run("freeze", wb)
+        got = rows(wb)
+        answer(wb, "ok")
+        acode, aout, _ = apply(wb)
+        must(ix.run("render", wb), "render b")
+        n = names(tmp, "dump-b")
+        held = ix.index_of(tmp, "dump-b")[0]["folders"][0].get("where_set")
+    row = ("1. RENAME (R6) · F001 · `20241105_Harbour_pier walk` → "
+           "`20241105_Old Pier_pier walk` · you named this spot Old Pier in "
+           f"{PIER_DAY}")
+    return (code == 3 and len(got) == 1 and got[0].startswith(row) and acode == 0
+            and n["F001"] == "20241105_Old Pier_pier walk"
+            and held and held["text"] == "Old Pier"), \
+        f"code={code} rows={got} apply={acode} {aout[-300:]!r} names={n} held={held}"
+
+
+@case
+def r6_offers_nothing_near_a_home_or_far_away():
+    """GUARD (Lead). The owner renamed the HOME day folder and dump-b is at
+    home: no row (never near a home). The owner renamed the Harbour folder and
+    dump-b is far from it: no row (beyond 300 m)."""
+    got = {}
+    for label, old, new, gps, place in (
+            ("home", "20241101_Ford_Lotus_sofa nap", "2024/20241101_Garden_Lotus_sofa nap",
+             ix.HOME, "Ford"),
+            ("far", HARBOUR_DAY, PIER_DAY, ix.FAR2, "Harbour")):
+        with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+            _wa, _pack, root = copied_dump_a(tmp)
+            hand_move(root, old, new)
+            wb = later_dump(tmp, gps=gps, place=place)
+            code, out, _ = ix.run("fix-plan", wb)
+            got[label] = (code, photo_index.NOTHING_TO_CHANGE in out, "(R6)" in out)
+    return all(v == (0, True, False) for v in got.values()), f"{got}"
+
+
+@case
+def an_engine_rename_gives_no_word():
+    """GUARD (Lead). A folder the ENGINE renamed (a re-lock rename listed in
+    plans.json) carries no owner word: no R6 row."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wa, _pack, root = copied_dump_a(tmp)
+        new = "20241102_Old Pier_harbour walk"
+        plans = json.loads((wa / "plans.json").read_text())
+        plans["renames"] = [{"old": HARBOUR_DAY, "new": new}]
+        (wa / "plans.json").write_text(json.dumps(plans))
+        hand_move(root, HARBOUR_DAY, new)
+        wb = later_dump(tmp)
+        code, out, _ = ix.run("fix-plan", wb)
+    return code == 0 and "(R6)" not in out, f"code={code} out={out[-400:]!r}"
+
+
+@case
+def a_split_or_doubled_folder_gives_no_word_and_is_counted():
+    """GUARD (Lead). The Ford folder's two copies now sit in two folders (no
+    folder holds more than half) and the Harbour copy sits in two folders at
+    once: neither gives a word, and both are counted on a debug line, never
+    as a row."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        _wa, _pack, root = copied_dump_a(tmp)
+        ford = root / "20241101_Ford_Lotus_sofa nap"
+        hand_move(root, "20241101_Ford_Lotus_sofa nap", "2024/20241101_Garden_sofa nap")
+        moved = root / "2024" / "20241101_Kitchen_sofa nap"
+        moved.mkdir()
+        (root / "2024/20241101_Garden_sofa nap/IMG_0102.jpg").rename(moved / "IMG_0102.jpg")
+        twin = root / "2024" / "20241102_Old Pier_harbour walk"
+        twin.mkdir()
+        (twin / "IMG_0201.jpg").write_bytes((root / HARBOUR_DAY / "IMG_0201.jpg").read_bytes())
+        wb = later_dump(tmp)
+        code, out, _ = ix.run("fix-plan", wb)
+    return (code == 0 and "(R6)" not in out and not ford.exists()
+            and "no folder holds more than half of its copies" in out
+            and "a copy is in 2+ folders" in out), f"code={code} out={out[-700:]!r}"
+
+
+@case
+def r6_wins_over_r1_on_the_same_folder():
+    """GUARD (ADR 0001). The landmark lookup names dump-b's batch Pier Lane
+    (R1) and the owner named the spot Old Pier (R6): only R6 is offered."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        _wa, _pack, root = copied_dump_a(tmp)
+        hand_move(root, HARBOUR_DAY, PIER_DAY)
+        wb = later_dump(tmp)
+        doc = json.loads((wb / "batches.json").read_text())
+        doc["batches"][0]["place"] = "Pier Lane"
+        (wb / "batches.json").write_text(json.dumps(doc))
+        code, out, _ = ix.run("fix-plan", wb)
+        got = rows(wb)
+    return (code == 3 and len(got) == 1 and "(R6)" in got[0]
+            and "Pier Lane" not in out.split("## Refused")[0]), f"rows={got}"
+
+
+@case
+def an_r6_dry_run_writes_nothing():
+    """GUARD (Lead). `fix-plan --answers` without --go on an R6 row: both
+    work dirs, the pack and the tree keep their bytes and mtimes."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wa, pack, root = copied_dump_a(tmp)
+        hand_move(root, HARBOUR_DAY, PIER_DAY)
+        wb = later_dump(tmp)
+        ix.run("freeze", wb)
+        answer(wb, "ok")
+        before = state(wa, wb, pack, root)
+        code, out, _ = apply(wb, go=False)
+        after = state(wa, wb, pack, root)
+    changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+    return code == 0 and "DRY RUN" in out and not changed, f"changed={changed}"
+
+
 @case
 def the_fix_plan_stop_is_exit_3():
     return photo_index.EXIT_FIX_PLAN == 3, f"{photo_index.EXIT_FIX_PLAN}"
