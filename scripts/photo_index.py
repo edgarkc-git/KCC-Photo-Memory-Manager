@@ -1025,8 +1025,13 @@ def trip_candidates(index, batches, pack):
     """M7 / G22 / E28 — the trips abroad this index could make, as PROPOSALS
     (the fix plan's R5 MAKE-TRIP row; applied only through `group make-trip`
     on the owner's ok). -> [{"folders": [F0NN, ...], "to": <trip name>,
-    "days": "MMDD-MMDD", "photos": n, "where": [place words],
-    "country": <word or None>}].
+    "days": [YYYY-MM-DD, ...], "span": "MMDD-MMDD", "photos": n,
+    "where": [place words], "country": <word or None>}]. An ok is
+    `group make-trip <folders> --where <w> [--where <w>] [--country <c>]`,
+    and the trip then renders exactly `to`.
+
+    `pack` is the owner pack, or its profile alone (then a named place's
+    label is not read: a leg at one keeps no word in the trip's name).
 
     A trip abroad (glossary; owner ruling Q2 20261018) is a run of 2+ days of
     batches typed OVERSEAS, consecutive but for TRIP_GAP_DAYS days without
@@ -1050,11 +1055,13 @@ def trip_candidates(index, batches, pack):
             runs[-1].append(b)
         else:
             runs.append([b])
-    profile = pack.profile
+    profile = pack.profile if hasattr(pack, "profile") else (pack or {})
     country = photo_cluster.owner_country(profile)
     homes = photo_profile.home_points(profile)
     owned = claims(index)
-    labels = id_labels(pack)
+    labels = (id_labels(pack) if hasattr(pack, "profile") else
+              {row[5]: row[4] for row in photo_profile.labelled_home_points(profile)
+               if row[5]})
     present = {}
     for f in index["files"]:
         if f["status"] == "present" and f["folder"]:
@@ -1091,7 +1098,8 @@ def trip_candidates(index, batches, pack):
         if not ok or not places:
             continue
         out.append({"folders": [fo["id"] for fo in holders_in], "to": name,
-                    "days": f"{days[0][5:7]}{days[0][8:10]}-{days[-1][5:7]}{days[-1][8:10]}",
+                    "days": days,
+                    "span": f"{days[0][5:7]}{days[0][8:10]}-{days[-1][5:7]}{days[-1][8:10]}",
                     "photos": sum(present.get(fo["id"], 0) for fo in holders_in),
                     "where": places, "country": word})
     return out

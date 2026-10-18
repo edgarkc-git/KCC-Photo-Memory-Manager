@@ -179,9 +179,14 @@ def a_run_of_days_abroad_is_proposed_as_one_trip_named_country_and_place():
         got = photo_index.trip_candidates(idx, abroad(batches), pack)
     want = [{"folders": ["F001", "F002", "F003", "F004", "F005"],
              "to": "20241025-1031_Countryland_Dunmore+Ashford",
-             "days": "1025-1031", "photos": 6, "where": ["Dunmore", "Ashford"],
+             "days": ["2024-10-25", "2024-10-26", "2024-10-27", "2024-10-29",
+                      "2024-10-30", "2024-10-31"], "span": "1025-1031",
+             "photos": 6, "where": ["Dunmore", "Ashford"],
              "country": "Countryland"}]
-    return got == want, f"{got}"
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        _wd, pack, idx, batches = group_index(tmp)
+        by_profile = photo_index.trip_candidates(idx, abroad(batches), pack.profile)
+    return got == want and by_profile == want, f"{got} profile={by_profile}"
 
 
 @case
