@@ -1008,6 +1008,12 @@ def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
                                  cap, profile, rmsg) if backed else "")
     mine = {f["source"]: cells[f["source"]] for f in own if cells.get(f["source"])}
     pick = photo_plan.name_phrase(mine, who=who, hard=hard, soft=soft)
+    drops = {d.casefold() for d in fo.get("drop_what") or []}
+    if drops and pick["what"]:
+        # M6 R3 — a look of a named pet, dropped on the owner's `ok`.
+        kept = [w for w in pick["what"].split(photo_name.NAME_SEP)
+                if w.strip().casefold() not in drops]
+        pick = {**pick, "what": photo_name.NAME_SEP.join(kept) or None}
     own = agent_what(fo)
     validation = {"refusals": [], "warnings": [], "copies": len(members),
                   "who": [{"subject_id": k, "name": n, "files": c}
@@ -1039,10 +1045,11 @@ def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
             where=where, parent_where=parent_words)
         validation["refusals"], validation["warnings"] = ref, warn
     else:
-        # A folder's own `what` (set-what) wins over the pick.
-        name = photo_name.render(start, end, where=where,
-                                 who=[who] if who else [],
-                                 what=own or pick["what"])
+        # A folder's own `what` (set-what) wins over the pick; an agent row
+        # the owner approved in the fix plan (M6) names the whole folder.
+        name = fo.get("agent_name") or photo_name.render(
+            start, end, where=where, who=[who] if who else [],
+            what=own or pick["what"])
         _ok, ref, warn = photo_name.validate(
             name, place_known=bool(fo["where"]), span=(start, end),
             hard=hard, soft=soft, kind=photo_name.NAME_FOLDER)
@@ -2970,6 +2977,19 @@ def cmd_freeze(args):
         raise Refused(f"the check fails — nothing frozen ({len(problems)} "
                       "problem(s); `photo_index.py check` lists them):\n"
                       + "\n".join(f"  ⛔ {p}" for p in problems[:10]))
+    # M6 (SPEC G18) — the fix plan runs on the index before the freeze. A row
+    # with no answer stops it: exit 3, nothing frozen.
+    ops, refused_ops = draft_fix_plan(workdir, pack, index)
+    waiting = fix_waiting(index, ops)
+    if waiting:
+        page = write_fix_plan(workdir, index, waiting, refused_ops)
+        print(page.read_text(encoding="utf-8").rstrip())
+        print(f"STOP (exit {EXIT_FIX_PLAN}): the fix plan waits for the owner's "
+              f"answers in {page} — nothing frozen")
+        return EXIT_FIX_PLAN
+    for op, why in refused_ops:
+        print(f"  ⚠️ fix plan row refused, never applied: {op['rule']} "
+              f"{op['folder']} `{op['to']}` — {why}")
     by_number = {b["batch"]: b for b in json.loads(
         (workdir / "batches.json").read_text(encoding="utf-8")).get("batches", [])}
     units = export_units(index, by_number)
@@ -3277,6 +3297,446 @@ def cmd_unfreeze(args):
 
 
 # ---------------------------------------------------------------------------
+# fix plan — before the freeze (M6, SPEC G17, G18; card E47 R1-R6)
+# ---------------------------------------------------------------------------
+
+FIX_PLAN_MD = "fix-plan.md"
+FIX_PLAN_CMD = "index fix-plan"
+# The stop the fix plan puts to the owner: rows wait, nothing frozen.
+EXIT_FIX_PLAN = 3
+FIX_ANSWERS = ("ok", "skip")
+FIX_OPS = ("RENAME", "INTO-EXISTING")
+FIX_ROW = re.compile(r"^(\d+)\. (RENAME|INTO-EXISTING) \(([^)]+)\) · (F\d+) · "
+                     r"`([^`]*)` → `([^`]*)` · .*· answer:\s*(.*?)\s*$")
+NOTHING_TO_CHANGE = "Nothing to change."
+BY_HAND = "the engine did not create this folder: rename it by hand"
+
+
+def fix_key(op):
+    return f"{op['rule']}|{op['folder']}|{op['op']}|{op['to']}"
+
+
+def fix_op(op, rule, fo, old, new, photos, reason, **apply):
+    out = {"op": op, "rule": rule, "folder": fo["id"], "from": old, "to": new,
+           "photos": photos, "reason": reason, "apply": apply}
+    out["key"] = fix_key(out)
+    return out
+
+
+def copy_members(index, fid):
+    return [f for f in index["files"]
+            if f["folder"] == fid and f["route"] == ROUTE_COPY]
+
+
+def collection_dumps(workdir):
+    """-> the work dirs of this collection: this one and its siblings with
+    a copy record. Read-only."""
+    root = Path(workdir).resolve().parent
+    return [d for d in sorted(root.iterdir())
+            if d.is_dir() and (d / "plan").is_dir()
+            and any((d / "plan").glob("execute-state_*.json"))]
+
+
+def copy_finished(workdir):
+    """Is every copy row of `workdir`'s plans verified? A dump whose copy or
+    verify is unfinished never has its record moved."""
+    try:
+        verified = photo_execute.verified_anywhere(Path(workdir) / "plan")
+        for csv_path in Path(workdir, "plan").glob("plan_*-files.csv"):
+            with open(csv_path, newline="", encoding="utf-8") as fh:
+                for r in csv.DictReader(fh):
+                    if r["action"] == ROUTE_COPY and r["SourceFile"] not in verified:
+                        return False
+    except (OSError, ValueError, KeyError):
+        return False
+    return True
+
+
+def with_pets(name, pets, missing):
+    """`name` with the `missing` pets added to its [who]: into the slot that
+    already holds one of `pets`, else as a slot after [where] (the third)."""
+    slots = name.split(photo_name.SLOT_SEP)
+    for i, slot in enumerate(slots[1:], 1):
+        if set(slot.split(photo_name.NAME_SEP)) & set(pets):
+            slots[i] = photo_name.NAME_SEP.join([slot, *missing])
+            return photo_name.SLOT_SEP.join(slots)
+    at = 2 if len(slots) >= 3 else len(slots)
+    slots.insert(at, photo_name.NAME_SEP.join(missing))
+    return photo_name.SLOT_SEP.join(slots)
+
+
+def rule_r1(ctx):
+    """R1 — `[where]` is the landmark (needs A1's M1). Not built here."""
+    return []
+
+
+def rule_r2(ctx):
+    """R2 — every confirmed pet in `[who]`. render already names every NEW
+    folder so (SPEC G30); what is left is a folder this dump MERGES INTO,
+    whose name is on the drive. A RENAME of it is the engine's only when an
+    engine copy record of this collection lists it as created (ADR 0007,
+    Lead ruling 20261018); otherwise the row is a rename by hand."""
+    out = []
+    created = {}
+    for wd in collection_dumps(ctx["workdir"]):
+        created.update({k: (v, wd) for k, v in
+                        photo_execute.created_anywhere(wd / "plan").items()})
+    for fo in live(ctx["index"]):
+        dest = fo["dest"]
+        if dest["mode"] == "new" or not dest.get("existing_path"):
+            continue
+        path = Path(dest["existing_path"])
+        pets = [w["name"] for w in (fo.get("validation") or {}).get("who") or []]
+        missing = [p for p in pets if p not in name_words(path.name)]
+        if not missing:
+            continue
+        owner = created.get(photo_execute.real_key(path), (None, None))[1]
+        reason = f"adds {', '.join(missing)}" + ("" if owner else f" — {BY_HAND}")
+        out.append(fix_op("RENAME", "R2", fo, path.name,
+                          with_pets(path.name, pets, missing),
+                          len(copy_members(ctx["index"], fo["id"])), reason,
+                          path=str(path), by_hand=owner is None,
+                          dump=str(owner) if owner else None))
+    return out
+
+
+def rule_r3(ctx):
+    """R3 — drop a `[what]` word that is a LOOK of a pet already in the
+    folder's `[who]` (the class word it carried before it had a name, or one
+    the agent recorded). Keyed on the pack's `looks`, never a word list; a pet
+    with no look gives no op. The agent's own `[what]` is left alone."""
+    import photo_subjects
+    registry = photo_subjects.load(pack=ctx["pack"])
+    out = []
+    for fo in live(ctx["index"]):
+        val = fo.get("validation") or {}
+        what, name = val.get("what_pick"), fo.get("rendered")
+        if (fo["dest"]["mode"] != "new" or agent_what(fo) or not what or not name
+                or not name.endswith(photo_name.SLOT_SEP + what)):
+            continue
+        looks = {}
+        for w in val.get("who") or []:
+            subject = registry.get(w.get("subject_id") or "")
+            for look in (subject.looks if subject else []):
+                looks.setdefault(look.casefold(), w["name"])
+        pieces = what.split(photo_name.NAME_SEP)
+        drop = [x for x in pieces if x.strip().casefold() in looks]
+        if not drop:
+            continue
+        rest = photo_name.NAME_SEP.join(x for x in pieces if x not in drop)
+        to = name[:-len(what) - 1] + (photo_name.SLOT_SEP + rest if rest else "")
+        pets = sorted({looks[x.strip().casefold()] for x in drop})
+        out.append(fix_op("RENAME", "R3", fo, name, to,
+                          len(copy_members(ctx["index"], fo["id"])),
+                          f"drops {', '.join(drop)}: a look of {', '.join(pets)}, "
+                          "already named", drop_what=drop))
+    return out
+
+
+def rule_r4(ctx):
+    """R4 — a day that already has a folder in the dest goes into it, by
+    capture day (M4's scan, any depth; never this dump's own copies). One op
+    per folder whose every day sits in the same existing folder. ⛔ A trip
+    abroad stays out (E52: a travel day's files taken in another country stay
+    in that country's folder). Listed as a merge into an existing folder
+    (D5)."""
+    index, workdir = ctx["index"], ctx["workdir"]
+    root = Path(ctx["dest_root"])
+    if not root.is_dir():
+        return []
+    own = {path_key(v.get("dest") or "") for v in
+           photo_execute.verified_anywhere(workdir / "plan").values()}
+    mine = set(photo_execute.created_anywhere(workdir / "plan"))
+    days = {}
+    for t in photo_desttree.scan(root, workdir):
+        if not t["folder"] or not t["day"] or path_key(t["path"]) in own:
+            continue
+        head = Path(t["folder"]).name.split(photo_name.SLOT_SEP)[0]
+        if photo_name.kind_of(head) != photo_name.NAME_FOLDER or not head[:1].isdigit():
+            continue
+        if photo_execute.real_key(root / t["folder"]) in mine:
+            continue
+        days.setdefault(t["day"], {}).setdefault(t["folder"], 0)
+        days[t["day"]][t["folder"]] += 1
+    out = []
+    for fo in live(index):
+        if (fo["kind"] != "day" or fo.get("parent") or fo["dest"]["mode"] != "new"
+                or not fo.get("rendered")):
+            continue
+        if any((ctx["by_number"].get(b) or {}).get("type") == "OVERSEAS"
+               for b in fo["batches"]):
+            continue
+        members = copy_members(index, fo["id"])
+        mine_days = sorted({f["date"][:10] for f in members if f.get("date")})
+        best = {max(sorted(days[d]), key=lambda k: days[d][k]) if d in days else None
+                for d in mine_days}
+        if not mine_days or None in best or len(best) != 1:
+            continue
+        target = best.pop()
+        out.append(fix_op("INTO-EXISTING", "R4", fo, fo["rendered"], target,
+                          len(members), f"{', '.join(mine_days)} already has a "
+                          f"folder: merges into the existing folder {target} (D5)",
+                          path=str(root / target)))
+    return out
+
+
+def rule_r5(ctx):
+    """R5 — year folders and one trip folder per trip abroad (needs A2's
+    M7). Not built here."""
+    return []
+
+
+def rule_r6(ctx):
+    """R6 — reuse the owner's own place word for the same spot. Not built
+    here."""
+    return []
+
+
+FIX_RULES = (rule_r1, rule_r2, rule_r3, rule_r4, rule_r5, rule_r6)
+
+
+def fix_problem(op, ctx):
+    """-> why an op may not be offered (G17), or None: its new name must
+    pass the name grammar, hold no coordinate, and add no address-shaped
+    word — the shape a home's place takes as a POI."""
+    if op["op"] == "INTO-EXISTING":
+        return ("the existing folder's path reads as a coordinate"
+                if COORDINATE_IN_NAME.search(op["to"]) else None)
+    if COORDINATE_IN_NAME.search(op["to"]):
+        return "the new name reads as a coordinate (Operational Rule 3)"
+    hard, soft = photo_profile.name_budget(ctx["pack"].profile)
+    fo = next(x for x in ctx["index"]["folders"] if x["id"] == op["folder"])
+    kind = photo_name.NAME_LEG if fo["kind"] == "leg" else photo_name.NAME_FOLDER
+    _ok, refusals, _w = photo_name.validate(op["to"], hard=hard, soft=soft, kind=kind)
+    if refusals:
+        return "; ".join(refusals)
+    added = name_words(op["to"]) - name_words(op["from"])
+    held = [w for w in added if photo_cluster.is_address(w)]
+    if held:
+        return f"{', '.join(held)} reads as an address (no home as a POI)"
+    return None
+
+
+def draft_fix_plan(workdir, pack, index):
+    """-> (ops offered, [(op, why)] refused). Nothing is written."""
+    by_number = {b["batch"]: b for b in json.loads(
+        (workdir / "batches.json").read_text(encoding="utf-8")).get("batches", [])}
+    ctx = {"workdir": workdir, "pack": pack, "index": index, "by_number": by_number,
+           "dest_root": photo_plan.resolve_dest_root(workdir, None, pack.profile)}
+    ops = [op for rule in FIX_RULES for op in rule(ctx)]
+    ops += [fix_op("RENAME", "agent", fo, fo.get("rendered") or "", a["to"],
+                   len(copy_members(index, a["folder"])), a["reason"],
+                   agent_name=a["to"])
+            for a in (index.get("fix_plan") or {}).get("agent") or []
+            for fo in live(index) if fo["id"] == a["folder"]]
+    offered, refused = [], []
+    for op in ops:
+        why = fix_problem(op, ctx)
+        (refused.append((op, why)) if why else offered.append(op))
+    return offered, refused
+
+
+def fix_waiting(index, ops):
+    answered = (index.get("fix_plan") or {}).get("answers") or {}
+    return [op for op in ops if op["key"] not in answered]
+
+
+def fix_plan_text(workdir, index, ops, refused):
+    lines = [f"# Fix plan · dump {index['dump']}", "",
+             "The engine's changes before the copy. Answer each row `ok`, `skip` "
+             "or `word: <your words>`; a row left open is a skip.", "",
+             f"## Rows · {len(ops)}", ""]
+    if not ops:
+        lines.append(NOTHING_TO_CHANGE)
+    lines += [f"{k}. {op['op']} ({op['rule']}) · {op['folder']} · `{op['from']}` → "
+              f"`{op['to']}` · {op['reason']} · {op['photos']} photo(s) · "
+              "answer: ______" for k, op in enumerate(ops, 1)]
+    if refused:
+        lines += ["", "## Refused (never applied)", ""]
+        lines += [f"- {op['op']} ({op['rule']}) · {op['folder']} · `{op['from']}` → "
+                  f"`{op['to']}` — {why}" for op, why in refused]
+    if ops:
+        lines += ["", "When the answers are written:", "",
+                  f"    {run_line('photo_index.py')} fix-plan \"{workdir}\" "
+                  f"--answers \"{workdir / 'plan' / FIX_PLAN_MD}\" --go", "",
+                  "then render, check and freeze again."]
+    return "\n".join(lines) + "\n"
+
+
+def write_fix_plan(workdir, index, ops, refused):
+    (workdir / "plan").mkdir(exist_ok=True)
+    page = workdir / "plan" / FIX_PLAN_MD
+    page.write_text(fix_plan_text(workdir, index, ops, refused), encoding="utf-8")
+    return page
+
+
+def parse_fix(text):
+    out = []
+    for line in text.splitlines():
+        m = FIX_ROW.match(line)
+        if m:
+            raw = m.group(7).strip("_ ")
+            word = raw[5:].strip() if raw.casefold().startswith("word:") else None
+            out.append({"n": int(m.group(1)), "op": m.group(2), "rule": m.group(3),
+                        "folder": m.group(4), "from": m.group(5), "to": m.group(6),
+                        "answer": "word" if word is not None else raw.casefold(),
+                        "word": word})
+    return out
+
+
+def engine_rename(workdir, op, go):
+    """R2 on a folder an engine copy of this collection created: the M10
+    rename, with the proof, and the record of EVERY dump holding copies there
+    moved (Lead ruling 20261018). -> None when done (or would be), else why
+    not."""
+    old = Path(op["apply"]["path"])
+    new = old.parent / op["to"]
+    dumps = collection_dumps(workdir)
+    created, verified = {}, {}
+    holders = []
+    for wd in dumps:
+        created.update(photo_execute.created_anywhere(wd / "plan"))
+        recs = photo_execute.verified_anywhere(wd / "plan")
+        verified.update(recs)
+        if any(under(v.get("dest") or "", old) for v in recs.values()):
+            holders.append(wd)
+    for wd in holders:
+        if not copy_finished(wd):
+            return f"{BY_HAND} — the copy of {wd.name} is not finished"
+    why = own_folder_problem(old, new, created, verified)
+    if why:
+        return f"{HAND_CHANGED} ({why})"
+    before = tree_files(old)
+    if not go:
+        return None
+    os.rename(old, new)
+    after = tree_files(new)
+    if after != before:
+        os.rename(new, old)
+        return "the files differ after the rename — put back, nothing renamed"
+    entry = {"at": datetime.now().strftime("%Y-%m-%d %H:%M"), "op": "RENAME",
+             "rule": op["rule"], "by": FIX_PLAN_CMD, "from": str(old), "to": str(new),
+             "before": sum(before.values()), "after": sum(after.values())}
+    for wd in dict.fromkeys([workdir, *holders]):
+        move_record(wd, old, new)
+        log = wd / "plan" / AFTER_CHECK_LOG
+        (wd / "plan").mkdir(exist_ok=True)
+        old_log = json.loads(log.read_text(encoding="utf-8")) if log.is_file() else []
+        write_json(log, old_log + [{**entry, "dump": workdir.name}])
+    return None
+
+
+def cmd_fix_plan(args):
+    """M6 — the fix plan. Without --answers: draft it, write plan/fix-plan.md,
+    exit 3 when rows wait (0 with nothing to change). With --answers: apply
+    the `ok` / `word:` rows through open_for_change and record every answer
+    (a dry run without --go). `--agent F0NN --to NAME` adds an agent row."""
+    workdir = Path(args.workdir).resolve()
+    loaded = load(workdir, args.profile)
+    if loaded is None:
+        return 0
+    pack, target, index = loaded
+    if args.agent:
+        if not (args.to and (args.reason or "").strip()):
+            raise Refused("--agent needs --to \"<the new name>\" and --reason")
+        fo = group_target(index, args.agent)
+        open_for_change(workdir, pack, index, FIX_PLAN_CMD)
+        index.setdefault("fix_plan", {}).setdefault("agent", []).append(
+            {"folder": fo["id"], "to": args.to.strip(),
+             "reason": f"agent: {args.reason.strip()}"})
+        log_entry(index, FIX_PLAN_CMD, f"{fo['id']}: agent row → {args.to.strip()!r}",
+                  args.reason.strip(), by="agent")
+        save(target, pack, index)
+        print(f"{fo['id']}: agent row added; the fix plan offers it, validated")
+        return 0
+    ops, refused = draft_fix_plan(workdir, pack, index)
+    if not args.answers:
+        waiting = fix_waiting(index, ops)
+        page = write_fix_plan(workdir, index, waiting, refused)
+        print(page.read_text(encoding="utf-8").rstrip())
+        return EXIT_FIX_PLAN if waiting else 0
+    path = Path(args.answers)
+    if not path.is_file():
+        raise Refused(f"{path} does not exist — nothing written")
+    rows = parse_fix(path.read_text(encoding="utf-8"))
+    bad = [str(r["n"]) for r in rows if r["answer"] and r["answer"] not in
+           FIX_ANSWERS + ("word",)]
+    if bad:
+        raise Refused(f"row(s) {', '.join(bad)}: an answer is `ok`, `skip`, "
+                      "`word: <text>` or blank — nothing written")
+    stands = {fix_key(r): r for r in ops}
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    if args.go:
+        open_for_change(workdir, pack, index, FIX_PLAN_CMD)
+    answers = index.setdefault("fix_plan", {}).setdefault("answers", {}) \
+        if args.go else {}
+    done, refused_n = [], 0
+    for r in rows:
+        key = fix_key(r)
+        op = stands.get(key)
+        if op is None:
+            print(f"  ⛔ row {r['n']}: not a row of the plan any more (the index "
+                  "changed) — nothing written for it")
+            refused_n += 1
+            continue
+        answer = r["answer"] or "skip"
+        fo = next(x for x in index["folders"] if x["id"] == op["folder"])
+        said = None
+        if answer == "word":
+            if op["rule"] != "R3":
+                print(f"  ⛔ row {r['n']}: {op['rule']} takes `ok` or `skip`, not a "
+                      "word — nothing written for it")
+                refused_n += 1
+                continue
+            text = agent_text(r["word"], "the [what]", "what")
+            if args.go:
+                fo["what"] = {"text": text, "source": "owner"}
+            said = f"[what] {text!r}, the owner's word"
+        elif answer == "ok":
+            a = op["apply"]
+            if op["rule"] == "R2":
+                why = BY_HAND if a.get("by_hand") else engine_rename(workdir, op, args.go)
+                if why:
+                    said = f"nothing renamed: {why}"
+                else:
+                    said = f"renamed `{op['from']}` → `{op['to']}`"
+                    if args.go:
+                        fo["dest"]["existing_path"] = str(Path(a["path"]).parent / op["to"])
+            elif op["rule"] == "R3":
+                if args.go:
+                    fo["drop_what"] = sorted(set(fo.get("drop_what") or []) | set(a["drop_what"]))
+                said = f"drops {', '.join(a['drop_what'])} from [what]"
+            elif op["rule"] == "R4":
+                if args.go:
+                    fo["dest"] = {"mode": "merge", "existing_path": a["path"], "refs": []}
+                said = f"merges into the existing folder {a['path']} (D5)"
+            elif op["rule"] == "agent":
+                if args.go:
+                    fo["agent_name"] = a["agent_name"]
+                said = f"the folder is named `{a['agent_name']}`"
+        if said and args.go:
+            fo.update(rendered=None, validation=None)
+        print(f"  row {r['n']} {op['op']} ({op['rule']}) {op['folder']}: {answer}"
+              + (f" — {said}" if said else ""))
+        if args.go:
+            answers[key] = {"answer": answer, "word": r["word"], "at": now,
+                            "op": op["op"], "rule": op["rule"], "from": op["from"],
+                            "to": op["to"]}
+            done.append(key)
+    if not args.go:
+        print("DRY RUN — nothing written. Add --go to write.")
+        return 1 if refused_n else 0
+    if done:
+        log_entry(index, FIX_PLAN_CMD, f"{len(done)} answer(s) recorded",
+                  (args.reason or "").strip() or "the owner answered the fix plan",
+                  by="owner")
+        save(target, pack, index)
+    print(f"fix plan: {len(done)} answer(s) recorded, {refused_n} refused; next: "
+          "render, check, freeze")
+    return 1 if refused_n else 0
+
+
+# ---------------------------------------------------------------------------
 # after-check — after verify (M10, SPEC G9, ADR 0007)
 # ---------------------------------------------------------------------------
 
@@ -3315,7 +3775,7 @@ def after_rows(workdir, index, plans):
         dropped = sorted(name_words(old) - name_words(new))
         base = Path(dest_root) / old
         photos = sum(1 for v in verified.values()
-                     if path_key(v.get("dest") or "").startswith(path_key(base) + "/"))
+                     if under(v.get("dest") or "", base))
         reason = "the name changed after the copy"
         if added:
             reason += f": adds {', '.join(added)}"
@@ -3324,6 +3784,11 @@ def after_rows(workdir, index, plans):
         rows.append({"op": "RENAME", "rule": "R2" if set(added) & pets else "re-lock",
                      "from": old, "to": new, "photos": photos, "reason": reason})
     return rows
+
+
+def under(path, folder):
+    """Is `path` inside `folder`, symlinks resolved on both sides?"""
+    return photo_execute.real_key(path).startswith(photo_execute.real_key(folder) + "/")
 
 
 def on_drive(dest, plans):
@@ -3335,8 +3800,8 @@ def on_drive(dest, plans):
     root = Path(plans.get("dest_root") or "")
     for r in plans.get(photo_execute.RENAMES_KEY) or []:
         old = root / r["old"]
-        if path_key(dest).startswith(path_key(old) + "/"):
-            moved = root / r["new"] / Path(dest).relative_to(old)
+        if under(dest, old):
+            moved = root / r["new"] / Path(dest).resolve().relative_to(old.resolve())
             if moved.is_file():
                 return True
     return False
@@ -3411,7 +3876,7 @@ def own_folder_problem(old, new, created, verified):
     Only a folder this engine created, holding exactly the files it copied
     there (name, size and SHA-256; a hidden file such as Finder's
     `.DS_Store` is not the owner's change), and only onto a free name."""
-    if path_key(old) not in created:
+    if photo_execute.real_key(old) not in created:
         return (f"{old.name} is not a folder this engine created (copied "
                 "before v2.2, or the owner's own folder)")
     if not old.is_dir():
@@ -3420,12 +3885,11 @@ def own_folder_problem(old, new, created, verified):
         return f"a folder named {new.name} already exists"
     if not new.parent.is_dir():
         return f"{new.parent} does not exist"
-    base = path_key(old) + "/"
     want = {}
     for v in verified.values():
         dest = v.get("dest") or ""
-        if path_key(dest).startswith(base):
-            rel = Path(dest).relative_to(old).as_posix()
+        if under(dest, old):
+            rel = Path(dest).resolve().relative_to(old.resolve()).as_posix()
             want[rel] = (v.get("size"), v.get("sha256"))
     have = {rel: (size, sha) for rel, size, sha in tree_files(old)
             if not any(part.startswith(".") for part in rel.split("/"))}
@@ -3444,17 +3908,17 @@ def own_folder_problem(old, new, created, verified):
 def move_record(workdir, old, new):
     """Point this work dir's copy record at the renamed folder, so a later
     freeze and verify read the copies where they now are."""
-    o = path_key(old)
+    o = photo_execute.real_key(old)
+    rel = lambda p: Path(p).resolve().relative_to(Path(old).resolve())  # noqa: E731
     for sp in sorted((workdir / "plan").glob("execute-state_*.json")):
         state = json.loads(sp.read_text(encoding="utf-8"))
         for v in (state.get("verified") or {}).values():
             dest = v.get("dest") or ""
-            if path_key(dest).startswith(o + "/"):
-                v["dest"] = str(new / Path(dest).relative_to(old))
+            if under(dest, old):
+                v["dest"] = str(new / rel(dest))
         state[photo_execute.CREATED_KEY] = sorted(
-            str(new / Path(d).relative_to(old))
-            if path_key(d) == o or path_key(d).startswith(o + "/") else d
-            for d in state.get(photo_execute.CREATED_KEY) or [])
+            str(new / rel(d)) if photo_execute.real_key(d) == o or under(d, old)
+            else d for d in state.get(photo_execute.CREATED_KEY) or [])
         photo_execute.save_state(sp, state)
 
 
@@ -4189,6 +4653,21 @@ def main(argv=None):
     a.add_argument("--go", action="store_true")
     a.add_argument("--reason")
     a.set_defaults(fn=cmd_apply_page)
+    x = sub.add_parser("fix-plan", help=f"M6, before the freeze: the engine's "
+                                        f"changes in plan/{FIX_PLAN_MD}; exit "
+                                        f"{EXIT_FIX_PLAN} when rows wait (freeze "
+                                        "stops there too)")
+    x.add_argument("workdir")
+    x.add_argument("--profile")
+    x.add_argument("--answers", help=f"the answered plan/{FIX_PLAN_MD}: apply "
+                                     "`ok` / `word:` rows, record every answer")
+    x.add_argument("--go", action="store_true",
+                   help="with --answers: write (default: dry run)")
+    x.add_argument("--agent", metavar="F0NN",
+                   help="add an agent row: this folder takes --to")
+    x.add_argument("--to", help="with --agent: the new folder name")
+    x.add_argument("--reason")
+    x.set_defaults(fn=cmd_fix_plan)
     a = sub.add_parser("after-check", help=f"M10, after verify: the copy proof "
                                            f"and the leftover ops in plan/"
                                            f"{AFTER_CHECK_MD}; exit "

@@ -1012,6 +1012,33 @@ def same_reads_the_remembered_name_in_any_case():
 
 
 @case
+def naming_a_draft_keeps_its_class_word_as_a_look():
+    """⭐ REPRODUCTION (M6 R3, Lead ruling 20261018). ⛔ FAILS on 68bb0a9: a
+    pet kept nothing of what its folders said before it had a name. Naming a
+    draft on a page stores the draft's class word (the word its [what] showed
+    while unnamed) as a look of that pet; the dry run stores nothing."""
+    got = {}
+    for go in (False, True):
+        with tempfile.TemporaryDirectory() as tmp, fixture_env():
+            wd, pack_dir, extra = page_dump(tmp, pets=(1,), place_batches=())
+            next_page(wd, extra)
+            identity_index(wd, str(wd / "B1_C0_000.JPG"), 1)
+            page = wd / "P-B01.md"
+            page.write_text(pmc.fill_pick(page.read_text(), [1], who="pet",
+                                          name="Birk"))
+            rc, said = pmc.confirm_page(pack_dir, wd, page="P-B01", go=go)
+            pack = photo_profile.resolve_pack(
+                explicit=pack_dir / photo_profile.PROFILE_NAME)
+            registry = pm.photo_subjects.load(pack=pack)
+            birk = next((s for s in registry.subjects if s.name == "Birk"), None)
+            word = pm.kind_word(birk.kind if birk else "cat", pack.profile,
+                                photo_profile.review_messages(pack.profile))
+            got[go] = (rc, birk.looks if birk else None, word)
+    return (got[True][0] == 0 and got[True][1] == [got[True][2]]
+            and got[False][1] in (None, [])), f"{got}"
+
+
+@case
 def a_confirmed_pet_with_no_look_matches_nothing():
     """GUARD (Lead, A19). A confirmed record with 0 exemplars is never a
     recogniser: `match()` gives it no verdict on any vector, `prune` neither

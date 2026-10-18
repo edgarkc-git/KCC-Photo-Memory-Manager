@@ -119,13 +119,19 @@ def verified_anywhere(plan_dir):
     return out
 
 
+def real_key(path):
+    """`path_key()` of the path with its symlinks resolved: a folder named
+    through another route (macOS `/var` vs `/private/var`) is the same one."""
+    return path_key(str(Path(path).resolve()))
+
+
 def created_anywhere(plan_dir):
     """-> {path_key: path} of every folder an execute-state of this work dir
     records creating (ADR 0007). A state written before v2.2 records none."""
     out = {}
     for sp in sorted(Path(plan_dir).glob("execute-state_*.json")):
         for d in json.loads(sp.read_text()).get(CREATED_KEY) or []:
-            out[path_key(d)] = d
+            out[real_key(d)] = d
     return out
 
 

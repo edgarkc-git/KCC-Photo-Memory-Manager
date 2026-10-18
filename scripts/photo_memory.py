@@ -6625,6 +6625,14 @@ def cmd_confirm(args):
                 unit, members, resolved = (row["unit"], row["members"],
                                            row["refs"])
                 for subject in members:
+                    # M6 R3 (Lead ruling 20261018) — a draft's class word is
+                    # what its folders said before it had a name: kept as a
+                    # look of the pet, so the fix plan can drop it beside
+                    # the name.
+                    if subject.is_draft and subject.kind:
+                        registry.add_look(subject.subject_id, kind_word(
+                            subject.kind, pack.profile,
+                            photo_profile.review_messages(pack.profile)))
                     if subject.name and subject.name != unit["name"]:
                         registry.rename(subject.subject_id, unit["name"])
                     else:
@@ -6738,6 +6746,10 @@ def cmd_confirm(args):
                                 row["refs"], by,
                                 f"{path.name} Q{block['n']}", f"Q{block['n']}",
                                 args.go, report)
+                for member in (m for m in row["members"] if m.kind):
+                    registry.add_look(target.subject_id, kind_word(
+                        member.kind, pack.profile,
+                        photo_profile.review_messages(pack.profile)))
 
             # ---- SNS-14 — the fold, written last ---------------------------
             #

@@ -574,6 +574,10 @@ def _evidence_summary(evidence):
 
 # ---------------------------------------------------------------- subject ---
 
+# M6 R3 — a subject's looks: words that described it before it had a name.
+# Optional; a record without the key has none (no pack rewrite).
+LOOKS_KEY = "looks"
+
 class Subject:
     """One registry record. `record` is the live dict — edits land in the file
     the Registry writes back."""
@@ -608,6 +612,13 @@ class Subject:
     @property
     def previous_names(self):
         return list(self.record.get("previous_names", []))
+
+    @property
+    def looks(self):
+        """The words that described this pet before it had a name (M6 R3) —
+        e.g. the class word its folders carried while it was a draft. A
+        record with no `looks` key has none; it is never rewritten for it."""
+        return list(self.record.get(LOOKS_KEY) or [])
 
     @property
     def status(self):
@@ -1393,6 +1404,31 @@ class Registry:
         if identity and not self.data.get("embedding_identity"):
             self.data["embedding_identity"] = dict(identity)
         return subject, state
+
+    def add_look(self, subject_id, words):
+        """Record `words` as a look of the subject (M6 R3). -> True when it
+        was not already there (compared case-insensitively). Nothing saved."""
+        words = " ".join((words or "").split())
+        subject = self.get_literal(subject_id)
+        if subject is None or not words:
+            return False
+        if any(w.casefold() == words.casefold() for w in subject.looks):
+            return False
+        subject.record[LOOKS_KEY] = subject.looks + [words]
+        return True
+
+    def remove_look(self, subject_id, words):
+        """-> True when a look equal to `words` (case-insensitively) was
+        removed. Nothing saved."""
+        subject = self.get_literal(subject_id)
+        if subject is None:
+            return False
+        keep = [w for w in subject.looks
+                if w.casefold() != " ".join((words or "").split()).casefold()]
+        if len(keep) == len(subject.looks):
+            return False
+        subject.record[LOOKS_KEY] = keep
+        return True
 
     def rename_refusal(self, subject_id):
         """-> (the one reason this rename may not happen, the audit gate that
@@ -4044,10 +4080,47 @@ def workspace_dir():
     return None
 
 
+def cmd_look(registry, args):
+    """M6 R3 — `look <subject> --add/--remove "<words>"`: the words a pet was
+    described by before it had a name. A dry run unless --go."""
+    subject = registry.get_literal(args.subject_id)
+    if subject is None:
+        print(f"  ! {args.subject_id}: no such subject")
+        return 2
+    changed = (registry.add_look(args.subject_id, args.add) if args.add
+               else registry.remove_look(args.subject_id, args.remove))
+    word = args.add or args.remove
+    if not changed:
+        print(f"  {args.subject_id}: nothing to change — {word!r} is "
+              + ("already a look" if args.add else "not a look"))
+        return 0
+    verb = "add" if args.add else "remove"
+    print(f"  {args.subject_id} ({subject.name or 'unnamed'}): {verb} look "
+          f"{word!r} -> looks {subject.looks}")
+    if not args.go:
+        print("DRY RUN — nothing written. Add --go to write.")
+        return 0
+    registry.save()
+    print("written")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="command", required=True)
+    lk = sub.add_parser("look", help="M6 R3: add or remove a look of a pet — "
+                                     "words its folders used before it had a "
+                                     "name (a dry run unless --go)")
+    lk.add_argument("subject_id")
+    lk.add_argument("workdir", nargs="?", help="a work dir, to resolve the "
+                                               "collection's owner pack")
+    lk.add_argument("--profile", help="owner pack (else collection.json / "
+                                      "PHOTO_PROFILE)")
+    how = lk.add_mutually_exclusive_group(required=True)
+    how.add_argument("--add", help="the words to add")
+    how.add_argument("--remove", help="the words to remove")
+    lk.add_argument("--go", action="store_true", help="write the change")
     rv = sub.add_parser("review", help="list what the registry holds; prune it")
     rv.add_argument("workdir", nargs="?", help="a work dir, to resolve the "
                                                "collection's owner pack")
@@ -4094,6 +4167,8 @@ def main():
         sys.exit("no owner pack for this run — the subject registry lives in the "
                  "pack (photo-subjects/). Bind a collection to an owner or pass "
                  "--profile; see docs/photo-memory-pack.md.")
+    if args.command == "look":
+        sys.exit(cmd_look(registry, args))
 
     if args.unconfirm:
         withdrawn = []
