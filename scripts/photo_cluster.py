@@ -194,7 +194,7 @@ def midpoint_stops(day):
 
 def batch_places(part, day_files, geocoder, all_homes,
                  limit=MAX_BATCH_PLACES, labelled_homes=(), named_places=(),
-                 place_km=None, guard_homes=None):
+                 place_km=None, guard_homes=None, marks=None):
     """-> the ordered, distinct places a batch actually visited.
 
     ⭐ R9. This used to be ONE geocode of the MEDIAN day's centroid for the
@@ -226,15 +226,20 @@ def batch_places(part, day_files, geocoder, all_homes,
     ⛔ M1. `guard_homes` (default `all_homes`) is the set no full-precision
     lookup may come near; a packless run adds its auto-detected anchor, which
     `all_homes` never holds.
+
+    ⛔ D3 (UAT5 U5-8). A multi-day batch holds at most MAX_LANDMARKS landmark
+    names in all, the first in travel order: each day picks up to two, and
+    two days used to pool three. `marks` collects the landmark names added.
     """
     guard = all_homes if guard_homes is None else guard_homes
     names = []
+    marks = [] if marks is None else marks
     for d in part:
         centroid = day_files[d]["centroid"]
         if not centroid:
             continue
         stops = midpoint_stops(day_files[d])
-        word = None
+        word, sub = None, []
         if stops:
             import photo_where
             segs = photo_where.segment(day_files[d]["points"])
@@ -252,13 +257,15 @@ def batch_places(part, day_files, geocoder, all_homes,
                                    geocoder, all_homes,
                                    limit=1, labelled_homes=labelled_homes,
                                    named_places=named_places, place_km=place_km,
-                                   guard_homes=guard)
+                                   guard_homes=guard, marks=sub)
                 if got:
                     word = got[0]
                     break
         if word:
-            if word not in names:
+            if word not in names and not (word in sub and len(marks) >= MAX_LANDMARKS):
                 names.append(word)
+                if word in sub:
+                    marks.append(word)
             if len(names) >= limit:
                 break
             continue
@@ -312,8 +319,9 @@ def batch_places(part, day_files, geocoder, all_homes,
                                                    guard), guard)
             if found:
                 for w in found:
-                    if w not in names:
+                    if w not in names and len(marks) < MAX_LANDMARKS:
                         names.append(w)
+                        marks.append(w)
                 if len(names) >= limit:
                     break
                 continue

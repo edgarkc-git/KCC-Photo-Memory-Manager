@@ -531,6 +531,27 @@ def a_second_landmark_needs_a_third_and_never_a_third_name():
 
 
 @case
+def a_two_day_batch_never_pools_a_third_landmark():
+    """⭐ REPRODUCTION (UAT5 U5-8, D3). ⛔ FAILS on d5201b6: a batch of two
+    days pooled each day's landmarks — the park of the first and the museum
+    + beach of the second — so its leg was named with three. A batch holds
+    at most two landmarks, the first in travel order; a one-day batch keeps
+    its two."""
+    from datetime import date
+    g = geocoder(json.loads(FIXTURE.read_text()))
+
+    def places(*days):
+        df = {}
+        for day in days:
+            pts = timed(day, DAYS[day])
+            df[date.fromisoformat(day)] = {"centroid": day_center(pts), "points": pts}
+        return pc.batch_places(sorted(df), df, g, [])
+    two = places("2025-05-01", "2025-05-02")
+    one = places("2025-05-02")
+    return (two == ["Lotus Garden", "Old Mill Museum"]
+            and one == ["Old Mill Museum", "Harbour Beach"]), f"two={two} one={one}"
+
+@case
 def each_photo_votes_once_for_the_landmark_it_is_at():
     """⭐ REPRODUCTION (F1, the Lead's live probe 20261018: the photos were
     at the tower, yet the park around it came first and the tower second
