@@ -1770,6 +1770,8 @@ REVIEW_VOCAB = {
                                       "frame is cannot be decided",
         "review_frame_why_no_thumbnail": "the example photo behind the sighting "
                                          "is no longer on disk",
+        "review_frame_why_not_mine": "every animal in the photo is recorded as "
+                                     "not yours, so it is not asked again",
         "review_frame_why_vectors_broken": "this subject's exemplar vectors and "
                                            "its record are out of step",
         # OA-14's other half. A rejection is a question the owner CLOSED, so

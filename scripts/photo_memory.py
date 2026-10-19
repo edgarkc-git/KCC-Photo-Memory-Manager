@@ -1317,6 +1317,7 @@ class FrameCrops:
         self.filetypes = {}
         self.cache = {}
         self.available = False
+        self.not_mine = set()
         if self.workdir is None:
             return
         self.detections, _space = photo_identity.load_detections(
@@ -1324,6 +1325,9 @@ class FrameCrops:
         if not self.detections:
             return
         self.available = True
+        # C10 — the animals this dump's index records as not the owner's.
+        self.not_mine = photo_identity.not_mine_keys(
+            self.detections, photo_identity.not_mine_marks(self.workdir / "embed", pack))
         # `kind` picks sips vs qlmanage and `FileType` catches the mismatched
         # extension, exactly as photo_identity reads them — see its own note
         # on why the two cannot be collapsed into one.
@@ -1358,6 +1362,15 @@ class FrameCrops:
             return {"crops": [], "det_count": 0}
         count = int(identified[0][0].get("det_count") or len(identified))
         return {"crops": self._render(path, look, identified), "det_count": count}
+
+    def all_not_mine(self, look):
+        """U5-12 — is EVERY animal of this look's photo recorded as not the
+        owner's (C10)? Then a tile showing it asks about nothing but animals
+        already answered. False when this work dir's index says nothing."""
+        rows = self.detections.get((look or {}).get("path")) or []
+        ok = [r for r, _v in rows if r.get("status") == photo_identity.STATUS_OK]
+        return bool(ok) and all((r.get("sha256"), int(r.get("det_index") or 0))
+                                in self.not_mine for r in ok)
 
     def identity_vector(self, look):
         """-> the PRIMARY detection's identity vector for one look, else None.
@@ -1589,6 +1602,11 @@ def tile_frames(subject, sheet, workdir=None, crops=None, where=None):
         if image is None:
             note("no_thumbnail")
             continue
+        if crops is not None and crops.all_not_mine(chosen):
+            # U5-12 — every animal in it is recorded as not yours (C10):
+            # showing it would ask about them again.
+            note("not_mine")
+            continue
         used.add(chosen["vec_ref"])
         frame = {"vec_ref": chosen["vec_ref"], "image": image,
                  "path": chosen.get("path"),
@@ -1745,6 +1763,12 @@ def build_questions(registry, workdir, pack, profile, rmsg, last_ask=False,
                                "ai-drafted, still askable"))
             continue
         shown, dropped = tile_frames(subject, sheet, workdir, crops, where)
+        if not shown and "not_mine" in dropped:
+            suppressed.append(
+                (subject.subject_id,
+                 "every animal in its photos is recorded as not yours — not "
+                 "asked again"))
+            continue
         if not shown:
             # SNS-12's gate, one step further in than it used to reach. A
             # sheet whose every image resolves to no look is a sheet of

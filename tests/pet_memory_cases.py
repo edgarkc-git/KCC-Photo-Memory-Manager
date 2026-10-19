@@ -1103,6 +1103,59 @@ def case_c10_a_recorded_animal_is_said_not_asked(tmp):
     assert len(said) == 1 and ", animal " in said[0] and ".2:" in said[0], said
 
 
+def c10_draft_page(tmp, marked):
+    """A DRAFT cat seen in two batches (one look each), each photo holding
+    two animals; `marked` = the look numbers whose BOTH animals this dump's
+    index records as not the owner's. -> (C1 page text, draft id)."""
+    import identify_cases as idc
+    import photo_embed
+    import photo_identity
+    pack_dir = pmc.make_pack(tmp, owner="betauser00")
+    pack = pmc.open_pack(pack_dir)
+    workdir = tmp / "dump-betauser00"
+    pmc.write_batches(workdir, 2)
+    for batch, vec in enumerate((pmc.basis(0), pmc.unit(pmc.basis(0)
+                                                         + 0.35 * pmc.basis(1))), 1):
+        report, index, samples = pmc.batch_fixture(workdir, batch, [(vec, 3)],
+                                                   month=f"2029-0{batch}")
+        pmc.apply_and_memorize(workdir, pack, report, index, samples,
+                               {report["selected"][0]["path"]:
+                                {"label": "Cat", "subject_kind": "cat"}})
+    registry = psub.load(pack=pmc.open_pack(pack_dir))
+    sid = registry.drafts[0].subject_id
+    looks = [l for e in registry.drafts[0].record["evidence"] for l in e["looks"]]
+    index_looks(workdir, looks, 2)
+    saved, thumb = photo_identity.not_mine_marks, photo_embed.convert_to_thumbnail
+    photo_identity.not_mine_marks = lambda _e, _p=None: [
+        {"sha256": looks[k]["vec_ref"], "det_index": d,
+         "box": "%d,0,%d,20" % (20 * d, 20 * d + 20), "source": "P-B01.md Q1"}
+        for k in marked for d in (0, 1)]
+    photo_embed.convert_to_thumbnail = idc.thumbnail_stub()
+    try:
+        text = pmc.review_text(pack_dir, workdir).read_text()
+    finally:
+        photo_identity.not_mine_marks, photo_embed.convert_to_thumbnail = saved, thumb
+    return text, sid
+
+
+def case_u5_12_a_photo_of_animals_all_not_mine_is_not_asked_again(tmp):
+    """REPRO UAT5 U5-12 — ⛔ FAILS on d5201b6: the end page asked about a
+    draft whose only photos held animals ALL recorded as not the owner's
+    (`skip: N.M confirm` on a batch page), with a note saying they would not
+    be asked again. Such a photo is not shown, and the drop is said; a draft
+    left with no photo is not asked, and the page's suppressed list says
+    why."""
+    one, sid = c10_draft_page(tmp / "one", marked=(0,))
+    both, sid2 = c10_draft_page(tmp / "both", marked=(0, 1))
+    q_one = [l for l in one.splitlines() if "[frame " in l and "(animal" not in l]
+    assert "every animal in the photo is recorded as not yours" in one, one
+    assert "**Q1" in one and len({l.split("[frame ")[1][0] for l in one.splitlines()
+                                  if "[frame " in l}) == 1, (q_one, one)
+    assert "**Q1" not in both, both
+    assert (f"{sid2}: every animal in its photos is recorded as not yours"
+            in both), both
+
+
 def case_c10_a_one_animal_photo_takes_the_whole_photo_row(tmp):
     """GUARD C10 — `skip: N.M confirm` on a photo with ONE animal is refused
     and points at `skip: N confirm`; nothing is marked."""
@@ -1262,6 +1315,8 @@ CASES = [
      case_c10_a_strangers_animal_is_said_on_the_page),
     ("C10 hint: the crop skip refusal says the same (REPRO)",
      case_c10_the_crop_skip_refusal_says_the_same),
+    ("U5-12: a photo of animals all not mine is not asked again (REPRO)",
+     case_u5_12_a_photo_of_animals_all_not_mine_is_not_asked_again),
     ("Q8-c: a labelled crop still parses on the HTML page (GUARD)",
      case_a_labelled_crop_still_parses_on_the_html_page),
     ("Q8-c: a crop mark does not set the photo's basis (REPRO)",
