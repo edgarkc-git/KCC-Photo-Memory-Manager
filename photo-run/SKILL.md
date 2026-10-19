@@ -363,10 +363,12 @@ missing — there is no second list to keep in step.
    subjects at `viewed-image:` and `[what]`; a folder may have no `[who]`, and
    that is a legal name. Two or more pets go in the order they were first
    named, in every folder; a folder already copied keeps the order it was
-   copied with. `[who]` and `[what]` are read only from photos taken
-   at that folder's own place: a photo taken at a home that is not this
-   folder's place does not name it, and a photo with no GPS still counts. No
-   photo moves folder for this. `check` fails a name the evidence does not back — a
+   copied with. `[who]` takes every confirmed pet on a picked or agreed
+   photo in the folder, wherever that photo was taken, a home included (G30).
+   Only `[what]` is read from photos taken at the folder's own place: a photo
+   taken at a home that is not this folder's place does not add to `[what]`
+   (F8-7), and a photo with no GPS still counts. No photo moves folder for
+   this. `check` fails a name the evidence does not back — a
    pet's name with no copied file showing that confirmed subject at
    `viewed-image:`, or an agent's name with no `agree` view on record. Fix it
    through the index and run the three again.
