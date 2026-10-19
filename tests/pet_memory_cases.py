@@ -1156,6 +1156,31 @@ def case_u5_12_a_photo_of_animals_all_not_mine_is_not_asked_again(tmp):
             in both), both
 
 
+
+def case_u5_12_both_animals_not_mine_on_a_batch_page_end_to_end(tmp):
+    """REPRO UAT5 U5-12, the tester's flow — ⛔ FAILS on d5201b6. A batch
+    page over one photo of two cats is answered `skip: 1.1 confirm, 1.2
+    confirm` (both not the owner's), confirmed and applied; the end page of
+    the dump then asks nothing about that photo, and the draft is listed as
+    suppressed with the reason."""
+    import identify_cases as idc
+    import photo_embed
+    got = c10_shared_page(tmp, "1.1 confirm, 1.2 confirm", pick=False)
+    code, said, err = got["apply"]
+    marks = got["index"].get("not_mine") or []
+    assert sorted(m["det_index"] for m in marks) == [0, 1], marks
+    assert code == 0, (code, said, err)
+    thumb = photo_embed.convert_to_thumbnail
+    photo_embed.convert_to_thumbnail = idc.thumbnail_stub()
+    try:
+        import batch_page_cases as bpc
+        with bpc.fixture_env():
+            text, _said = pmc.review(got["pack_dir"], got["wd"], 1, final=True)
+    finally:
+        photo_embed.convert_to_thumbnail = thumb
+    assert "(animal 1." not in text and "**Q1" not in text, text
+    assert "every animal in its photos is recorded as not yours" in text, text
+
 def case_c10_a_one_animal_photo_takes_the_whole_photo_row(tmp):
     """GUARD C10 — `skip: N.M confirm` on a photo with ONE animal is refused
     and points at `skip: N confirm`; nothing is marked."""
@@ -1317,6 +1342,8 @@ CASES = [
      case_c10_the_crop_skip_refusal_says_the_same),
     ("U5-12: a photo of animals all not mine is not asked again (REPRO)",
      case_u5_12_a_photo_of_animals_all_not_mine_is_not_asked_again),
+    ("U5-12: both animals not mine on a batch page, end to end (REPRO)",
+     case_u5_12_both_animals_not_mine_on_a_batch_page_end_to_end),
     ("Q8-c: a labelled crop still parses on the HTML page (GUARD)",
      case_a_labelled_crop_still_parses_on_the_html_page),
     ("Q8-c: a crop mark does not set the photo's basis (REPRO)",
