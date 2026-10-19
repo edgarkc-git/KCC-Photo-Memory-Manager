@@ -1330,6 +1330,7 @@ def cmd_render(args):
             "those folders from metadata alone. Such a batch stays unseen, so "
             "every later render of this dump (each --dry-run and each re-lock) "
             "needs --no-vision again.")
+    follow_owner_renames(workdir, index)
     for fo in held:
         if fo["dest"]["mode"] != "new" and not Path(fo["dest"]["existing_path"]).is_dir():
             raise Refused(f"{fo['id']}: the {fo['dest']['mode']} target is no longer "
@@ -4464,6 +4465,33 @@ def move_record(workdir, old, new):
         photo_execute.save_state(sp, state)
 
 
+def follow_owner_renames(workdir, index):
+    """G41 — a merge into the owner's folder that an after-check `RENAME
+    (owner)` row renamed points at the new name, so a re-lock reaches it.
+    Only a rename the after-check logged; any other missing folder is left
+    for render to refuse."""
+    log = Path(workdir) / "plan" / AFTER_CHECK_LOG
+    try:
+        entries = json.loads(log.read_text(encoding="utf-8")) if log.is_file() else []
+    except ValueError:
+        return
+    moves = {e["path_from"]: e["path_to"] for e in entries
+             if e.get("rule") == OWNER_RULE and e.get("path_from") and e.get("path_to")}
+    for fo in live(index):
+        dest = fo["dest"]
+        path, seen = dest.get("existing_path"), set()
+        if dest["mode"] != "merge" or not path or Path(path).is_dir():
+            continue
+        while path in moves and path not in seen:
+            seen.add(path)
+            path = moves[path]
+        if path != dest["existing_path"] and Path(path).is_dir():
+            log_entry(index, "index render", f"{fo['id']}: the owner's folder "
+                      f"`{Path(dest['existing_path']).name}` → `{Path(path).name}`",
+                      "renamed on the after-check (G41)", by="owner")
+            dest["existing_path"] = path
+
+
 def owner_scan_of(index, path):
     """-> {path inside: [size, SHA-256]}: the owner folder `path` as the dest
     scan saw it at each R4 `ok` that merges into it (they agree, or the
@@ -4570,7 +4598,9 @@ def apply_after(args, workdir, index, plans, pack=None):
         n = sum(before.values())
         done.append({"at": datetime.now().strftime("%Y-%m-%d %H:%M"),
                      "op": r["op"], "rule": r["rule"], "from": r["from"],
-                     "to": r["to"], "before": n, "after": sum(after.values())})
+                     "to": r["to"], "before": n, "after": sum(after.values()),
+                     **({"path_from": str(old), "path_to": str(new)}
+                        if row["rule"] == OWNER_RULE else {})})
         print(f"  renamed `{r['from']}` → `{r['to']}`: size + SHA-256 + name "
               f"of every file, before {n} = after {sum(after.values())}")
     skipped = sum(1 for r in answered if r["answer"] != "ok")
@@ -5081,7 +5111,7 @@ def days_into_existing(workdir, pack, index, fo, days, path, by_number, cmd, rea
     if not owned[fo["id"]]:
         fo["merged_into"] = nid
     settle_structure(index, owned, [fo["id"], nid], by_number, cmd, reason)
-    decided, new_places, _kept, _n = own_places(
+    decided, new_places, kept, _n = own_places(
         workdir, pack, index, {x["id"] for x in (fo, new) if x["status"] != RETIRED})
     for side in (fo, new):
         refs = decided.get(side["id"])
@@ -5093,7 +5123,9 @@ def days_into_existing(workdir, pack, index, fo, days, path, by_number, cmd, rea
     log_entry(index, cmd, f"{', '.join(sorted(days))}: {fo['id']} → {nid}, merging "
               f"into `{Path(path).name}` ({moved} file(s))", reason, by="agent")
     return (f"{', '.join(sorted(days))}: {moved} file(s) go into the existing "
-            f"folder {path} as {nid} (D5); the rest stays in {fo['id']}")
+            f"folder {path} as {nid} (D5); the rest stays in {fo['id']}"
+            + "".join(f"\n  {fid} kept its place: {k} day(s) neither the pack nor "
+                      "the geocode cache answers offline" for fid, k in kept))
 
 
 def group_merge(index, args, pack, by_number, cmd, reason):

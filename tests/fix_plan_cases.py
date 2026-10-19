@@ -675,6 +675,28 @@ def an_r4_merge_into_an_owner_folder_with_no_place_offers_to_add_it():
 
 
 @case
+def a_relock_after_the_owner_rename_follows_the_folder():
+    """⭐ REPRODUCTION (G41 x re-lock). ⛔ FAILS on b960a5b: after the owner's
+    folder took its place, the frozen index still named the old path, so a
+    re-lock after a pack change (render, check, freeze) was refused — "the
+    merge target is no longer a directory". The re-lock now follows the
+    rename the after-check logged, and verify passes."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _run = merged_into_day_out(tmp)
+        answer_after(wd, "ok")
+        must(ix.run("after-check", wd, "--answers", after_page(wd), "--go"), "rename")
+        ix.rename_lotus(Path(tmp) / "photo-memory" / ix.OWNER)
+        stale, _s, _e = ix.run("verify", wd, "--copied")
+        codes = [ix.run(cmd, wd) for cmd in ("render", "check", "freeze")]
+        vcode, vout, _ = ix.run("verify", wd, "--copied")
+        dest = next(fo["dest"]["existing_path"] for fo in ix.index_of(tmp)[0]["folders"]
+                    if fo["dest"]["mode"] == "merge")
+    return (stale == 6 and [c[0] for c in codes] == [0, 0, 0] and vcode == 0
+            and dest.endswith(DAY_OUT_PLACE)), \
+        (f"stale={stale} codes={[(c[0], (c[1] + c[2])[-200:]) for c in codes]} "
+         f"verify={vcode} {vout[-200:]!r} dest={dest}")
+
+@case
 def a_per_day_merge_offers_the_place_of_the_merged_day():
     """⭐ REPRODUCTION (G41 on the G42 path). ⛔ FAILS on d5201b6. The day
     moved into the owner's folder brings ITS place (Harbour), not the two-day
