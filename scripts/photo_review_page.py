@@ -537,6 +537,7 @@ def read_answer(raw):
 
 RE_WRAPPED_ROW = re.compile(r"^(>?\s*-?\s*)`([^`]+)`\s*$")
 EXAMPLE_ROW = "pick: 1,2   who: pet   name: Lotus"
+EXAMPLE_SKIP_ROW = "skip: 3 confirm, 2.2 confirm, 1.1 not-a-subject"
 
 
 def unwrap_row(line):
@@ -590,11 +591,22 @@ def apply_answer_report(md_text, answer_lines):
         elif t.lower().startswith("pick:"):
             picks.append(t)
         elif t.lower().startswith("skip:"):
-            skips.append(t)
+            if BLANK_ROW.sub("", t[5:]).strip():
+                skips.append(t)
         elif t.lower().startswith("recheck:"):
             m = re.match(r"recheck:\s*(subj-\d+)\s*(.*)$", t, re.I)
             if m:
                 rechecks[m.group(1)] = m.group(2).strip()
+
+    if len(skips) > 1:
+        # U5-11 — the page holds ONE `skip:` row, read as one reason for its
+        # whole photos; a second row used to be dropped while "written" was
+        # said. Joining two could arm numbers its `confirm` never named.
+        raise SystemExit(
+            "%d `skip:` rows — a page takes ONE `skip:` row, so the others "
+            "would be lost. Nothing was written. Put every number on one row, "
+            "for example:\n  %s\nRows sent:\n%s"
+            % (len(skips), EXAMPLE_SKIP_ROW, "\n".join("  " + r for r in skips)))
 
     def backticked(row):
         for key in ("pick", "who", "name", "skip"):

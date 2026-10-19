@@ -988,6 +988,19 @@ A note.
         check("W2-4 a backticked skip row is applied, still armed (REPRODUCTION)",
               rc == 0 and blk["skip_numbers"] == [1] and blk["skip_armed"],
               "%r" % (rc,))
+        rc, after = run_w4(CROPPED, ["page: P-B01", "skip: 2.1 confirm",
+                                     "skip: 2.2 confirm"])
+        check("U5-11 a second `skip:` row is refused out loud, nothing written "
+              "(REPRODUCTION, FAILS on d5201b6: the second row was dropped "
+              "while 'written' was said)",
+              str(rc).startswith("refused: 2 `skip:` rows") and "2.2 confirm" in str(rc)
+              and after == CROPPED, "%r" % (rc,))
+        rc, after = run_w4(CROPPED, ["page: P-B01", "skip: 2.1 confirm, 2.2 confirm",
+                                     "skip: ______"])
+        blk = pm.parse_review(after)[0]
+        check("U5-11 one `skip:` row beside a blank one is written whole (GUARD)",
+              rc == 0 and blk.get("skip_animals_mine_refs") == [(2, 1), (2, 2)],
+              "%r %r" % (rc, blk.get("skip_animals_mine_refs")))
         rc, after = run_w4(remembered_md, ["`recheck: subj-0002 Birk`"])
         rows_w4 = pm.parse_representations(after)
         check("W2-4 a backticked recheck row keeps A20: leftover text is a new "
