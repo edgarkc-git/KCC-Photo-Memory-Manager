@@ -642,6 +642,58 @@ def a_stop_whose_lookup_failed_is_named_by_its_town():
             and len(sent) == 1 and len(g.landmark_failed) == 1), \
         f"got={got} sent={len(sent)} failed={len(g.landmark_failed)}"
 
+def trip_legs(tmp):
+    """The UAT5 B4 shape (G44): a trip abroad of two legs, the first two days
+    long and holding most photos, so the trip takes ITS two landmarks as its
+    own words. The places come from the recorded cache through
+    `batch_places`, as the cluster stage writes them. Initialised, the fix
+    plan's R5 MAKE-TRIP row answered `ok`, rendered. -> (R5 row, leg names)."""
+    from datetime import date
+    import fix_plan_cases as fpc
+    days = {k: DAYS[k] for k in ("2025-05-01", "2025-05-02", "2025-05-03")}
+    wd = dump(tmp, days=days, cache=json.loads(FIXTURE.read_text()))
+    g = geocoder(json.loads(FIXTURE.read_text()))
+
+    def place(*ds):
+        df = {}
+        for d in ds:
+            pts = timed(d, DAYS[d])
+            df[date.fromisoformat(d)] = {"centroid": day_center(pts), "points": pts}
+        return "+".join(pc.batch_places(sorted(df), df, g, []))
+    batches = [{"batch": 1, "from": "2025-05-01", "to": "2025-05-02",
+                "place": place("2025-05-01", "2025-05-02")},
+               {"batch": 2, "from": "2025-05-03", "to": "2025-05-03",
+                "place": place("2025-05-03")}]
+    batches = [dict(b, day_type="OVERSEAS", country_word="Countryland") for b in batches]
+    (wd / "batches.json").write_text(json.dumps({"source": "/raw/dump-a",
+                                                 "batches": batches}))
+    for cmd in ("init", "render", "check"):
+        fpc.must(ix.run(cmd, wd, *(["--no-vision"] if cmd == "render" else [])), cmd)
+    ix.run("freeze", wd)
+    r5 = [r for r in fpc.rows(wd) if "(R5)" in r]
+    fpc.answer(wd, *["ok" if "(R5)" in r else "skip" for r in fpc.rows(wd)])
+    fpc.must(fpc.apply(wd), "apply R5")
+    fpc.must(ix.run("render", wd, "--no-vision"), "render")
+    folders = ix.index_of(tmp)[0]["folders"]
+    legs = [fo["rendered"] for fo in folders if fo["kind"] == "leg"]
+    trip = [fo["rendered"] for fo in folders if fo["kind"] == "trip"]
+    return r5, trip, sorted(legs)
+
+
+@case
+def a_trip_leg_is_never_placeless():
+    """⭐ REPRODUCTION (UAT5 U5-9, G44). ⛔ FAILS on 6e4d848: the first leg's
+    two landmarks became the trip's words, so D-I13 dropped them and the leg
+    had no place at all (`0501-0502` and nothing after the date but [what]).
+    Now a leg left with no word keeps its top landmark; a leg with a word of
+    its own is unchanged."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        r5, trip, legs = trip_legs(tmp)
+    return (len(r5) == 1 and trip == ["20250501-0503_Countryland_Lotus Garden+Old Mill Museum"]
+            and legs[0].startswith("0501-0502_Lotus Garden")
+            and "Old Mill Museum" not in legs[0]
+            and legs[1].startswith("0503_Birk Inn")), f"r5={r5} trip={trip} legs={legs}"
+
 @case
 def the_execution_log_carries_the_failed_landmark_count():
     """⭐ REPRODUCTION (F2). The execution log is the record an owner reads

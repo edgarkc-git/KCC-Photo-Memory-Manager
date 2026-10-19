@@ -1111,7 +1111,7 @@ def agent_what(fo):
 
 
 def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
-                  parent_words=None, own=None, keep=()):
+                  parent_words=None, own=None, keep=(), trip_leg=False):
     """-> (name, validation) for a day folder, or for a leg when
     `parent_words` (its parent's place words) is given: a leg names its place
     only when it differs from the parent's (D-I13). `own` is the members
@@ -1161,8 +1161,13 @@ def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
         validation["warnings"] = [f"the owner's own folder name, kept (D6): {w}"
                                   for w in ref + warn]
     elif parent_words is not None:
+        # D-I13 drops the parent's words; G44 — a TRIP leg never to nothing:
+        # it keeps its best own word, the first of its places (a ranked
+        # landmark comes before a town in `batch_places`). A monthly parent's
+        # leg is at that place by construction and still drops it.
+        dropped = (where[:1] if trip_leg else []) if where == parent_words else where
         name = photo_name.render(start, end,
-                                 where=[] if where == parent_words else where,
+                                 where=dropped,
                                  who=[who] if who else [], what=own or pick["what"],
                                  kind=photo_name.NAME_LEG)
         _ok, ref, warn = photo_name.validate(
@@ -1464,7 +1469,8 @@ def cmd_render(args):
         fo["rendered"], fo["validation"] = render_holder(
             fo, members, cells, spans, labels, budget, cap, profile, rmsg,
             parent_words=where_words(parent, labels)[0] if parent else None,
-            own=at_own_place(members, fo, parent, gps, homes), keep=keep)
+            own=at_own_place(members, fo, parent, gps, homes), keep=keep,
+            trip_leg=bool(parent) and parent["kind"] == "trip")
     grouped = parents(index)
     for p in grouped:
         legs = {leg["id"] for leg in legs_of(index, p["id"])}
