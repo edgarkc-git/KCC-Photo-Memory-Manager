@@ -94,11 +94,11 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
   header{padding:32px 24px 16px}
   h1{font-size:28px}
   .chips,main{padding-left:24px;padding-right:24px}
-  .row{grid-template-columns:120px minmax(0,1fr) minmax(0,1.3fr) 150px 280px;align-items:start}
+  .row{grid-template-columns:276px minmax(0,1fr) minmax(0,1.3fr) 150px 280px;align-items:start}
   .row .thumbs.none{display:block}
   .row .top{flex-direction:column;align-items:flex-start}
-  .row .thumbs{grid-template-columns:repeat(3,44px)}
-  .row .thumbs div{width:44px;height:44px}
+  .row .thumbs{grid-template-columns:repeat(3,88px)}
+  .row .thumbs div{width:88px;height:88px}
   .picks{flex-wrap:wrap}
   .pick{min-height:36px;font-size:14px}
   .row .wordrow{grid-column:2 / -1}
@@ -168,6 +168,16 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     var out = [];
     ROWS.forEach(function(r){ var a = answerOf(r); if(a) out.push(r.n + ": " + a); });
     return out;
+  }
+  /* G43 — the filter chips, or null when the page holds fewer than two
+     groups: one group's chips only repeat the row count and read as actions. */
+  function chipGroups(rows){
+    var groups = {All: rows.length}, n = 0;
+    rows.forEach(function(r){
+      if(!groups[r.chip]) n++;
+      groups[r.chip] = (groups[r.chip] || 0) + 1;
+    });
+    return n >= 2 ? groups : null;
   }
   function counts(){
     var c = {ok:0, skip:0, word:0, open:0};
@@ -276,21 +286,23 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     });
     h.appendChild(bulk);
     app.appendChild(h);
-    var chips = el("div", "chips"), groups = {All: ROWS.length};
-    ROWS.forEach(function(r){ groups[r.chip] = (groups[r.chip] || 0) + 1; });
-    Object.keys(groups).forEach(function(k){
-      var b = el("button", "chip", k + " " + groups[k]);
-      b.type = "button";
-      b.setAttribute("aria-pressed", state.chip === k ? "true" : "false");
-      b.addEventListener("click", function(){ state.chip = k; save(); render(); });
-      chips.appendChild(b);
-    });
-    app.appendChild(chips);
+    var groups = chipGroups(ROWS);
+    if(groups){
+      var chips = el("div", "chips");
+      Object.keys(groups).forEach(function(k){
+        var b = el("button", "chip", k + " " + groups[k]);
+        b.type = "button";
+        b.setAttribute("aria-pressed", state.chip === k ? "true" : "false");
+        b.addEventListener("click", function(){ state.chip = k; save(); render(); });
+        chips.appendChild(b);
+      });
+      app.appendChild(chips);
+    }
     var main = el("main");
     var box = refusedBox();
     if(box) main.appendChild(box);
     ROWS.forEach(function(r){
-      if(state.chip === "All" || state.chip === r.chip || !groups[state.chip]) main.appendChild(rowCard(r));
+      if(!groups || state.chip === "All" || state.chip === r.chip || !groups[state.chip]) main.appendChild(rowCard(r));
     });
     app.appendChild(main);
     footerEl = el("footer");

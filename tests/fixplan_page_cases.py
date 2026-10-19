@@ -316,6 +316,47 @@ def the_page_writes_only_answered_rows_and_a_blank_word_is_open():
     return got == ["1: ok", "2: skip", "3: word: Lotus Bay"], f"{got}"
 
 
+
+def js_chips(rows):
+    node = shutil.which("node")
+    if not node:
+        return None
+    tpl = (ROOT / "templates" / "fixplan-page.html").read_text(encoding="utf-8")
+    script = ("%s\nconsole.log(JSON.stringify(chipGroups(%s)));"
+              % (_fn(tpl, "chipGroups"), json.dumps(rows)))
+    out = subprocess.run([node, "-e", script], capture_output=True, text=True)
+    return json.loads(out.stdout) if out.returncode == 0 else out.stderr[:200]
+
+
+@case
+def the_chips_show_only_when_the_page_has_two_groups():
+    """⭐ REPRODUCTION (UAT5 U5-4, G43). ⛔ FAILS on d5201b6: a page whose rows
+    all sit under one chip ("Move": R4 and R5) showed `All 2` and `Move 2`,
+    two buttons that read as actions and filter nothing. No chips for one
+    group; `All` plus each group for two or more."""
+    one = js_chips([{"chip": "Move"}, {"chip": "Move"}])
+    if one is None:
+        return True, "node not installed — skipped"
+    two = js_chips([{"chip": "Move"}, {"chip": "Place"}, {"chip": "Move"}])
+    return one is None and two == {"All": 3, "Move": 2, "Place": 1}, f"{one} {two}"
+
+
+@case
+def desktop_sample_photos_are_88_px_and_their_column_fits_three():
+    """⭐ REPRODUCTION (UAT5 U5-3, G43). ⛔ FAILS on d5201b6 (44 px). On a
+    desktop each sample photo is 88 px square, and the row's first column
+    holds three of them and the two gaps between."""
+    import re
+    tpl = (ROOT / "templates" / "fixplan-page.html").read_text(encoding="utf-8")
+    desk = tpl[tpl.index("@media (min-width:900px)"):]
+    size = re.search(r"\.row \.thumbs div\{width:(\d+)px;height:(\d+)px\}", desk)
+    cols = re.search(r"\.row \.thumbs\{grid-template-columns:repeat\(3,(\d+)px\)\}", desk)
+    first = re.search(r"\.row\{grid-template-columns:(\d+)px ", desk)
+    gap = int(re.search(r"\.thumbs\{display:grid;[^}]*gap:(\d+)px", tpl).group(1))
+    got = tuple(int(m.group(1)) if m else None for m in (size, cols, first))
+    return (got[0] == 88 and size.group(2) == "88" and got[1] == 88
+            and got[2] is not None and got[2] >= 3 * 88 + 2 * gap), f"{got} gap={gap}"
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")
