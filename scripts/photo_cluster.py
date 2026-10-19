@@ -322,6 +322,12 @@ def batch_places(part, day_files, geocoder, all_homes,
                     if w not in names and len(marks) < MAX_LANDMARKS:
                         names.append(w)
                         marks.append(w)
+                # ⛔ U5-9 — a stop whose lookup failed while another stop of
+                # the day answered is named by ITS town, as the run says.
+                for at in getattr(geocoder, "landmark_failed_last", None) or ():
+                    town = geocoder.city(at, precise=not near_any_home(at, guard))
+                    if town and not is_address(town) and town not in names:
+                        names.append(town)
                 if len(names) >= limit:
                     break
                 continue
@@ -932,6 +938,9 @@ class Geocoder:
         # F2 — the stop boxes whose Overpass request failed in THIS run. Not
         # cached, so a re-run asks again; never asked twice in one run.
         self.landmark_failed = set()
+        # U5-9 — the centres of the stops whose lookup failed in the LAST
+        # `landmarks()` call, so the caller can name each by its town.
+        self.landmark_failed_last = []
         if cache_path.exists():
             self.cache = json.loads(cache_path.read_text())
 
@@ -1045,6 +1054,7 @@ class Geocoder:
             return []
         import photo_where
         elements = []
+        self.landmark_failed_last = []
         radius = LANDMARK_RADIUS_M / 1000
         for stop in photo_where.segment(pts):
             bbox = points_bbox(stop, LANDMARK_RADIUS_M)
@@ -1065,6 +1075,8 @@ class Geocoder:
                            and any(feature_km((p[0], p[1]), el) <= radius for p in stop)]
                     self.cache[key] = got
                     self.dirty = True
+            if key in self.landmark_failed:
+                self.landmark_failed_last.append(photo_where.stop_center(stop))
             elements.extend(got or [])
         names = pick_landmarks(rank_landmarks(elements, pts, self.language), len(pts))
         if names:

@@ -611,6 +611,38 @@ def a_failed_landmark_lookup_is_said_out_loud():
 
 
 @case
+def a_stop_whose_lookup_failed_is_named_by_its_town():
+    """⭐ REPRODUCTION (UAT5 U5-9). ⛔ FAILS on d5201b6: a day whose other
+    stop answered (the museum, from the recorded cache) took only that
+    landmark; the stop whose Overpass request failed got no name at all,
+    though the run said "named by town". Now that stop adds its own town
+    (cached; no request is sent but the failed one), after the landmarks."""
+    from datetime import date
+    x = off(B, 0.05)
+    pts = timed("2025-05-02", DAYS["2025-05-02"] + [x, off(x, 0.0001)])
+    g = geocoder(json.loads(FIXTURE.read_text()), enabled=True)
+    import photo_where
+    far = photo_where.stop_center(photo_where.segment(pts)[-1])
+    g.cache[g.key_for(far, 10, precise=True)] = {
+        "name": "Millbrook", "name_tag": "name", "cat": "place", "type": "town"}
+    sent = []
+
+    def refuse(query, backoffs=()):
+        sent.append(query)
+        return None
+    saved, pc.overpass_post = pc.overpass_post, refuse
+    try:
+        d = date(2025, 5, 2)
+        got = pc.batch_places([d], {d: {"centroid": day_center(pts), "points": pts}},
+                              g, [])
+    finally:
+        pc.overpass_post = saved
+    # The beach is 2 of 8 photos now, below a third (D3): the museum alone.
+    return (got == ["Old Mill Museum", "Millbrook"]
+            and len(sent) == 1 and len(g.landmark_failed) == 1), \
+        f"got={got} sent={len(sent)} failed={len(g.landmark_failed)}"
+
+@case
 def the_execution_log_carries_the_failed_landmark_count():
     """⭐ REPRODUCTION (F2). The execution log is the record an owner reads
     after the copy, so a batch named by the town after a failed lookup says
