@@ -583,6 +583,14 @@ since the copy, or one the engine did not create, is refused:
 `The folder was changed by hand since the copy; nothing was renamed. Ask the agent to re-run the after-check.`
 Nothing is ever deleted. Run `after-check` again until nothing is left.
 
+One more row kind (G41, ADR 0007 amendment): `RENAME (owner)`. When the fix
+plan's R4 merged days into the OWNER's folder and its name holds none of the
+place words the engine found for those days, the row offers
+`<owner name>_<place>`. A home is never added. It applies only on `ok`, with
+the same before = after proof, and is refused if the folder's files differ from
+what the engine saw before the copy plus this dump's copies. A new name that
+fails the name grammar is listed under `## Refused (never applied)`.
+
 Until a rename is done:
 - `photo_index.py verify 202401 --copied` still exits 0 and lists what is left:
   `⚠️ N folder rename(s) still to do on the drive (plan/folder-renames.md):`;

@@ -547,7 +547,7 @@ def the_later_day_alone_with_a_folder_moves_and_the_first_stays():
         mine = landed(tmp, rel)
         rest = new_folders(tmp, rel)
     return (code == 3 and len(r4) == 1 and "`2024-11-02` → `" in r4[0]
-            and fcode == 0 and run.returncode == 0 and "IMG_0201.jpg" in mine
+            and fcode == 0 and run.returncode == 3 and "IMG_0201.jpg" in mine
             and "IMG_0101.jpg" not in mine and len(rest) == 1
             and all(k.split("/")[-1].startswith("20241101") for k in rest)), \
         f"r4={r4} freeze={fcode} {ferr[-300:]!r} finish={run.returncode} mine={mine} rest={rest}"
@@ -563,7 +563,7 @@ def two_days_in_two_owner_folders_apply_one_after_the_other():
         wd, r4, code = per_day(tmp, {a: "2024:11:01 09:00:00", b: "2024:11:02 09:00:00"})
         aout, (fcode, ferr), run = to_the_copy(wd, "ok", "ok")
         in_a, in_b = landed(tmp, a), landed(tmp, b)
-    return (code == 3 and len(r4) == 2 and fcode == 0 and run.returncode == 0
+    return (code == 3 and len(r4) == 2 and fcode == 0 and run.returncode in (0, 3)
             and "IMG_0101.jpg" in in_a and "IMG_0201.jpg" in in_b
             and "IMG_0201.jpg" not in in_a), \
         f"r4={r4} apply={aout[-400:]!r} freeze={fcode} {ferr[-300:]!r} a={in_a} b={in_b}"
@@ -595,6 +595,159 @@ def a_per_day_answer_never_stands_for_other_days():
     two = photo_index.fix_key(dict(op, **{"from": "2024-11-01, 2024-11-02"}))
     whole = photo_index.fix_key(dict(op, op="INTO-EXISTING", **{"from": "x"}))
     return one != two and whole == f"R4|F001|INTO-EXISTING|{OLD}", f"{one} {two} {whole}"
+
+
+# ---------------------------------------------------------------------------
+# G41 — the after-check offers to add the place to the OWNER's folder
+# ---------------------------------------------------------------------------
+
+DAY_OUT = "2024/20241102_Day out"
+DAY_OUT_PLACE = "2024/20241102_Day out_Harbour"
+
+
+def after_page(wd):
+    return wd / "plan" / photo_index.AFTER_CHECK_MD
+
+
+def answer_after(wd, *answers):
+    lines, k = [], 0
+    for line in after_page(wd).read_text().splitlines():
+        if photo_index.AFTER_ROW.match(line):
+            line = line.replace("answer: ______", f"answer: {answers[k]}")
+            k += 1
+        lines.append(line)
+    after_page(wd).write_text("\n".join(lines) + "\n")
+
+
+def merged_into_day_out(tmp, per_day=False):
+    """The owner's `20241102_Day out` (no place) holds a 2024-11-02 photo; the
+    engine found Harbour for that day. R4 `ok`, copied. -> (wd, finish)."""
+    if per_day:
+        wd, _r4, _code = per_day_dump(tmp)
+    else:
+        owner_folder(tmp, day="2024:11:02 09:00:00", rel=DAY_OUT)
+        wd, _pack = ready(tmp)
+        ix.run("freeze", wd)
+    _aout, _f, run = to_the_copy(wd, "ok")
+    return wd, run
+
+
+def per_day_dump(tmp):
+    return per_day(tmp, {DAY_OUT: "2024:11:02 09:00:00"})
+
+
+def owner_row(wd):
+    return [l for l in after_page(wd).read_text().splitlines()
+            if photo_index.AFTER_ROW.match(l)]
+
+
+@case
+def an_r4_merge_into_an_owner_folder_with_no_place_offers_to_add_it():
+    """⭐ REPRODUCTION (UAT5 U5-2, G41). ⛔ FAILS on d5201b6: the merge kept
+    the owner's `20241102_Day out` and the place the engine found (Harbour)
+    was lost. Now the after-check offers `RENAME (owner)` to
+    `20241102_Day out_Harbour`; a dry run renames nothing; `ok` + --go
+    renames the owner's folder with the size + SHA-256 + name proof (before
+    = after), the copy record follows it, verify passes, and nothing is
+    left."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, run = merged_into_day_out(tmp)
+        rows0 = owner_row(wd)
+        root = Path(tmp).resolve() / "sorted"
+        answer_after(wd, "ok")
+        tree0 = state(root)
+        dcode, dout, _ = ix.run("after-check", wd, "--answers", after_page(wd))
+        dry = state(root) == tree0
+        gcode, gout, gerr = ix.run("after-check", wd, "--answers", after_page(wd), "--go")
+        moved = (root / DAY_OUT_PLACE).is_dir() and not (root / DAY_OUT).exists()
+        names = sorted(p.name for p in (root / DAY_OUT_PLACE).iterdir()) if moved else []
+        vcode, _v, _ = ix.run("verify", wd, "--copied")
+        ncode, nout, _ = ix.run("after-check", wd)
+    want = f"1. RENAME (owner) · `{DAY_OUT}` → `{DAY_OUT_PLACE}` · "
+    return (run.returncode == 3 and len(rows0) == 1 and want in rows0[0]
+            and "adds Harbour" in rows0[0] and dcode == 0 and "would rename" in dout
+            and dry and gcode == 0 and moved and "OLD_0001.jpg" in names
+            and "IMG_0201.jpg" in names and "before 2 = after 2" in gout
+            and vcode == 0 and ncode == 0 and "Nothing left to fix" in nout), \
+        (f"finish={run.returncode} {run.stdout[-300:]!r} rows={rows0} dry={dcode} "
+         f"{dout[-200:]!r} go={gcode} {gout[-300:]!r}{gerr[-200:]!r} moved={moved} "
+         f"names={names} verify={vcode} next={ncode} {nout[-200:]!r}")
+
+
+@case
+def a_per_day_merge_offers_the_place_of_the_merged_day():
+    """⭐ REPRODUCTION (G41 on the G42 path). ⛔ FAILS on d5201b6. The day
+    moved into the owner's folder brings ITS place (Harbour), not the two-day
+    batch's."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, run = merged_into_day_out(tmp, per_day=True)
+        rows0 = owner_row(wd)
+    return (run.returncode == 3 and len(rows0) == 1
+            and f"`{DAY_OUT}` → `{DAY_OUT_PLACE}`" in rows0[0]), f"rows={rows0}"
+
+
+@case
+def an_owner_folder_changed_since_the_scan_is_not_renamed():
+    """GUARD (G41: refused if the folder changed since the scan). The owner
+    adds a photo of their own after the copy: `ok` renames nothing, says why,
+    and the tree is byte for byte as it was."""
+    from PIL import Image
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _run = merged_into_day_out(tmp)
+        root = Path(tmp).resolve() / "sorted"
+        Image.new("RGB", (8, 8), (1, 2, 3)).save(root / DAY_OUT / "MINE.jpg", "JPEG")
+        answer_after(wd, "ok")
+        before = state(root)
+        code, out, _ = ix.run("after-check", wd, "--answers", after_page(wd), "--go")
+        same = before == state(root)
+    return (code == 1 and "changed since the engine looked at it" in out
+            and "MINE.jpg" in out and same), f"code={code} same={same} {out[-300:]!r}"
+
+
+@case
+def a_home_is_never_added_to_an_owner_folder():
+    """GUARD (G41: no home as a POI). The merged day was taken at the
+    owner's home (the fixture's `Ford`): no owner row, the dump is done."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        owner_folder(tmp)
+        wd, _pack = ready(tmp)
+        ix.run("freeze", wd)
+        _a, _f, run = to_the_copy(wd, "ok")
+        ncode, nout, _ = ix.run("after-check", wd)
+    return (run.returncode == 0 and ncode == 0 and "(owner)" not in nout), \
+        f"finish={run.returncode} after={ncode} {nout[-300:]!r}"
+
+
+@case
+def a_folder_an_engine_copy_created_keeps_todays_path():
+    """GUARD (G41: engine-created folders keep today's path). When a copy
+    record lists the target folder as created by the engine, no owner row."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _run = merged_into_day_out(tmp)
+        target = str(Path(tmp).resolve() / "sorted" / DAY_OUT)
+        for sp in (wd / "plan").glob("execute-state_*.json"):
+            doc = json.loads(sp.read_text())
+            doc["created_dirs"] = sorted(set(doc.get("created_dirs") or []) | {target})
+            sp.write_text(json.dumps(doc))
+        ncode, nout, _ = ix.run("after-check", wd)
+    return ncode == 0 and "(owner)" not in nout, f"{ncode} {nout[-300:]!r}"
+
+
+@case
+def an_owner_row_whose_name_fails_the_grammar_is_refused_out_loud():
+    """GUARD (G41: the new name passes photo_name.validate). An owner name
+    already at the length limit cannot take the place: the row is listed
+    under Refused (the [who]+[what] hard cap), never offered."""
+    long_rel = "2024/20241102_Day out_" + " ".join(["walk"] * 40)
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        owner_folder(tmp, day="2024:11:02 09:00:00", rel=long_rel)
+        wd, _pack = ready(tmp)
+        ix.run("freeze", wd)
+        _a, _f, run = to_the_copy(wd, "ok")
+        page = after_page(wd).read_text() if after_page(wd).is_file() else ""
+    return (run.returncode == 0 and "## Refused (never applied)" in page
+            and "(owner)" not in page and "_Harbour`" in page), \
+        f"finish={run.returncode} {page[-600:]!r}"
 
 
 def second_dump(tmp):

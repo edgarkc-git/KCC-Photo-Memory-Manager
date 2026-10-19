@@ -3641,8 +3641,8 @@ def rule_r4(ctx):
     own = {path_key(v.get("dest") or "") for v in
            photo_execute.verified_anywhere(workdir / "plan").values()}
     mine = set(photo_execute.created_anywhere(workdir / "plan"))
-    days = {}
-    for t in photo_desttree.scan(root, workdir):
+    days, tree = {}, photo_desttree.scan(root, workdir)
+    for t in tree:
         if not t["folder"] or not t["day"] or path_key(t["path"]) in own:
             continue
         head = Path(t["folder"]).name.split(photo_name.SLOT_SEP)[0]
@@ -3672,7 +3672,8 @@ def rule_r4(ctx):
             out.append(fix_op("INTO-EXISTING", "R4", fo, fo["rendered"], target,
                               len(members), f"{', '.join(mine_days)} already has a "
                               f"folder: merges into the existing folder {target} (D5)",
-                              path=str(root / target)))
+                              path=str(root / target),
+                              owner_scan=folder_scan(tree, target)))
             continue
         for target in sorted(set(best.values())):
             moved = sorted(d for d, t in best.items() if t == target)
@@ -3681,7 +3682,20 @@ def rule_r4(ctx):
                               target, n, f"{', '.join(moved)} already has a folder: "
                               f"those days' photos go into the existing folder "
                               f"{target} (D5); the rest of {fo['rendered']} stays",
-                              path=str(root / target), days=moved))
+                              path=str(root / target), days=moved,
+                              owner_scan=folder_scan(tree, target)))
+    return out
+
+
+def folder_scan(tree, folder):
+    """-> {path inside `folder`: [size, SHA-256]} of its media files in the
+    dest scan: what the owner's folder held when the owner said `ok` to an R4
+    row (G41's "changed since the scan")."""
+    out = {}
+    for t in tree:
+        if t["folder"] == folder or t["folder"].startswith(folder + "/"):
+            rel = (Path(t["folder"]).relative_to(folder) / t["name"]).as_posix()
+            out[rel] = [t["size"], t["sha256"]]
     return out
 
 
@@ -4154,13 +4168,15 @@ def cmd_fix_plan(args):
                         .get("batches", [])}
                     said = days_into_existing(workdir, pack, index, fo, a["days"],
                                               a["path"], by_number, FIX_PLAN_CMD,
-                                              "fix plan R4: a day with a folder")
+                                              "fix plan R4: a day with a folder",
+                                              owner_scan=a["owner_scan"])
                 else:
                     said = (f"{', '.join(a['days'])} would go into the existing "
                             f"folder {a['path']} (D5); the rest stays")
             elif op["rule"] == "R4":
                 if args.go:
-                    fo["dest"] = {"mode": "merge", "existing_path": a["path"], "refs": []}
+                    fo["dest"] = {"mode": "merge", "existing_path": a["path"], "refs": [],
+                                  "owner_scan": a["owner_scan"]}
                 said = f"merges into the existing folder {a['path']} (D5)"
             elif op["rule"] == "agent":
                 if args.go:
@@ -4211,11 +4227,11 @@ def name_words(name):
     return set(w for w in re.split(r"[_+]", Path(name).name)[1:] if w)
 
 
-def after_rows(workdir, index, plans):
+def after_rows(workdir, index, plans, pack=None):
     """-> the leftover ops: a folder this dump copied whose name changed
     after the copy (a re-lock freeze listed it, F8-2) and that is still on the
     drive under its old name. R2 when the new name adds a confirmed pet of
-    that folder."""
+    that folder. With `pack`, also the owner-folder rows (G41)."""
     dest_root = plans.get("dest_root") or ""
     verified = photo_execute.verified_anywhere(workdir / "plan")
     by_name = {fo["rendered"]: fo for fo in live(index) if fo.get("rendered")}
@@ -4235,6 +4251,72 @@ def after_rows(workdir, index, plans):
             reason += f"{'; ' if added else ': '}drops {', '.join(dropped)}"
         rows.append({"op": "RENAME", "rule": "R2" if set(added) & pets else "re-lock",
                      "from": old, "to": new, "photos": photos, "reason": reason})
+    if pack is not None:
+        rows += [r for r in owner_rows(workdir, index, plans, pack) if not r.get("why")]
+    return rows
+
+
+OWNER_RULE = "owner"
+
+
+def owner_rows(workdir, index, plans, pack):
+    """G41 (ADR 0007 amendment 20261019) — an R4 merge into an OWNER's
+    folder (one no engine copy of this collection created) whose name holds
+    none of the place words the engine found for the merged days: a row
+    renaming it to `<owner name>_<place>`. ⛔ A home is never added (no home
+    as a POI); the new name passes the name grammar, holds no coordinate and
+    no address-shaped word, or the row carries `why` and is never offered.
+    -> [{op, rule, from, to, photos, reason, path, words, [why]}]."""
+    root = Path(plans.get("dest_root") or "")
+    labels = id_labels(pack)
+    homes = {row[5] for row in photo_profile.labelled_home_points(pack.profile) if row[5]}
+    created = {}
+    for wd in dict.fromkeys([Path(workdir), *collection_dumps(workdir)]):
+        created.update(photo_execute.created_anywhere(Path(wd) / "plan"))
+    verified = photo_execute.verified_anywhere(Path(workdir) / "plan")
+    hard, soft = photo_profile.name_budget(pack.profile)
+    found = {}
+    for fo in live(index):
+        dest = fo["dest"]
+        if dest["mode"] != "merge" or "owner_scan" not in dest:
+            continue
+        path = Path(dest["existing_path"])
+        words, _unknown = where_words(
+            {"where": [r for r in fo["where"] if r["ref"] not in homes]}, labels)
+        entry = found.setdefault(str(path), {"path": path, "words": [], "days": set()})
+        entry["words"] += [w for w in words if w not in entry["words"]]
+        entry["days"] |= {f["date"][:10] for f in copy_members(index, fo["id"])
+                          if f.get("date")}
+    rows = []
+    for entry in found.values():
+        path, words = entry["path"], entry["words"]
+        try:
+            rel = path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        have = {w.casefold() for w in name_words(path.name)}
+        if (not words or not path.is_dir()
+                or photo_execute.real_key(path) in created
+                or any(w.casefold() in have for w in words)):
+            continue
+        place = photo_name.NAME_SEP.join(words)
+        new = path.name + photo_name.SLOT_SEP + place
+        photos = sum(1 for v in verified.values() if under(v.get("dest") or "", path))
+        row = {"op": "RENAME", "rule": OWNER_RULE, "from": rel,
+               "to": (Path(rel).parent / new).as_posix(), "photos": photos,
+               "path": str(path), "words": words,
+               "reason": (f"the engine merged {', '.join(sorted(entry['days']))} into "
+                          f"your folder, whose name has no place: adds {place}")}
+        refusals = photo_name.validate(new, hard=hard, soft=soft,
+                                       kind=photo_name.NAME_FOLDER)[1]
+        held = [w for w in words if photo_cluster.is_address(w)]
+        if COORDINATE_IN_NAME.search(new):
+            row["why"] = "the new name reads as a coordinate (Operational Rule 3)"
+        elif refusals:
+            row["why"] = "; ".join(refusals)
+        elif held:
+            row["why"] = f"{', '.join(held)} reads as an address (no home as a POI)"
+        rows.append(row)
     return rows
 
 
@@ -4269,7 +4351,7 @@ def source_proof(workdir, index):
                                if now.get(s) != h)
 
 
-def after_check_text(workdir, index, stats, sources, rows):
+def after_check_text(workdir, index, stats, sources, rows, held=()):
     n, changed = sources
     copied, bad = stats["copied"], len(stats["wrong"])
     lines = [f"# After-check · dump {index['dump']}", "", "## Copy proof", "",
@@ -4284,19 +4366,27 @@ def after_check_text(workdir, index, stats, sources, rows):
              + (f" ({', '.join(stats['gone'][:10])} no longer on the drive)"
                 if stats["gone"] else ""), "",
              f"## Still to fix · {len(rows)}", ""]
+    refused = [f"- `{r['from']}` → `{r['to']}` — {r['why']}" for r in held]
+    if refused:
+        refused = ["", "## Refused (never applied)", "", *refused]
     if not rows:
-        return "\n".join(lines + [NOTHING_LEFT]) + "\n"
+        return "\n".join(lines + [NOTHING_LEFT] + refused) + "\n"
     lines += [f"{k}. {r['op']} ({r['rule']}) · `{r['from']}` → `{r['to']}` · "
               f"{r['reason']} · {r['photos']} photo(s) · answer: ______"
               for k, r in enumerate(rows, 1)]
+    lines += refused
     lines += ["", "Answer each row `ok` or `skip`; a row left open is a skip.", "",
               "## After you say ok", "",
               "The engine renames only folders it copied and created itself, then "
               "re-checks size + SHA-256 + name of every file in them: before = "
               "after. A folder changed by hand since the copy is not renamed. "
-              "Nothing is ever deleted.", "",
-              f"    {run_line('photo_index.py')} after-check \"{workdir}\" "
-              f"--answers \"{workdir / 'plan' / AFTER_CHECK_MD}\" --go"]
+              "Nothing is ever deleted.", ""]
+    if any(r["rule"] == OWNER_RULE for r in rows):
+        lines += ["An `owner` row renames YOUR folder, only to add the place the "
+                  "engine found, with the same proof; it is refused if the folder "
+                  "changed since the engine looked at it before the copy.", ""]
+    lines.append(f"    {run_line('photo_index.py')} after-check \"{workdir}\" "
+                 f"--answers \"{workdir / 'plan' / AFTER_CHECK_MD}\" --go")
     return "\n".join(lines) + "\n"
 
 
@@ -4374,7 +4464,51 @@ def move_record(workdir, old, new):
         photo_execute.save_state(sp, state)
 
 
-def apply_after(args, workdir, index, plans):
+def owner_scan_of(index, path):
+    """-> {path inside: [size, SHA-256]}: the owner folder `path` as the dest
+    scan saw it at each R4 `ok` that merges into it (they agree, or the
+    folder changed between them)."""
+    out = {}
+    for fo in live(index):
+        dest = fo["dest"]
+        if dest["mode"] == "merge" and dest["existing_path"] == path:
+            for rel, entry in (dest.get("owner_scan") or {}).items():
+                if out.setdefault(rel, entry) != entry:
+                    out[rel] = None
+    return out
+
+
+def owner_folder_problem(old, new, scan, verified):
+    """-> why the engine may NOT rename the owner's folder `old` to `new`
+    (G41, ADR 0007 amendment 20261019), or None. Its media files must be
+    exactly what the dest scan saw (`scan`) plus the copies this dump made
+    there — name, size and SHA-256 — and the new name must be free."""
+    if not old.is_dir():
+        return f"{old.name} is not on the drive any more"
+    if new.exists():
+        return f"a folder named {new.name} already exists"
+    want = {rel: tuple(e) if e else None for rel, e in scan.items()}
+    for v in verified.values():
+        dest = v.get("dest") or ""
+        if under(dest, old):
+            rel = Path(dest).resolve().relative_to(old.resolve()).as_posix()
+            want[rel] = (v.get("size"), v.get("sha256"))
+    have = {p.relative_to(old).as_posix(): (p.stat().st_size,
+                                             photo_desttree.sha256_file(p))
+            for p in photo_desttree.media_files(old)}
+    if set(have) != set(want):
+        extra, gone = sorted(set(have) - set(want)), sorted(set(want) - set(have))
+        return "; ".join(x for x in (
+            f"new since the scan: {', '.join(extra[:5])}" if extra else "",
+            f"gone: {', '.join(gone[:5])}" if gone else "") if x)
+    for rel, entry in want.items():
+        if entry is None or have[rel][1] != entry[1] or (
+                entry[0] is not None and have[rel][0] != entry[0]):
+            return f"{rel} changed since the scan"
+    return None
+
+
+def apply_after(args, workdir, index, plans, pack=None):
     """The owner's answers -> each `ok` row applied, with the proof; a dry
     run without --go. -> exit code: 0, or 1 when a row was refused."""
     path = Path(args.answers)
@@ -4387,18 +4521,29 @@ def apply_after(args, workdir, index, plans):
         raise Refused(f"row(s) {', '.join(bad)}: an answer is `ok`, `skip` or "
                       "blank — nothing renamed")
     root = Path(plans.get("dest_root") or "")
-    stands = {(r["from"], r["to"]) for r in after_rows(workdir, index, plans)}
+    stands = {(r["from"], r["to"]): r for r in after_rows(workdir, index, plans, pack)}
     created = photo_execute.created_anywhere(workdir / "plan")
     done, refused = [], 0
     for r in (r for r in answered if r["answer"] == "ok"):
         old, new = root / r["from"], root / r["to"]
-        if (r["from"], r["to"]) not in stands:
+        row = stands.get((r["from"], r["to"]))
+        if row is None or row["rule"] != r["rule"]:
             print(f"  ⛔ row {r['n']}: `{r['from']}` → `{r['to']}` is not a row "
                   "any more (renamed, or the names changed) — nothing renamed")
             refused += 1
             continue
-        why = own_folder_problem(old, new, created,
-                                 photo_execute.verified_anywhere(workdir / "plan"))
+        if row["rule"] == OWNER_RULE:
+            fo = owner_scan_of(index, row["path"])
+            why = owner_folder_problem(old, new, fo,
+                                       photo_execute.verified_anywhere(workdir / "plan"))
+            if why:
+                print(f"  ⛔ row {r['n']}: your folder changed since the engine "
+                      f"looked at it; nothing was renamed ({why})")
+                refused += 1
+                continue
+        else:
+            why = own_folder_problem(old, new, created,
+                                     photo_execute.verified_anywhere(workdir / "plan"))
         if why:
             print(f"  ⛔ row {r['n']}: {HAND_CHANGED} ({why})")
             refused += 1
@@ -4416,7 +4561,11 @@ def apply_after(args, workdir, index, plans):
                   "back, nothing renamed")
             refused += 1
             continue
-        move_record(workdir, old, new)
+        if row["rule"] == OWNER_RULE:
+            for wd in dict.fromkeys([workdir, *collection_dumps(workdir)]):
+                move_record(Path(wd), old, new)
+        else:
+            move_record(workdir, old, new)
         created = photo_execute.created_anywhere(workdir / "plan")
         n = sum(before.values())
         done.append({"at": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -4446,20 +4595,21 @@ def cmd_after_check(args):
     loaded = load(workdir, args.profile)
     if loaded is None:
         return 0
-    _pack, _target, index = loaded
+    pack, _target, index = loaded
     if not index.get("frozen") or not (workdir / "plans.json").is_file():
         raise Refused("the index is not frozen — there is no copy to check yet")
     plans = json.loads((workdir / "plans.json").read_text(encoding="utf-8"))
     if args.answers:
-        return apply_after(args, workdir, index, plans)
+        return apply_after(args, workdir, index, plans, pack)
     stats = copy_stats(workdir, index)
     present = {f["source"] for f in index["files"] if f["status"] == "present"}
     stats["gone"] = sorted(Path(v["dest"]).name for s, v in
                            photo_execute.verified_anywhere(workdir / "plan").items()
                            if s in present and not on_drive(v.get("dest") or "", plans))
     sources = source_proof(workdir, index)
-    rows = after_rows(workdir, index, plans)
-    text = after_check_text(workdir, index, stats, sources, rows)
+    rows = after_rows(workdir, index, plans, pack)
+    held = [r for r in owner_rows(workdir, index, plans, pack) if r.get("why")]
+    text = after_check_text(workdir, index, stats, sources, rows, held)
     (workdir / "plan").mkdir(exist_ok=True)
     page = workdir / "plan" / AFTER_CHECK_MD
     page.write_text(text, encoding="utf-8")
@@ -4907,7 +5057,8 @@ def group_split(index, args, pack, by_number, cmd, reason):
                       "the geocode cache answers offline" for fid, k in kept))
 
 
-def days_into_existing(workdir, pack, index, fo, days, path, by_number, cmd, reason):
+def days_into_existing(workdir, pack, index, fo, days, path, by_number, cmd, reason,
+                       owner_scan=None):
     """G42 — `days` of `fo` go into the owner's existing folder `path`: they
     become a new top-level day folder merging into it, the rest stays in
     `fo`. Each side takes the places of its own days (B3). Acts on `days`
@@ -4921,7 +5072,8 @@ def days_into_existing(workdir, pack, index, fo, days, path, by_number, cmd, rea
     nid = next_folder_id(index)
     new = new_folder(nid, "day", where=[dict(r) for r in fo["where"]])
     new.update(split_from=fo["id"],
-               dest={"mode": "merge", "existing_path": str(path), "refs": []})
+               dest={"mode": "merge", "existing_path": str(path), "refs": [],
+                     "owner_scan": owner_scan or {}})
     index["folders"].insert(index["folders"].index(fo) + 1, new)
     owned[fo["id"]] -= days
     owned[nid] = days
