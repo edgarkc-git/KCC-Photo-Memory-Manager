@@ -3439,15 +3439,18 @@ FIX_PLAN_CMD = "index fix-plan"
 # The stop the fix plan puts to the owner: rows wait, nothing frozen.
 EXIT_FIX_PLAN = 3
 FIX_ANSWERS = ("ok", "skip")
-FIX_OPS = ("RENAME", "INTO-EXISTING", "MAKE-TRIP")
-FIX_ROW = re.compile(r"^(\d+)\. (RENAME|INTO-EXISTING|MAKE-TRIP) \(([^)]+)\) · (F\d+) · "
+FIX_OPS = ("RENAME", "INTO-EXISTING", "DAYS-INTO-EXISTING", "MAKE-TRIP")
+FIX_ROW = re.compile(r"^(\d+)\. (RENAME|INTO-EXISTING|DAYS-INTO-EXISTING|MAKE-TRIP) \(([^)]+)\) · (F\d+) · "
                      r"`([^`]*)` → `([^`]*)` · .*· answer:\s*(.*?)\s*$")
 NOTHING_TO_CHANGE = "Nothing to change."
 BY_HAND = "the engine did not create this folder: rename it by hand"
 
 
 def fix_key(op):
-    return f"{op['rule']}|{op['folder']}|{op['op']}|{op['to']}"
+    key = f"{op['rule']}|{op['folder']}|{op['op']}|{op['to']}"
+    # A per-day row's `from` is its days: an answer for one set of days never
+    # stands for another.
+    return key + f"|{op['from']}" if op["op"] == "DAYS-INTO-EXISTING" else key
 
 
 def preview_samples(workdir):
@@ -3624,7 +3627,10 @@ def rule_r3(ctx):
 def rule_r4(ctx):
     """R4 — a day that already has a folder in the dest goes into it, by
     capture day (M4's scan, any depth; never this dump's own copies). One op
-    per folder whose every day sits in the same existing folder. ⛔ A trip
+    per folder whose every day sits in the same existing folder; when only
+    SOME of its days do (or they sit in different folders), one
+    DAYS-INTO-EXISTING op per existing folder moves THOSE days' photos into
+    it and the rest stays (G42). ⛔ A trip
     abroad stays out (E52: a travel day's files taken in another country stay
     in that country's folder). Listed as a merge into an existing folder
     (D5)."""
@@ -3657,15 +3663,25 @@ def rule_r4(ctx):
             continue
         members = copy_members(index, fo["id"])
         mine_days = sorted({f["date"][:10] for f in members if f.get("date")})
-        best = {max(sorted(days[d]), key=lambda k: days[d][k]) if d in days else None
-                for d in mine_days}
-        if not mine_days or None in best or len(best) != 1:
+        best = {d: max(sorted(days[d]), key=lambda k: days[d][k])
+                for d in mine_days if d in days}
+        if not best:
             continue
-        target = best.pop()
-        out.append(fix_op("INTO-EXISTING", "R4", fo, fo["rendered"], target,
-                          len(members), f"{', '.join(mine_days)} already has a "
-                          f"folder: merges into the existing folder {target} (D5)",
-                          path=str(root / target)))
+        if len(best) == len(mine_days) and len(set(best.values())) == 1:
+            target = best[mine_days[0]]
+            out.append(fix_op("INTO-EXISTING", "R4", fo, fo["rendered"], target,
+                              len(members), f"{', '.join(mine_days)} already has a "
+                              f"folder: merges into the existing folder {target} (D5)",
+                              path=str(root / target)))
+            continue
+        for target in sorted(set(best.values())):
+            moved = sorted(d for d, t in best.items() if t == target)
+            n = sum(1 for f in members if (f.get("date") or "")[:10] in moved)
+            out.append(fix_op("DAYS-INTO-EXISTING", "R4", fo, ", ".join(moved),
+                              target, n, f"{', '.join(moved)} already has a folder: "
+                              f"those days' photos go into the existing folder "
+                              f"{target} (D5); the rest of {fo['rendered']} stays",
+                              path=str(root / target), days=moved))
     return out
 
 
@@ -3864,7 +3880,7 @@ def fix_problem(op, ctx):
     """-> why an op may not be offered (G17), or None: its new name must
     pass the name grammar, hold no coordinate, and add no address-shaped
     word — the shape a home's place takes as a POI."""
-    if op["op"] == "INTO-EXISTING":
+    if op["op"] in ("INTO-EXISTING", "DAYS-INTO-EXISTING"):
         return ("the existing folder's path reads as a coordinate"
                 if COORDINATE_IN_NAME.search(op["to"]) else None)
     if op["op"] == "MAKE-TRIP":
@@ -4131,6 +4147,17 @@ def cmd_fix_plan(args):
                         pack, by_number, FIX_PLAN_CMD, "fix plan R5")
                 else:
                     said = f"{', '.join(a['folders'])} would become one trip"
+            elif op["op"] == "DAYS-INTO-EXISTING":
+                if args.go:
+                    by_number = {b["batch"]: b for b in json.loads(
+                        (workdir / "batches.json").read_text(encoding="utf-8"))
+                        .get("batches", [])}
+                    said = days_into_existing(workdir, pack, index, fo, a["days"],
+                                              a["path"], by_number, FIX_PLAN_CMD,
+                                              "fix plan R4: a day with a folder")
+                else:
+                    said = (f"{', '.join(a['days'])} would go into the existing "
+                            f"folder {a['path']} (D5); the rest stays")
             elif op["rule"] == "R4":
                 if args.go:
                     fo["dest"] = {"mode": "merge", "existing_path": a["path"], "refs": []}
@@ -4878,6 +4905,43 @@ def group_split(index, args, pack, by_number, cmd, reason):
             + "; ".join(places)
             + "".join(f"\n  {fid} kept its place: {k} day(s) neither the pack nor "
                       "the geocode cache answers offline" for fid, k in kept))
+
+
+def days_into_existing(workdir, pack, index, fo, days, path, by_number, cmd, reason):
+    """G42 — `days` of `fo` go into the owner's existing folder `path`: they
+    become a new top-level day folder merging into it, the rest stays in
+    `fo`. Each side takes the places of its own days (B3). Acts on `days`
+    alone, so two such rows on one folder apply one after the other."""
+    days = set(days)
+    owned = claims(index)
+    missing = sorted(days - owned[fo["id"]])
+    if missing:
+        raise Refused(f"{', '.join(missing)}: not a day {fo['id']} holds — nothing "
+                      "changed")
+    nid = next_folder_id(index)
+    new = new_folder(nid, "day", where=[dict(r) for r in fo["where"]])
+    new.update(split_from=fo["id"],
+               dest={"mode": "merge", "existing_path": str(path), "refs": []})
+    index["folders"].insert(index["folders"].index(fo) + 1, new)
+    owned[fo["id"]] -= days
+    owned[nid] = days
+    moved = move_files(index, fo["id"], nid, days, cmd, reason)
+    if not owned[fo["id"]]:
+        fo["merged_into"] = nid
+    settle_structure(index, owned, [fo["id"], nid], by_number, cmd, reason)
+    decided, new_places, _kept, _n = own_places(
+        workdir, pack, index, {x["id"] for x in (fo, new) if x["status"] != RETIRED})
+    for side in (fo, new):
+        refs = decided.get(side["id"])
+        if refs is None or side["status"] == RETIRED:
+            continue
+        for r in refs:
+            index["places"].setdefault(r["ref"], new_places.get(r["ref"]) or {})
+        side.update(where=refs)
+    log_entry(index, cmd, f"{', '.join(sorted(days))}: {fo['id']} → {nid}, merging "
+              f"into `{Path(path).name}` ({moved} file(s))", reason, by="agent")
+    return (f"{', '.join(sorted(days))}: {moved} file(s) go into the existing "
+            f"folder {path} as {nid} (D5); the rest stays in {fo['id']}")
 
 
 def group_merge(index, args, pack, by_number, cmd, reason):

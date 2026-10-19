@@ -253,6 +253,26 @@ def a_make_trip_row_is_shown_when_the_stage_writes_one():
             and row[0]["chip"] == "Move"), f"{row}"
 
 
+
+@case
+def a_per_day_row_is_shown_and_its_days_are_in_the_digest():
+    """REPRODUCTION (G42 DAYS-INTO-EXISTING). ⛔ FAILS on d5201b6: the row is
+    not a fix plan row, so the page drops it. It is read like any row (OK or
+    Skip, under Move), and a page sent for one set of days never lands on a
+    plan re-drafted with others."""
+    day = {"op": "DAYS-INTO-EXISTING", "rule": "R4", "folder": "F003",
+           "from": "2025-01-16", "to": "2025/20250116_Old Street",
+           "reason": "2025-01-16 already has a folder", "photos": 11}
+    plan = fp.parse_plan(plan_text(ops=[day], refused=[]))
+    data = fp.build_data(plan, "/nowhere", 64, 50)
+    row = data["rows"]
+    other = fp.parse_plan(plan_text(ops=[dict(day, **{"from": "2025-01-16, 2025-01-17"})],
+                                    refused=[]))
+    return (len(row) == 1 and row[0]["op"] == "DAYS-INTO-EXISTING"
+            and row[0]["from"] == "2025-01-16" and row[0]["photos"] == 11
+            and row[0]["word"] is None and row[0]["chip"] == "Move"
+            and fp.plan_digest(other["ops"]) != data["digest"]), f"{row}"
+
 def js_lines(rows, state):
     """Run the page's own answer writer with node; None when node is absent."""
     node = shutil.which("node")

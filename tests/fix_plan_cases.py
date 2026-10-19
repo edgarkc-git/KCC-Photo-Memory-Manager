@@ -467,6 +467,136 @@ def a_trip_abroad_stays_out_of_an_existing_folder():
     return "(R4)" not in out, f"out={out[-400:]!r}"
 
 
+ONE_BATCH = [{"batch": 1, "from": "2024-11-01", "to": "2024-11-02", "place": "Ford"}]
+
+
+def per_day(tmp, owners, rel_pets=False):
+    """A one-batch, two-day dump (F001 holds 2024-11-01 and 11-02) and the
+    owner's dated folders `owners` {rel: capture day}. -> (wd, rows, code)."""
+    for rel, day in owners.items():
+        owner_folder(tmp, day=day, rel=rel)
+    wd, pack = ix.g3_dump(tmp, batches=ONE_BATCH)
+    if rel_pets:
+        reg = pack / "photo-subjects" / "subjects.json"
+        data = json.loads(reg.read_text())
+        data["subjects"].append(ix.subject("subj-0003", "Birk"))
+        reg.write_text(json.dumps(data))
+    for cmd in ("init", "render", "check"):
+        must(ix.run(cmd, wd), cmd)
+    code, _o, _e = ix.run("freeze", wd)
+    return wd, rows(wd), code
+
+
+def to_the_copy(wd, *answers):
+    """Answer the open rows, apply, and run until the copy (R2 rows: skip).
+    -> (apply out, freeze code, finish)."""
+    answer(wd, *answers)
+    aout = must(apply(wd), "apply R4")
+    for _ in range(3):
+        must(ix.run("render", wd), "render")
+        must(ix.run("check", wd), "check")
+        fcode, _f, ferr = ix.run("freeze", wd)
+        if fcode != 3:
+            break
+        answer(wd, *["skip"] * len(rows(wd)))
+        must(apply(wd), "apply")
+    return aout, (fcode, ferr), fin.finish(wd)
+
+
+def landed(tmp, rel):
+    d = Path(tmp).resolve() / "sorted" / rel
+    return sorted(p.name for p in d.iterdir()) if d.is_dir() else []
+
+
+def new_folders(tmp, *skip):
+    root = Path(tmp).resolve() / "sorted"
+    return {p.parent.relative_to(root).as_posix(): None for p in root.rglob("IMG_*")
+            if not any(p.is_relative_to(root / s) for s in skip)}
+
+
+@case
+def only_one_day_with_a_folder_moves_that_day_and_the_rest_stays():
+    """⭐ REPRODUCTION (UAT5 U5-1, G42). ⛔ FAILS on d5201b6: R4 asked only
+    when EVERY day of the folder sat in one existing folder, so the owner's
+    2024-11-01 folder got nothing and that day was copied into the new
+    two-day folder beside it. Now a DAYS-INTO-EXISTING row moves that day's
+    photos into the owner's folder and 2024-11-02 stays in the new one."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, r4, code = per_day(tmp, {OLD: "2024:11:01 09:00:00"})
+        aout, (fcode, ferr), run = to_the_copy(wd, "ok")
+        mine = landed(tmp, OLD)
+        rest = new_folders(tmp, OLD)
+    want = f"DAYS-INTO-EXISTING (R4) · F001 · `2024-11-01` → `{OLD}`"
+    return (code == 3 and len(r4) == 1 and want in r4[0] and "2 photo(s)" in r4[0]
+            and fcode == 0 and run.returncode == 0
+            and {"IMG_0101.jpg", "IMG_0102.jpg", "OLD_0001.jpg"} <= set(mine)
+            and "IMG_0201.jpg" not in mine and len(rest) == 1), \
+        (f"code={code} r4={r4} apply={aout[-300:]!r} freeze={fcode} {ferr[-300:]!r} "
+         f"finish={run.returncode} {run.stdout[-300:]!r} mine={mine} rest={rest}")
+
+
+@case
+def the_later_day_alone_with_a_folder_moves_and_the_first_stays():
+    """⭐ REPRODUCTION (G42, the moved day is not the batch's first). ⛔ FAILS
+    on d5201b6: no row. Now 2024-11-02 goes into the owner's folder; the new
+    folder keeps 2024-11-01."""
+    rel = "2024/20241102_Day out"
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, r4, code = per_day(tmp, {rel: "2024:11:02 09:00:00"})
+        _aout, (fcode, ferr), run = to_the_copy(wd, "ok")
+        mine = landed(tmp, rel)
+        rest = new_folders(tmp, rel)
+    return (code == 3 and len(r4) == 1 and "`2024-11-02` → `" in r4[0]
+            and fcode == 0 and run.returncode == 0 and "IMG_0201.jpg" in mine
+            and "IMG_0101.jpg" not in mine and len(rest) == 1
+            and all(k.split("/")[-1].startswith("20241101") for k in rest)), \
+        f"r4={r4} freeze={fcode} {ferr[-300:]!r} finish={run.returncode} mine={mine} rest={rest}"
+
+
+@case
+def two_days_in_two_owner_folders_apply_one_after_the_other():
+    """⭐ REPRODUCTION (G42). ⛔ FAILS on d5201b6: the days sit in two
+    different owner folders, so no row was made. Two rows, both `ok`: each
+    moves its own day, the second after the first changed the folder."""
+    a, b = "2024/20241101_Old trip", "2024/20241102_Day out"
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, r4, code = per_day(tmp, {a: "2024:11:01 09:00:00", b: "2024:11:02 09:00:00"})
+        aout, (fcode, ferr), run = to_the_copy(wd, "ok", "ok")
+        in_a, in_b = landed(tmp, a), landed(tmp, b)
+    return (code == 3 and len(r4) == 2 and fcode == 0 and run.returncode == 0
+            and "IMG_0101.jpg" in in_a and "IMG_0201.jpg" in in_b
+            and "IMG_0201.jpg" not in in_a), \
+        f"r4={r4} apply={aout[-400:]!r} freeze={fcode} {ferr[-300:]!r} a={in_a} b={in_b}"
+
+
+@case
+def a_per_day_move_into_a_folder_named_after_another_pet_passes_e48():
+    """GUARD (E48 on the per-day path): the owner's folder is named after
+    Birk, whom no photo of this dump shows; the moved day arrives there as an
+    override, and the existing name keeps its pets — check, freeze and the
+    copy pass."""
+    rel = "2024/20241101_Old trip_Birk"
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, r4, _code = per_day(tmp, {rel: "2024:11:01 09:00:00"}, rel_pets=True)
+        _aout, (fcode, ferr), run = to_the_copy(wd, "ok")
+        mine = landed(tmp, rel)
+    return (len(r4) == 1 and fcode == 0 and run.returncode == 0
+            and "IMG_0101.jpg" in mine), \
+        f"r4={r4} freeze={fcode} {ferr[-300:]!r} finish={run.returncode} {run.stdout[-300:]!r}"
+
+
+@case
+def a_per_day_answer_never_stands_for_other_days():
+    """GUARD (G42): a per-day row's key carries its days, so a `skip` for
+    2024-11-01 is not an answer for 2024-11-01 + 11-02 into the same
+    folder; the whole-folder key is unchanged."""
+    op = {"rule": "R4", "folder": "F001", "op": "DAYS-INTO-EXISTING", "to": OLD}
+    one = photo_index.fix_key(dict(op, **{"from": "2024-11-01"}))
+    two = photo_index.fix_key(dict(op, **{"from": "2024-11-01, 2024-11-02"}))
+    whole = photo_index.fix_key(dict(op, op="INTO-EXISTING", **{"from": "x"}))
+    return one != two and whole == f"R4|F001|INTO-EXISTING|{OLD}", f"{one} {two} {whole}"
+
+
 def second_dump(tmp):
     """dump-b in the same collection: two photos of 2024-11-01, one naming
     Birk (confirmed), merged into the folder dump-a created. No photo of
