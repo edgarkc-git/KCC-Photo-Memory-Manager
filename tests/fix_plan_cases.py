@@ -386,8 +386,8 @@ def a_day_with_a_folder_in_the_dest_goes_into_it():
     folder already holds a photo of 2024-11-01: the plan asks to merge F001
     into it, saying it is a merge into an existing folder (D5); `ok` makes
     F001 a merge, and the copy lands in the owner's folder. Lotus, confirmed
-    in F001, is then missing from that folder's name: R2 lists a rename BY
-    HAND (the engine did not create the folder), and `ok` renames nothing."""
+    in F001, is then missing from that folder's name: Review folders asks
+    nothing about it (G47, information only) and the final check offers it."""
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         old_photo = owner_folder(tmp)
         wd, _pack = ready(tmp)
@@ -397,26 +397,19 @@ def a_day_with_a_folder_in_the_dest_goes_into_it():
         must(apply(wd), "apply R4")
         must(ix.run("render", wd), "render")
         must(ix.run("check", wd), "check")
-        code2, _o2, _ = ix.run("freeze", wd)
-        r2 = rows(wd)
-        answer(wd, "ok")
-        acode, aout, _ = apply(wd)
-        must(ix.run("render", wd), "render")
-        must(ix.run("check", wd), "check")
-        fcode, _f, ferr = ix.run("freeze", wd)
+        fcode, fout, ferr = ix.run("freeze", wd)
         run = fin.finish(wd)
         landed = sorted(p.name for p in old_photo.parent.iterdir())
         still = old_photo.parent.is_dir()
+        later = owner_row(wd)
     return (code == 3 and len(r4) == 1 and f"(R4) · F001 · `{LOTUS_DAY}` → `{OLD}`" in r4[0]
             and "merges into the existing folder" in r4[0]
-            and code2 == 3 and len(r2) == 1 and "(R2) · F001 ·" in r2[0]
-            and "rename it by hand" in r2[0] and acode == 0
-            and "nothing renamed" in aout and fcode == 0 and still
-            and run.returncode == 0 and "IMG_0101.jpg" in landed
-            and "OLD_0001.jpg" in landed), \
-        (f"code={code} r4={r4} code2={code2} r2={r2} apply={acode} {aout[-300:]!r} "
-         f"freeze={fcode} {ferr[-300:]!r} finish={run.returncode} landed={landed} "
-         f"{run.stdout[-400:]!r}")
+            and fcode == 0 and photo_index.OWNER_LATER in fout and still
+            and run.returncode == 3 and "IMG_0101.jpg" in landed
+            and "OLD_0001.jpg" in landed and len(later) == 1
+            and f"`{OLD}` → `{OLD}_Lotus`" in later[0]), \
+        (f"code={code} r4={r4} freeze={fcode} {fout[-300:]!r}{ferr[-300:]!r} "
+         f"finish={run.returncode} landed={landed} later={later}")
 
 
 @case
@@ -441,13 +434,10 @@ def a_merge_into_a_folder_named_after_a_pet_not_in_this_dump_passes_e48():
         must(apply(wd), "apply R4")
         must(ix.run("render", wd), "render")
         ccode, cout, cerr = ix.run("check", wd)
-        ix.run("freeze", wd)            # R2: adds Lotus, by hand
-        answer(wd, "skip")
-        must(apply(wd), "apply R2")
         fcode, fout, ferr = ix.run("freeze", wd)
         run = fin.finish(wd)
         landed = sorted(p.name for p in old_photo.parent.iterdir())
-    return (ccode == 0 and fcode == 0 and run.returncode == 0
+    return (ccode == 0 and fcode == 0 and run.returncode == 3
             and "IMG_0101.jpg" in landed), \
         (f"check={ccode} {cout[-300:]!r}{cerr[-200:]!r} freeze={fcode} "
          f"{fout[-200:]!r}{ferr[-300:]!r} finish={run.returncode} landed={landed}")
@@ -528,7 +518,7 @@ def only_one_day_with_a_folder_moves_that_day_and_the_rest_stays():
         rest = new_folders(tmp, OLD)
     want = f"DAYS-INTO-EXISTING (R4) · F001 · `2024-11-01` → `{OLD}`"
     return (code == 3 and len(r4) == 1 and want in r4[0] and "2 photo(s)" in r4[0]
-            and fcode == 0 and run.returncode == 0
+            and fcode == 0 and run.returncode == 3
             and {"IMG_0101.jpg", "IMG_0102.jpg", "OLD_0001.jpg"} <= set(mine)
             and "IMG_0201.jpg" not in mine and len(rest) == 1), \
         (f"code={code} r4={r4} apply={aout[-300:]!r} freeze={fcode} {ferr[-300:]!r} "
@@ -580,7 +570,7 @@ def a_per_day_move_into_a_folder_named_after_another_pet_passes_e48():
         wd, r4, _code = per_day(tmp, {rel: "2024:11:01 09:00:00"}, rel_pets=True)
         _aout, (fcode, ferr), run = to_the_copy(wd, "ok")
         mine = landed(tmp, rel)
-    return (len(r4) == 1 and fcode == 0 and run.returncode == 0
+    return (len(r4) == 1 and fcode == 0 and run.returncode == 3
             and "IMG_0101.jpg" in mine), \
         f"r4={r4} freeze={fcode} {ferr[-300:]!r} finish={run.returncode} {run.stdout[-300:]!r}"
 
@@ -729,15 +719,17 @@ def an_owner_folder_changed_since_the_scan_is_not_renamed():
 @case
 def a_home_is_never_added_to_an_owner_folder():
     """GUARD (G41: no home as a POI). The merged day was taken at the
-    owner's home (the fixture's `Ford`): no owner row, the dump is done."""
+    owner's home (the fixture's `Ford`): the owner row adds only the pet
+    confirmed there (G47), never the home."""
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         owner_folder(tmp)
         wd, _pack = ready(tmp)
         ix.run("freeze", wd)
         _a, _f, run = to_the_copy(wd, "ok")
-        ncode, nout, _ = ix.run("after-check", wd)
-    return (run.returncode == 0 and ncode == 0 and "(owner)" not in nout), \
-        f"finish={run.returncode} after={ncode} {nout[-300:]!r}"
+        got = owner_row(wd)
+    return (run.returncode == 3 and len(got) == 1
+            and f"`{OLD}` → `{OLD}_Lotus`" in got[0] and "Ford" not in got[0]), \
+        f"finish={run.returncode} {got}"
 
 
 @case
@@ -771,6 +763,109 @@ def an_owner_row_whose_name_fails_the_grammar_is_refused_out_loud():
             and "(owner)" not in page and "_Harbour`" in page), \
         f"finish={run.returncode} {page[-600:]!r}"
 
+
+# G47 — an owner's folder gaining confirmed pets is renamed at the final check
+AT_HOME = "2024/20241101_At home"
+
+
+def two_pets_at_home(tmp, rel=AT_HOME, day="2024:11:01 09:00:00",
+                     pets=(("IMG_0101.jpg", "subj-0001"), ("IMG_0102.jpg", "subj-0003"))):
+    """UAT6 U6-1: a two-day batch at home; 2024-11-01 holds Lotus and Birk
+    (both confirmed) and the owner's `20241101_At home`. R4 per day `ok`.
+    `pets` puts a confirmed pet on a photo. -> (wd, R4 rows, freeze after R4
+    (code, out), finish)."""
+    owner_folder(tmp, day=day, rel=rel)
+    wd, pack = ix.g3_dump(tmp, seen=(), batches=ONE_BATCH)
+    reg = pack / "photo-subjects" / "subjects.json"
+    data = json.loads(reg.read_text())
+    data["subjects"].append(ix.subject("subj-0003", "Birk"))
+    reg.write_text(json.dumps(data))
+    base = Path(tmp).resolve() / "raw" / "dump-a"
+    on = dict(pets)
+    ix.write_see(wd, 1, [
+        *(ix.see_label(base, n, [{"subject_id": on[n]}] if n in on else (), w)
+          for n, w in (("IMG_0101.jpg", "sofa nap"), ("IMG_0102.jpg", "sofa nap"),
+                       ("IMG_0201.jpg", "harbour walk"))),
+        ix.see_label(base, ix.WORD, what="a document"),
+        ix.see_label(base, ix.SHOT, what="a chat")])
+    for cmd in ("init", "render", "check"):
+        must(ix.run(cmd, wd), cmd)
+    ix.run("freeze", wd)
+    r4 = rows(wd)
+    answer(wd, *["ok"] * len(r4))
+    must(apply(wd), "apply R4")
+    must(ix.run("render", wd), "render")
+    must(ix.run("check", wd), "check")
+    code, out, err = ix.run("freeze", wd)
+    return wd, r4, (code, out + err), fin.finish(wd)
+
+
+@case
+def an_owner_folder_gaining_pets_is_renamed_at_the_final_check():
+    """⭐ REPRODUCTION (UAT6 U6-1, G47). ⛔ FAILS on 3c6adb1: Review folders
+    offered an R2 row `20241101_At home` → `…_Lotus+Birk` the owner could
+    `ok`, and `--go` only said "rename it by hand". Now Review folders asks
+    nothing about the owner's folder (the freeze passes and says the final
+    check offers it); the final check offers `RENAME (owner)` with both
+    pets; `ok` + --go renames it with before = after."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, r4, (fcode, fout), run = two_pets_at_home(tmp)
+        got = owner_row(wd) if after_page(wd).is_file() else []
+        root = Path(tmp).resolve() / "sorted"
+        new = f"{AT_HOME}_Lotus+Birk"
+        if got:
+            answer_after(wd, "ok")
+        gcode, gout, gerr = ix.run("after-check", wd, "--answers", after_page(wd), "--go")
+        moved = (root / new).is_dir() and not (root / AT_HOME).exists()
+    return (len(r4) == 1 and "DAYS-INTO-EXISTING" in r4[0] and fcode == 0
+            and photo_index.OWNER_LATER in fout and "answer:" not in fout
+            and run.returncode == 3 and len(got) == 1
+            and f"1. RENAME (owner) · `{AT_HOME}` → `{new}` · " in got[0]
+            and "adds Lotus, Birk" in got[0] and gcode == 0 and moved
+            and "before 3 = after 3" in gout), \
+        (f"r4={r4} freeze={fcode} {fout[-400:]!r} finish={run.returncode} "
+         f"rows={got} go={gcode} {gout[-300:]!r}{gerr[-200:]!r} moved={moved}")
+
+
+@case
+def one_owner_row_adds_the_place_and_the_pet_together():
+    """⭐ REPRODUCTION (G47 x G41). ⛔ FAILS on 3c6adb1 (the row added the
+    place only). The merged 2024-11-02 brings its place (Harbour) and Birk,
+    confirmed on its photo: ONE owner row adds both, it is offered (not
+    refused), and `ok` + --go renames with before = after."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _r4, (fcode, _fout), run = two_pets_at_home(
+            tmp, rel=DAY_OUT, day="2024:11:02 09:00:00",
+            pets=(("IMG_0201.jpg", "subj-0003"),))
+        page = after_page(wd).read_text() if after_page(wd).is_file() else ""
+        got = owner_row(wd) if page else []
+        new = f"{DAY_OUT}_Birk_Harbour"
+        if got:
+            answer_after(wd, "ok")
+        gcode, gout, _ = ix.run("after-check", wd, "--answers", after_page(wd), "--go")
+        moved = (Path(tmp).resolve() / "sorted" / new).is_dir()
+    return (fcode == 0 and run.returncode == 3 and len(got) == 1
+            and f"`{DAY_OUT}` → `{new}`" in got[0] and "adds Harbour" in got[0]
+            and "adds Birk" in got[0] and "## Refused" not in page
+            and gcode == 0 and moved and "before 2 = after 2" in gout), \
+        f"freeze={fcode} finish={run.returncode} rows={got} go={gcode} {gout[-300:]!r}"
+
+@case
+def an_owner_folder_changed_after_the_copy_keeps_its_name():
+    """GUARD (G47 with G41's proof). The owner adds a photo to their folder
+    after the copy: `ok` renames nothing, says why, and the tree is as it
+    was."""
+    from PIL import Image
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _r4, _f, _run = two_pets_at_home(tmp)
+        root = Path(tmp).resolve() / "sorted"
+        Image.new("RGB", (8, 8), (1, 2, 3)).save(root / AT_HOME / "MINE.jpg", "JPEG")
+        answer_after(wd, "ok")
+        before = state(root)
+        code, out, _ = ix.run("after-check", wd, "--answers", after_page(wd), "--go")
+        same = before == state(root)
+    return (code == 1 and "changed since the engine looked at it" in out
+            and "MINE.jpg" in out and same), f"code={code} same={same} {out[-300:]!r}"
 
 def second_dump(tmp):
     """dump-b in the same collection: two photos of 2024-11-01, one naming

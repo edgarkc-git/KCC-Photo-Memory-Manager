@@ -612,7 +612,12 @@ Nothing is ever deleted. Run the final check again until nothing is left.
 One more row kind (G41, ADR 0007 amendment): `RENAME (owner)`. When Review
 folders' R4 merged days into the OWNER's folder and its name holds none of the
 place words the engine found for those days, the row offers
-`<owner name>_<place>`. A home is never added. It applies only on `ok`, with
+`<owner name>_<place>`. When the merged photos hold confirmed pets the name
+lacks, the same row adds them (G47, as R2 would): one row per folder, place
+and pets together. Review folders never asks to rename the owner's folder: an
+R2 row for it is listed under `## Refused (never applied)` with
+`your folder: the final check offers this rename after the copy`.
+A home is never added. It applies only on `ok`, with
 the same before = after proof, and is refused if the folder's files differ from
 what the engine saw before the copy plus this dump's copies. A new name that
 fails the name grammar is listed under `## Refused (never applied)`.

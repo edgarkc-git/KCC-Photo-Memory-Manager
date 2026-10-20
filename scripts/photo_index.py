@@ -3451,6 +3451,7 @@ FIX_ROW = re.compile(r"^(\d+)\. (RENAME|INTO-EXISTING|DAYS-INTO-EXISTING|MAKE-TR
                      r"`([^`]*)` → `([^`]*)` · .*· answer:\s*(.*?)\s*$")
 NOTHING_TO_CHANGE = "Nothing to change."
 BY_HAND = "the engine did not create this folder: rename it by hand"
+OWNER_LATER = "your folder: the final check offers this rename after the copy"
 
 
 def fix_key(op):
@@ -3570,7 +3571,9 @@ def rule_r2(ctx):
     folder so (SPEC G30); what is left is a folder this dump MERGES INTO,
     whose name is on the drive. A RENAME of it is the engine's only when an
     engine copy record of this collection lists it as created (ADR 0007,
-    Lead ruling 20261018); otherwise the row is a rename by hand."""
+    Lead ruling 20261018). An owner's folder is never a row to answer here
+    (G47): it is listed as information — the final check offers its rename
+    when R4 scanned it, else it is a rename by hand."""
     import photo_subjects
     known = {s.name for s in photo_subjects.load(pack=ctx["pack"]).subjects
              if s.name and s.status == photo_subjects.STATUS_CONFIRMED}
@@ -3590,11 +3593,14 @@ def rule_r2(ctx):
             continue
         owner = created.get(photo_execute.real_key(path), (None, None))[1]
         reason = f"adds {', '.join(missing)}" + ("" if owner else f" — {BY_HAND}")
-        out.append(fix_op("RENAME", "R2", fo, path.name,
-                          with_pets(path.name, known | set(pets), missing),
-                          len(copy_members(ctx["index"], fo["id"])), reason,
-                          path=str(path), by_hand=owner is None,
-                          dump=str(owner) if owner else None))
+        op = fix_op("RENAME", "R2", fo, path.name,
+                    with_pets(path.name, known | set(pets), missing),
+                    len(copy_members(ctx["index"], fo["id"])), reason,
+                    path=str(path), by_hand=owner is None,
+                    dump=str(owner) if owner else None)
+        if owner is None:
+            op["why"] = OWNER_LATER if "owner_scan" in dest else BY_HAND
+        out.append(op)
     return out
 
 
@@ -4270,10 +4276,15 @@ def owner_rows(workdir, index, plans, pack):
     """G41 (ADR 0007 amendment 20261019) — an R4 merge into an OWNER's
     folder (one no engine copy of this collection created) whose name holds
     none of the place words the engine found for the merged days: a row
-    renaming it to `<owner name>_<place>`. ⛔ A home is never added (no home
-    as a POI); the new name passes the name grammar, holds no coordinate and
-    no address-shaped word, or the row carries `why` and is never offered.
+    renaming it to `<owner name>_<place>`. G47: the confirmed pets of the
+    merged photos its name lacks are added in the same row, as R2 adds them
+    (`with_pets`). ⛔ A home is never added (no home as a POI); the new name
+    passes the name grammar, holds no coordinate and no address-shaped word,
+    or the row carries `why` and is never offered.
     -> [{op, rule, from, to, photos, reason, path, words, [why]}]."""
+    import photo_subjects
+    known = {s.name for s in photo_subjects.load(pack=pack).subjects
+             if s.name and s.status == photo_subjects.STATUS_CONFIRMED}
     root = Path(plans.get("dest_root") or "")
     labels = id_labels(pack)
     homes = {row[5] for row in photo_profile.labelled_home_points(pack.profile) if row[5]}
@@ -4290,8 +4301,11 @@ def owner_rows(workdir, index, plans, pack):
         path = Path(dest["existing_path"])
         words, _unknown = where_words(
             {"where": [r for r in fo["where"] if r["ref"] not in homes]}, labels)
-        entry = found.setdefault(str(path), {"path": path, "words": [], "days": set()})
+        entry = found.setdefault(str(path), {"path": path, "words": [], "pets": [],
+                                             "days": set()})
         entry["words"] += [w for w in words if w not in entry["words"]]
+        entry["pets"] += [w["name"] for w in (fo.get("validation") or {}).get("who") or []
+                          if w["name"] not in entry["pets"]]
         entry["days"] |= {f["date"][:10] for f in copy_members(index, fo["id"])
                           if f.get("date")}
     rows = []
@@ -4302,18 +4316,26 @@ def owner_rows(workdir, index, plans, pack):
         except ValueError:
             continue
         have = {w.casefold() for w in name_words(path.name)}
-        if (not words or not path.is_dir()
-                or photo_execute.real_key(path) in created
-                or any(w.casefold() in have for w in words)):
+        if any(w.casefold() in have for w in words):
+            words = []
+        missing = [p for p in entry["pets"] if p not in name_words(path.name)]
+        if (not (words or missing) or not path.is_dir()
+                or photo_execute.real_key(path) in created):
             continue
-        place = photo_name.NAME_SEP.join(words)
-        new = path.name + photo_name.SLOT_SEP + place
+        new, adds = path.name, ""
+        if words:
+            place = photo_name.NAME_SEP.join(words)
+            new += photo_name.SLOT_SEP + place
+            adds = f", whose name has no place: adds {place}"
+        if missing:
+            new = with_pets(new, known | set(entry["pets"]), missing)
+            adds += f"{'; ' if adds else ': '}adds {', '.join(missing)}"
         photos = sum(1 for v in verified.values() if under(v.get("dest") or "", path))
         row = {"op": "RENAME", "rule": OWNER_RULE, "from": rel,
                "to": (Path(rel).parent / new).as_posix(), "photos": photos,
                "path": str(path), "words": words,
                "reason": (f"the engine merged {', '.join(sorted(entry['days']))} into "
-                          f"your folder, whose name has no place: adds {place}")}
+                          f"your folder{adds}")}
         refusals = photo_name.validate(new, hard=hard, soft=soft,
                                        kind=photo_name.NAME_FOLDER)[1]
         held = [w for w in words if photo_cluster.is_address(w)]
@@ -4390,7 +4412,7 @@ def after_check_text(workdir, index, stats, sources, rows, held=()):
               "Nothing is ever deleted.", ""]
     if any(r["rule"] == OWNER_RULE for r in rows):
         lines += ["An `owner` row renames YOUR folder, only to add the place the "
-                  "engine found, with the same proof; it is refused if the folder "
+                  "engine found or your confirmed pets, with the same proof; it is refused if the folder "
                   "changed since the engine looked at it before the copy.", ""]
     lines.append(f"    {run_line('photo_index.py')} after-check \"{workdir}\" "
                  f"--answers \"{workdir / 'plan' / AFTER_CHECK_MD}\" --go")
