@@ -490,6 +490,9 @@ it on a private web page:
    owner then names goes in with `group set-where`.
 2. Publish that file as a **private** artifact and send the owner its link
    through your own channel. ⛔ Never share it: it shows the owner's photos.
+   ⛔ The page saves the owner's answers by republishing itself on Send, so
+   publish it declaring that self-publish capability (Claude Code's Artifact
+   tool: `capabilities: {"artifact": {}}`); without it Send cannot save (OR-8).
    Then **ask with AskUserQuestion** (G46) — one question, three options:
    `Sent` (go to step 3 and read the answers back from the republished
    page), `Not yet` (ask again later; never act on the plan meanwhile),

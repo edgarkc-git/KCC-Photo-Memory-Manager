@@ -223,14 +223,42 @@ def check_word(rule, word):
     return warnings
 
 
+# A whole folder (or leg) name typed into the word box (OR-3): its date head
+# and a slot separator.
+RE_WHOLE_NAME = re.compile(r"^(\d{8}|\d{4})(-\d{4})?_")
+
+
+def word_problem(op, word, warnings):
+    """-> None when `word` is fine for row `op`, else (why, the agent row
+    line for a whole valid folder name or None). A word goes into one row
+    only: its refusal never stops the other rows (OR-3)."""
+    m = RE_WHOLE_NAME.match(word.strip())
+    if m and WORD_KIND.get(op["rule"]):
+        kind = photo_name.NAME_FOLDER if len(m.group(1)) == 8 else photo_name.NAME_LEG
+        if photo_name.validate(word.strip(), kind=kind)[0]:
+            return ("a whole folder name, not a %s word — not written; the "
+                    "agent can offer it as its own row" % WORD_KIND[op["rule"]],
+                    "%s fix-plan <work dir> --agent %s --to \"%s\" --reason "
+                    "\"the owner's name on the page\"" % (
+                        photo_index.run_line("photo_index.py"), op["folder"], word.strip()))
+    try:
+        warnings += check_word(op["rule"], word)
+    except SystemExit as exc:
+        return str(exc).replace(" Nothing was written: ask the owner for other "
+                                "words.", " Not written: ask the owner for other "
+                                "words.").replace(" Nothing was written.", " Not written."), None
+    return None
+
+
 def shown_answer(answer):
     return ("word: " + answer[5:]) if answer.startswith("word:") else answer
 
 
 def apply_reply(md_text, digest, answers):
-    """-> (new text, [(n, answer)], [warning]). Only the answer field of a
-    row changes. Refuses an answer for another draft, a row number the plan
-    does not hold and a word its row cannot take."""
+    """-> (new text, [(n, answer)], [warning], [(n, why, agent line)]). Only
+    the answer field of a row changes. Refuses an answer for another draft
+    and a row number the plan does not hold (nothing written); a word its row
+    cannot take refuses THAT row only, and the others are written (OR-3)."""
     plan = parse_plan(md_text)
     if digest and digest != plan_digest(plan["ops"]):
         raise SystemExit(
@@ -242,10 +270,15 @@ def apply_reply(md_text, digest, answers):
     if unknown:
         raise SystemExit("the plan has no row %s — nothing was written"
                          % ", ".join(map(str, unknown)))
-    warnings = []
-    for n, ans in answers.items():
+    warnings, held = [], []
+    for n, ans in sorted(answers.items()):
         if ans.startswith("word:"):
-            warnings += ["row %d: %s" % (n, w) for w in check_word(by_n[n]["rule"], ans[5:])]
+            said = []
+            problem = word_problem(by_n[n], ans[5:], said)
+            warnings += ["row %d: %s" % (n, w) for w in said]
+            if problem:
+                held.append((n, problem[0], problem[1]))
+    answers = {n: a for n, a in answers.items() if n not in {h[0] for h in held}}
     out, done = [], []
     for line in md_text.splitlines(keepends=True):
         m = photo_index.FIX_ROW.match(line.rstrip("\n"))
@@ -255,7 +288,7 @@ def apply_reply(md_text, digest, answers):
             done.append((n, answers[n]))
         else:
             out.append(line)
-    return "".join(out), done, warnings
+    return "".join(out), done, warnings, held
 
 
 def decided(md_text):
@@ -295,7 +328,7 @@ def cmd_apply(args):
     raw = (sys.stdin.read() if args.answer == "-"
            else io.open(args.answer, encoding="utf-8").read())
     digest, answers = read_reply(raw)
-    new_text, done, warnings = apply_reply(md_text, digest, answers)
+    new_text, done, warnings, held = apply_reply(md_text, digest, answers)
     rp.assert_clean_text(new_text, md_path)
     if not args.dry_run and new_text != md_text:
         with io.open(md_path, "w", encoding="utf-8") as fh:
@@ -308,7 +341,12 @@ def cmd_apply(args):
              got.count(""), sum(1 for a in got if a.startswith("word:"))))
     for w in warnings:
         print("  ⚠️ %s" % w)
-    return 0
+    for n, why, line in held:
+        print("  ⛔ row %d: %s" % (n, why))
+        if line:
+            wd = os.path.dirname(os.path.dirname(md_path))
+            print("     %s" % line.replace("<work dir>", '"%s"' % wd))
+    return 1 if held else 0
 
 
 def main(argv=None):

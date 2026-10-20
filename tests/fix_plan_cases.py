@@ -291,6 +291,13 @@ def an_agent_row_is_validated_and_applied_on_ok():
 # R1 — the landmark
 # ---------------------------------------------------------------------------
 
+def map_ready(tmp):
+    """`ready` with a pack that names no frequent place: Harbour is a map
+    word, which R1 may offer to replace (OR-2)."""
+    ix.make_pack(tmp, places=[])
+    return ready(tmp)
+
+
 def landmark_later(wd, place="Old Pier", flags=None):
     """batches.json now names batch 2 by its landmark (A1's lookup, run after
     the index was built), optionally flagged."""
@@ -313,7 +320,7 @@ def a_landmark_the_folder_does_not_carry_is_offered():
     got = {}
     for given in ("ok", "word: Pier Road"):
         with tempfile.TemporaryDirectory() as tmp, ix.no_env():
-            wd, _pack = ready(tmp)
+            wd, _pack = map_ready(tmp)
             landmark_later(wd)
             code, _o, _ = ix.run("freeze", wd)
             r = rows(wd)
@@ -352,7 +359,7 @@ def a_failed_landmark_lookup_is_said_and_never_offered():
     row to answer: the plan lists it as refused, saying to type the place,
     and the freeze goes on."""
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
-        wd, _pack = ready(tmp)
+        wd, _pack = map_ready(tmp)
         landmark_later(wd, flags=["landmark_lookup_failed"])
         code, out, _ = ix.run("fix-plan", wd)
         fcode, fout, _ = ix.run("freeze", wd)
@@ -361,6 +368,72 @@ def a_failed_landmark_lookup_is_said_and_never_offered():
             and "landmark lookup failed" in fout), \
         f"code={code} out={out[-500:]!r} freeze={fcode} {fout[-300:]!r}"
 
+
+
+@case
+def an_owners_frequent_place_is_never_replaced_by_a_landmark():
+    """⭐ REPRODUCTION (owner run OR-2). ⛔ FAILS on 43ca589: F002's place is
+    the pack's frequent place (fsl-0001, the owner's own word) and R1
+    offered the map landmark over it. An owner word beats a landmark: no
+    row."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        refs = [r["ref"] for r in ix.index_of(tmp)[0]["folders"][1]["where"]]
+        landmark_later(wd)
+        code, out, _ = ix.run("fix-plan", wd)
+    return (refs == ["fsl-0001"] and code == 0
+            and photo_index.NOTHING_TO_CHANGE in out), f"refs={refs} code={code} {out[-400:]!r}"
+
+
+@case
+def an_r1_skip_holds_when_only_the_what_changes():
+    """⭐ REPRODUCTION (owner run OR-11). ⛔ FAILS on 43ca589: R1's answer
+    was keyed on the whole new name, so a `skip` was asked again once the
+    folder's [what] changed. The key is the folder and the proposed place:
+    after `set-what`, the freeze asks nothing."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = map_ready(tmp)
+        landmark_later(wd)
+        code, _o, _ = ix.run("freeze", wd)
+        r1 = rows(wd)
+        answer(wd, "skip")
+        must(apply(wd), "apply skip")
+        must(ix.run("group", "set-what", wd, "F002", "pier walk", "--reason",
+                    "the owner's words"), "set-what")
+        must(ix.run("render", wd), "render")
+        must(ix.run("check", wd), "check")
+        fcode, fout, ferr = ix.run("freeze", wd)
+        name = names(tmp)["F002"]
+    return (code == 3 and len(r1) == 1 and "(R1) · F002 ·" in r1[0] and fcode == 0
+            and name == "20241102_Harbour_pier walk"), \
+        f"code={code} r1={r1} freeze={fcode} {(fout + ferr)[-400:]!r} name={name}"
+
+
+@case
+def an_agent_row_on_a_leg_names_the_leg():
+    """⭐ REPRODUCTION (owner run OR-10). ⛔ FAILS on 43ca589: an agent
+    RENAME on a trip leg was stored and logged on `ok`, but render named the
+    leg from its places as before. Render now uses it, as for a day
+    folder."""
+    import index_group_cases as g
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = g.ready(tmp, min_visits=3)
+        must(g.trip(wd), "make-trip")
+        g.render(wd)
+        leg = next(fo for fo in g.folders(tmp).values()
+                   if fo["kind"] == "leg" and fo["rendered"] == "1025_Ashford")
+        must(ix.run("fix-plan", wd, "--agent", leg["id"], "--to", "1025_Ashford Bay",
+                    "--reason", "the bay"), "agent row")
+        must(ix.run("check", wd), "check")
+        code, _o, _e = ix.run("freeze", wd)
+        got = rows(wd)
+        answer(wd, *["ok" if "(agent)" in r else "skip" for r in got])
+        acode, aout, _ = apply(wd)
+        g.render(wd)
+        now = g.folders(tmp)[leg["id"]]["rendered"]
+    return (code == 3 and any("(agent) · %s ·" % leg["id"] in r for r in got)
+            and acode == 0 and now == "1025_Ashford Bay"), \
+        f"code={code} rows={got} apply={acode} {aout[-300:]!r} now={now}"
 
 # ---------------------------------------------------------------------------
 # R4 — a day that already has a folder; R2 on a folder the dump merges into

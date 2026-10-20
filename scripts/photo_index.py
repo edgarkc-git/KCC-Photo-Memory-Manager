@@ -1166,10 +1166,10 @@ def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
         # landmark comes before a town in `batch_places`). A monthly parent's
         # leg is at that place by construction and still drops it.
         dropped = (where[:1] if trip_leg else []) if where == parent_words else where
-        name = photo_name.render(start, end,
-                                 where=dropped,
-                                 who=[who] if who else [], what=own or pick["what"],
-                                 kind=photo_name.NAME_LEG)
+        # OR-10: an agent row the owner approved names a leg too.
+        name = fo.get("agent_name") or photo_name.render(
+            start, end, where=dropped, who=[who] if who else [],
+            what=own or pick["what"], kind=photo_name.NAME_LEG)
         _ok, ref, warn = photo_name.validate(
             name, hard=hard, soft=soft, kind=photo_name.NAME_LEG,
             where=where, parent_where=parent_words)
@@ -3459,7 +3459,19 @@ BY_HAND = "the engine did not create this folder: rename it by hand"
 AFTER_COPY_HEAD = "## After the copy"
 
 
+def answer_key(op):
+    """-> the key an owner's answer is kept under. R1's answer is about the
+    place (OR-11): it holds while only the folder's [what] / [who], and so
+    the whole name, changes. Every other row: its `fix_key`."""
+    if op["rule"] == "R1":
+        refs = "+".join(r["ref"] for r in (op.get("apply") or {}).get("refs") or [])
+        return f"R1|{op['folder']}|{op['op']}|where:{refs}"
+    return fix_key(op)
+
+
 def fix_key(op):
+    """-> a row's identity, as its line on the plan reads: a page answered
+    for another draft never lands."""
     key = f"{op['rule']}|{op['folder']}|{op['op']}|{op['to']}"
     # A per-day row's `from` is its days: an answer for one set of days never
     # stands for another.
@@ -3487,7 +3499,7 @@ def preview_samples(workdir):
 def fix_op(op, rule, fo, old, new, photos, reason, **apply):
     out = {"op": op, "rule": rule, "folder": fo["id"], "from": old, "to": new,
            "photos": photos, "reason": reason, "apply": apply}
-    out["key"] = fix_key(out)
+    out["key"] = answer_key(out)
     return out
 
 
@@ -3549,14 +3561,16 @@ def rule_r1(ctx):
     """R1 — `[where]` is the landmark. A one-batch folder whose place refs
     differ from its batch's landmark (`batches.json` place, A1's lookup) is
     offered the landmark. ⛔ The owner's own word (set-where) always wins and
-    is never proposed over; a batch whose landmark lookup failed is listed,
-    never offered — the owner types a word instead."""
+    is never proposed over, nor a place the pack names (a frequent place
+    `fsl-*` or a home label, OR-2); a batch whose landmark lookup failed is
+    listed, never offered — the owner types a word instead."""
     index, labels = ctx["index"], id_labels(ctx["pack"])
     out = []
     for fo in live(index):
         if (fo["kind"] not in HOLDERS or fo.get("where_set") or fo.get("days")
                 or len(fo["batches"]) != 1 or not fo.get("rendered")
-                or fo["dest"]["mode"] != "new"):
+                or fo["dest"]["mode"] != "new"
+                or any(r["ref"] in labels for r in fo["where"])):
             continue
         batch = ctx["by_number"].get(fo["batches"][0]) or {}
         places = {}
@@ -4232,9 +4246,9 @@ def cmd_fix_plan(args):
         print(f"  row {r['n']} {op['op']} ({op['rule']}) {op['folder']}: {answer}"
               + (f" — {said}" if said else ""))
         if args.go:
-            answers[key] = {"answer": answer, "word": r["word"], "at": now,
-                            "op": op["op"], "rule": op["rule"], "from": op["from"],
-                            "to": op["to"]}
+            answers[op["key"]] = {"answer": answer, "word": r["word"], "at": now,
+                                  "op": op["op"], "rule": op["rule"],
+                                  "from": op["from"], "to": op["to"]}
             done.append(key)
     if not args.go:
         print("DRY RUN — nothing written. Add --go to write.")
@@ -5337,7 +5351,7 @@ def main(argv=None):
     d.add_argument("--reason", required=True)
     d.add_argument("--profile")
     d.set_defaults(fn=cmd_dest)
-    c = sub.add_parser("check", help="the final check (P4): exit 0 passes, 1 fails")
+    c = sub.add_parser("check", help="the name check (P4): exit 0 passes, 1 fails")
     c.add_argument("workdir")
     c.add_argument("--profile")
     c.set_defaults(fn=cmd_check)

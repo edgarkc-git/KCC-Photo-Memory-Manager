@@ -342,20 +342,27 @@ def the_chips_show_only_when_the_page_has_two_groups():
 
 
 @case
-def desktop_sample_photos_are_88_px_and_their_column_fits_three():
-    """⭐ REPRODUCTION (UAT5 U5-3, G43). ⛔ FAILS on d5201b6 (44 px). On a
-    desktop each sample photo is 88 px square, and the row's first column
-    holds three of them and the two gaps between."""
-    import re
+def the_card_is_the_layout_at_every_width():
+    """⭐ REPRODUCTION (G48, the owner's screenshots). ⛔ FAILS on 43ca589
+    (a 5-column desktop row with 88 px photos). One card layout at every
+    width: no multi-column row grid, the page centered at about 760 px, the
+    photos 3 across the card, and OK / Skip full width under them. Chips
+    still show only for 2+ groups (G43)."""
     tpl = (ROOT / "templates" / "fixplan-page.html").read_text(encoding="utf-8")
-    desk = tpl[tpl.index("@media (min-width:900px)"):]
-    size = re.search(r"\.row \.thumbs div\{width:(\d+)px;height:(\d+)px\}", desk)
-    cols = re.search(r"\.row \.thumbs\{grid-template-columns:repeat\(3,(\d+)px\)\}", desk)
-    first = re.search(r"\.row\{grid-template-columns:(\d+)px ", desk)
-    gap = int(re.search(r"\.thumbs\{display:grid;[^}]*gap:(\d+)px", tpl).group(1))
-    got = tuple(int(m.group(1)) if m else None for m in (size, cols, first))
-    return (got[0] == 88 and size.group(2) == "88" and got[1] == 88
-            and got[2] is not None and got[2] >= 3 * 88 + 2 * gap), f"{got} gap={gap}"
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, md = workdir(tmp)
+        r = run("render", md)
+        html = md.with_suffix(".html").read_text(encoding="utf-8") if r.returncode == 0 else ""
+    css = html[html.find("<style>"):html.find("</style>")]
+    card = tpl[tpl.index("function rowCard"):tpl.index("var footerEl")]
+    wrap = re.search(r"\.wrap\{max-width:(\d+)px", css)
+    return (r.returncode == 0 and ".row{grid-template-columns:" not in css
+            and "88px" not in css and wrap is not None and 700 <= int(wrap.group(1)) <= 800
+            and ".thumbs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))" in css
+            and ".pick{flex:1;" in css
+            and card.index("a.appendChild(th)") < card.index("a.appendChild(picks)")
+            and "return n >= 2 ? groups : null;" in tpl), \
+        f"wrap={wrap and wrap.group(1)} 88={'88px' in css} grid={'.row{grid-template-columns:' in css}"
 
 
 @case
@@ -447,6 +454,29 @@ def a_rename_after_the_copy_is_information_with_no_buttons():
             and d["digest"] == fp.plan_digest(fp.parse_plan(PLAN)["ops"])
             and fp.parse_plan(PLAN)["later"] == [] and "function laterBox" in tpl), \
         f"{plan.get('later')} {plan['refused']} {r.stderr[-200:]}"
+
+
+
+@case
+def a_whole_folder_name_in_the_word_box_holds_only_its_row():
+    """⭐ REPRODUCTION (owner run OR-3). ⛔ FAILS on 43ca589: a whole folder
+    name typed into one row's place-word box refused the whole answer set
+    ("nothing written"). Now that row only is held — said, with the agent
+    row line that would offer the name — and every other row is written.
+    The box says what it takes."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, md = workdir(tmp)
+        ans = Path(tmp) / "a.txt"
+        ans.write_text("1: word: 20250104_Old Pier_beach\n2: ok\n3: skip\n",
+                       encoding="utf-8")
+        r = run("apply", md, "--answer", ans)
+        got = fp.decided(md.read_text(encoding="utf-8"))
+        raw = {op["n"]: op["answer"] for op in fp.parse_plan(md.read_text(encoding="utf-8"))["ops"]}
+    tpl = (ROOT / "templates" / "fixplan-page.html").read_text(encoding="utf-8")
+    return (r.returncode == 1 and raw[1] == "" and got[2] == "ok" and got[3] == "skip"
+            and "row 1: a whole folder name" in r.stdout
+            and "--agent F001 --to \"20250104_Old Pier_beach\"" in r.stdout
+            and "not the whole folder name" in tpl), f"{raw} {r.stdout[-400:]!r} {r.stderr[-200:]!r}"
 
 
 def main():

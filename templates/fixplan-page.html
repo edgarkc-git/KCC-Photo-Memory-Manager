@@ -34,7 +34,7 @@
 body{margin:0;background:var(--ground);color:var(--ink);
   font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:15px;line-height:1.45}
 .mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
-.wrap{max-width:1200px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+.wrap{max-width:760px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
 header{padding:20px 16px 12px;background:var(--surface);border-bottom:1px solid var(--hair);
   display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:flex-end}
 .eyebrow{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--quiet)}
@@ -90,19 +90,11 @@ footer{margin-top:auto;padding:16px;background:var(--surface);border-top:1px sol
 .theme{position:absolute;top:8px;right:8px}
 details{font-size:13px;color:var(--muted)}
 details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);padding:8px;border-radius:6px}
+/* G48: the card is the layout at every width — one column, centered, the
+   photos 3 across the card, OK / Skip full width under them. */
 @media (min-width:900px){
   header{padding:32px 24px 16px}
   h1{font-size:28px}
-  .chips,main{padding-left:24px;padding-right:24px}
-  .row{grid-template-columns:276px minmax(0,1fr) minmax(0,1.3fr) 150px 280px;align-items:start}
-  .row .thumbs.none{display:block}
-  .row .top{flex-direction:column;align-items:flex-start}
-  .row .thumbs{grid-template-columns:repeat(3,88px)}
-  .row .thumbs div{width:88px;height:88px}
-  .picks{flex-wrap:wrap}
-  .pick{min-height:36px;font-size:14px}
-  .row .wordrow{grid-column:2 / -1}
-  footer{flex-direction:row;align-items:center;justify-content:space-between;position:static}
 }
 </style>
 <div class="wrap" id="app" aria-live="polite">
@@ -237,8 +229,7 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     names.appendChild(el("div", "new mono", r.to));
     a.appendChild(names);
     a.appendChild(el("div", "why", r.reason));
-    /* No sample: an empty cell, hidden on a phone, so the desktop grid's
-       columns stay in place. */
+    /* No sample: no photo block. */
     var thumbs = r.thumbs || [];
     var th = el("div", thumbs.length ? "thumbs" : "thumbs none");
     thumbs.forEach(function(src, i){
@@ -266,7 +257,8 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     a.appendChild(picks);
     if(r.word && state.pick[r.n] === "word"){
       var lab = el("label", "word wordrow",
-                   r.word === "place" ? "Your place word" : "Your words for this folder");
+                   r.word === "place" ? "Your place word — not the whole folder name (e.g. Old Pier)"
+                                      : "Your words for this folder — not the whole folder name");
       var inp = el("input");
       inp.type = "text"; inp.value = state.word[r.n] || "";
       inp.id = "word-" + r.n;
