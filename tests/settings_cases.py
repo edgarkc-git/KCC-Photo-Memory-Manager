@@ -564,6 +564,73 @@ def every_command_and_flag_the_skill_documents_exists():
         f"commands {missing_cmds}, flags {bad_flags}"
 
 
+# ---------------------------------------------------------------------------
+# home — a home's dates (G49, OR-1)
+# ---------------------------------------------------------------------------
+
+HOMES = [{"id": "home-01", "label": "Ford", "lat": 24.0, "lon": 121.0},
+         {"id": "home-02", "label": "Abroad flat", "lat": 50.0, "lon": 10.0},
+         {"id": "home-03", "label": "Twin", "lat": 24.5, "lon": 121.5},
+         {"id": "home-04", "label": "Twin", "lat": 24.6, "lon": 121.6}]
+
+
+@case
+def a_homes_dates_are_set_by_id_or_label_with_a_dry_run_and_a_backup():
+    """⭐ REPRODUCTION (G49, OR-1). ⛔ FAILS on 3f35a21 (no `home` route: the
+    owner could only hand-edit the pack). `home <id|label> from … until …`:
+    a dry run writes nothing; --go writes the row's own valid_from /
+    valid_until, keeps a .bak of the pack, and never prints a coordinate;
+    `open` clears a bound."""
+    with tempfile.TemporaryDirectory() as tmp:
+        pack_dir = make_pack(tmp, home_locations=json.loads(json.dumps(HOMES)))
+        before = (pack_dir / photo_profile.PROFILE_NAME).read_bytes()
+        pack = open_pack(pack_dir)
+        dcode, dout = run(ps.apply_home, ["home-02", "from", "2019-01", "until",
+                                          "2020-06"], pack, smsg_of(pack))
+        dry_same = before == (pack_dir / photo_profile.PROFILE_NAME).read_bytes()
+        gcode, gout = run(ps.apply_home, ["abroad FLAT", "from", "2019-01", "until",
+                                          "2020-06"], pack, smsg_of(pack), go=True)
+        row = profile_of(pack_dir)["home_locations"][1]
+        baks = sorted(p.name for p in pack_dir.glob("*.bak-*-home"))
+        pack = open_pack(pack_dir)
+        ocode, _o = run(ps.apply_home, ["home-02", "from", "open"], pack,
+                        smsg_of(pack), go=True)
+        cleared = profile_of(pack_dir)["home_locations"][1]
+    printed = dout + gout
+    return (dcode == 0 and dry_same and "Nothing was written" in dout
+            and "home-02 (Abroad flat): from open until open → from 2019-01 "
+            "until 2020-06" in dout and gcode == 0
+            and row.get("valid_from") == "2019-01" and row.get("valid_until") == "2020-06"
+            and len(baks) >= 1 and "50.0" not in printed and "10.0" not in printed
+            and ocode == 0 and "valid_from" not in cleared
+            and cleared.get("valid_until") == "2020-06"), \
+        f"dry={dcode} {dout!r} go={gcode} {gout!r} row={row} baks={baks} cleared={cleared}"
+
+
+@case
+def a_bad_home_period_is_refused_and_writes_nothing():
+    """GUARD (G49). Until before from, a month that is not YYYY-MM, a home
+    no row names, a label two homes share, and a bad shape are each refused
+    (exit 2) and the pack keeps its bytes. The unknown-home refusal lists
+    ids and labels only."""
+    bad = {"order": ["home-02", "from", "2021-03", "until", "2020-06"],
+           "month": ["home-02", "until", "2020-13"],
+           "unknown": ["home-09", "from", "2019-01"],
+           "shared": ["twin", "from", "2019-01"],
+           "shape": ["home-02", "since", "2019-01"]}
+    got = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        pack_dir = make_pack(tmp, home_locations=json.loads(json.dumps(HOMES)))
+        before = (pack_dir / photo_profile.PROFILE_NAME).read_bytes()
+        for why, argv in bad.items():
+            pack = open_pack(pack_dir)
+            code, out = run(ps.apply_home, argv, pack, smsg_of(pack), go=True)
+            got[why] = (code, before == (pack_dir / photo_profile.PROFILE_NAME).read_bytes(), out)
+    return (all(v[0] == 2 and v[1] for v in got.values())
+            and "home-01 (Ford)" in got["unknown"][2] and "121" not in got["unknown"][2]
+            and "home-03, home-04" in got["shared"][2]), f"{got}"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")

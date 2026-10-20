@@ -284,6 +284,43 @@ def no_trip_is_proposed_in_an_expat_period_or_without_a_country_test():
 
 
 @case
+def dating_a_home_abroad_through_settings_lets_the_trip_be_proposed():
+    """⭐ REPRODUCTION (G49, OR-1). ⛔ FAILS on 3f35a21: a home outside the
+    owner's country with no dates is valid on every day, so Review folders
+    never offered the trip, and nothing but a hand edit of the pack could
+    date it. `photo_settings.py home home-02 from … until … --go` dates it
+    outside the trip; `fix-plan` then offers the MAKE-TRIP row."""
+    import subprocess
+    import index_group_cases as g
+    with tempfile.TemporaryDirectory() as tmp, g.ix.no_env():
+        wd, pack, _idx, batches = group_index(tmp)
+        path = Path(pack.dir) / "photo-profile.json"
+        prof = json.loads(path.read_text())
+        prof["country"] = "TW"
+        prof["home_locations"] = [{"id": "home-01", "label": "Ford", "lat": 24.0, "lon": 121.0},
+                                  {"id": "home-02", "label": "Away flat", "lat": 50.0, "lon": 10.0}]
+        path.write_text(json.dumps(prof, indent=2))
+        body = json.loads((wd / "batches.json").read_text())
+        body["batches"] = abroad(batches)
+        (wd / "batches.json").write_text(json.dumps(body))
+        g.render(wd)
+
+        def trip_rows():
+            g.run("fix-plan", wd)
+            md = wd / "plan" / "fix-plan.md"
+            text = md.read_text(encoding="utf-8") if md.exists() else ""
+            return [l for l in text.splitlines() if "MAKE-TRIP" in l and "answer:" in l]
+
+        undated = trip_rows()
+        s = subprocess.run([sys.executable, str(ROOT / "scripts" / "photo_settings.py"),
+                            "home", "home-02", "from", "2019-01", "until", "2020-06",
+                            "--profile", str(path), "--go"], capture_output=True, text=True)
+        dated = trip_rows()
+    return (undated == [] and s.returncode == 0 and len(dated) == 1
+            and "20241025-1031_Countryland_" in dated[0]), \
+        f"undated={undated} settings={s.returncode} {s.stdout[-300:]!r}{s.stderr[-300:]!r} dated={dated}"
+
+@case
 def with_no_country_word_the_trip_takes_its_places_only():
     """GUARD (Q3). No country word on the batches: the proposal is named by
     its places alone, never with an empty slot."""

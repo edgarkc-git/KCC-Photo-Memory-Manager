@@ -1948,6 +1948,26 @@ SETTINGS_VOCAB = {
         "settings_not_built_yet": "⚠️ not in use yet — this is stored, and no "
                                   "stage reads it, so setting it changes "
                                   "nothing today.",
+        # a home's dates (G49): `photo_settings.py home`
+        "settings_home_plan": "{home}: {old} → {new}",
+        "settings_home_period": "from {start} until {end}",
+        "settings_home_open": "open",
+        "settings_home_tagline": "This changes which days count as a stay at "
+                                 "that home, and so which days abroad can be "
+                                 "proposed as a trip. It moves no file already "
+                                 "copied.",
+        "settings_home_backup": "The pack before the change is kept as {path}.",
+        "settings_refuse_home_unknown": "No home is called {home}. Your homes: "
+                                        "{homes}.",
+        "settings_refuse_home_shared": "{home} is the label of more than one "
+                                       "home ({ids}) — name it by its id.",
+        "settings_refuse_home_month": "{value} is not a month: write it as "
+                                      "YYYY-MM (for example 2023-06), or `open`.",
+        "settings_refuse_home_order": "{home} would end ({end}) before it "
+                                      "starts ({start}).",
+        "settings_refuse_home_args": "home takes a home's id or label, then "
+                                     "`from YYYY-MM` and/or `until YYYY-MM` "
+                                     "(`open` clears one).",
         "settings_pack_line": "pack: {owner} · {path}",
         "settings_no_pack_line": "no pack bound — every value below is the "
                                  "engine's own default.",

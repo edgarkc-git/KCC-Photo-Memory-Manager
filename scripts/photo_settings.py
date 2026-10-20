@@ -5,6 +5,7 @@ pack. The script reads, resolves, validates and writes; the SKILL talks.
   python3 photo_settings.py show [--workdir W] [--profile P] [--flag k=v] [-v]
   python3 photo_settings.py explain <key> [--workdir W] [--profile P]
   python3 photo_settings.py set <key> <value> [--workdir W] [--profile P] --go
+  python3 photo_settings.py home <id|label> [from YYYY-MM] [until YYYY-MM] --go
 
 Exit 0 = the command answered. A refused `set` exits 2, so a caller can tell
 "I would not do that" from "something broke".
@@ -49,7 +50,10 @@ engine policy, and a stronger model reaches it by being added here.
 
 import argparse
 import json
+import re
+import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -445,6 +449,78 @@ def apply_set(key, raw, pack, collection, smsg, go=False, layer=PACK):
     return 0
 
 
+# ---------------------------------------------------------------- home -----
+
+# G49 (OR-1): a home's period, the row's own `valid_from` / `valid_until`. A
+# home abroad with no dates is valid on every day, and no trip abroad is ever
+# proposed while it is (`photo_index.trip_candidates`).
+HOME_MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+HOME_FIELDS = {"from": "valid_from", "until": "valid_until"}
+
+
+def period(entry, smsg):
+    start = photo_profile.home_bound(entry.get("valid_from"))
+    end = photo_profile.home_bound(entry.get("valid_until"))
+    return smsg["settings_home_period"].format(
+        start=start or smsg["settings_home_open"], end=end or smsg["settings_home_open"])
+
+
+def apply_home(argv, pack, smsg, go=False):
+    """`home <id|label> [from YYYY-MM] [until YYYY-MM]` — `open` clears a
+    bound. Dry run unless `go`; with it the pack is copied to a `.bak-…`
+    first. ⛔ Names a home by its id and label only, never its coordinate."""
+    if len(argv) < 3 or len(argv) % 2 == 0 or any(
+            w not in HOME_FIELDS for w in argv[1::2]):
+        raise Refused("home", smsg["settings_refuse_home_args"])
+    ident, wanted = argv[0], dict(zip(argv[1::2], argv[2::2]))
+    for value in wanted.values():
+        if value != "open" and not HOME_MONTH.match(value):
+            raise Refused("home", smsg["settings_refuse_home_month"].format(value=value))
+    if not pack.dir:
+        raise Refused("home", smsg["settings_refuse_no_pack"])
+    after = json.loads(json.dumps(pack.profile))
+    entries = after.get(photo_profile.HOME_LOCATIONS_KEY) or []
+    ids, _problems = photo_profile.place_ids(entries, photo_profile.HOME_LOCATIONS_KEY)
+    hits = [i for i, e in enumerate(entries) if isinstance(e, dict) and (
+        ids[i] == ident or (isinstance(e.get("label"), str)
+                            and e["label"].strip().casefold() == ident.casefold()))]
+    if not hits:
+        homes = ", ".join(f"{ids[i] or i + 1} ({e.get('label') or '—'})"
+                          for i, e in enumerate(entries) if isinstance(e, dict))
+        raise Refused("home", smsg["settings_refuse_home_unknown"].format(
+            home=ident, homes=homes or "—"))
+    if len(hits) > 1:
+        raise Refused("home", smsg["settings_refuse_home_shared"].format(
+            home=ident, ids=", ".join(str(ids[i]) for i in hits)))
+    entry = entries[hits[0]]
+    name = f"{ids[hits[0]] or ident} ({entry.get('label') or '—'})"
+    old = period(entry, smsg)
+    for word, value in wanted.items():
+        if value == "open":
+            entry.pop(HOME_FIELDS[word], None)
+        else:
+            entry[HOME_FIELDS[word]] = value
+    start, end = entry.get("valid_from"), entry.get("valid_until")
+    if start and end and end < start:
+        raise Refused("home", smsg["settings_refuse_home_order"].format(
+            home=name, start=start, end=end))
+    new = period(entry, smsg)
+    if new == old:
+        print(smsg["settings_no_change"].format(key=name, value=old))
+        return 0
+    print(smsg["settings_home_plan"].format(home=name, old=old, new=new))
+    print(smsg["settings_home_tagline"])
+    if not go:
+        print(smsg["settings_dry_run"])
+        return 0
+    path = Path(pack.dir) / photo_profile.PROFILE_NAME
+    backup = f"{path}.bak-{datetime.now().strftime('%Y%m%d-%H%M%S')}-home"
+    shutil.copy2(path, backup)
+    print(smsg["settings_written"].format(path=write_profile(pack, after)))
+    print(smsg["settings_home_backup"].format(path=backup))
+    return 0
+
+
 # ---------------------------------------------------------------- main -----
 
 def parse_flags(pairs, smsg):
@@ -465,8 +541,10 @@ def parse_flags(pairs, smsg):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("command", choices=("show", "explain", "set"))
-    ap.add_argument("args", nargs="*", help="explain <key> · set <key> <value>")
+    ap.add_argument("command", choices=("show", "explain", "set", "home"))
+    ap.add_argument("args", nargs="*", help="explain <key> · set <key> <value> · "
+                                            "home <id|label> [from YYYY-MM] "
+                                            "[until YYYY-MM]")
     ap.add_argument("--workdir", help="a dump work dir, to find collection.json")
     ap.add_argument("--profile", help="a pack folder or photo-profile.json")
     ap.add_argument("--flag", action="append",
@@ -490,6 +568,8 @@ def main():
                 sys.exit("explain takes one key")
             return explain(args.args[0], pack, collection, smsg,
                            as_json=args.as_json)
+        if args.command == "home":
+            return apply_home(args.args, pack, smsg, go=args.go)
         if len(args.args) != 2:
             sys.exit("set takes a key and a value")
         return apply_set(args.args[0], args.args[1], pack, collection, smsg,

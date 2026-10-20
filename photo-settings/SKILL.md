@@ -49,19 +49,33 @@ the tool has no message for — goes in the owner's language like any other
 reply. Language is a variable; the engine's default is English and the pack
 overrides it.
 
-## The three commands
+## The commands
 
 | Question in front of you | Command |
 |---|---|
 | "what are my settings?" · "why is it doing that?" | `show` |
 | "what does *this one* do?" · before any change | `explain <key>` |
 | "change it" | `set <key> <value>` — then `--go` |
+| "I lived there from … until …" · no trip abroad is proposed | `home <id or label> from YYYY-MM until YYYY-MM` — then `--go` |
 
 ```
 python3 scripts/photo_settings.py show    [--workdir W] [--profile P] [--flag k=v] [-v]
 python3 scripts/photo_settings.py explain <key> [--workdir W] [--profile P]
 python3 scripts/photo_settings.py set <key> <value> [--workdir W] [--profile P] --go
+python3 scripts/photo_settings.py home <id|label> [from YYYY-MM] [until YYYY-MM] [--workdir W] [--profile P] --go
 ```
+
+**A home's dates (G49).** A home with no dates counts on every day. A home
+outside the owner's country with no dates therefore makes every day abroad
+look like a stay there, and Review folders never proposes a trip abroad (the
+R5 row). `home` writes that home's own `valid_from` / `valid_until` (a month,
+`YYYY-MM`; `open` clears one). Ask the owner with AskUserQuestion which home
+and which months (free text through its own-answer field), run it without
+`--go`, read the line it prints back, and only on their yes add `--go`. With
+`--go` the pack is copied to a `.bak-…-home` first. It names a home by its id
+and label, never by a coordinate. It refuses an end before the start, a month
+not written `YYYY-MM`, a home no row names, and a label two homes share (use
+the id then).
 
 - `--profile` is a pack folder; `--workdir` is a **per-dump** work dir (that
   is where `collection.json` is found — one level above it). In a collection
