@@ -330,7 +330,7 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     var c = el("section", "card");
     c.appendChild(el("h2", null, D.nothing || "Nothing to change."));
     c.appendChild(el("p", null, "Every folder name already follows the rules: landmark places, all your pets, year folders, days that already have a folder."));
-    c.appendChild(el("p", null, "Tell the agent “go” to freeze the plan and copy."));
+    c.appendChild(el("p", null, "The agent asks you to go on: choose Go to freeze the plan and copy."));
     m.appendChild(c);
     var box = refusedBox();
     if(box){ box.style.marginTop = "12px"; m.appendChild(box); }
@@ -369,11 +369,11 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     c.appendChild(el("h2", null, "What happens next"));
     var ol = el("ol");
     ["The agent shows the final plan in chat.",
-     "You say “go”: the plan is frozen and copied.",
+     "The agent asks you to go on: Go — the plan is frozen and copied.",
      "Every copy is checked; then a short final check."].forEach(function(t){ ol.appendChild(el("li", null, t)); });
     c.appendChild(ol);
     m.appendChild(c);
-    m.appendChild(el("p", "sub", "This page is private and is deleted after the dump. Changed your mind? Tell the agent before you say “go”."));
+    m.appendChild(el("p", "sub", "This page is private and is deleted after the dump. Changed your mind? Tell the agent before you choose Go."));
     app.appendChild(m);
   }
 

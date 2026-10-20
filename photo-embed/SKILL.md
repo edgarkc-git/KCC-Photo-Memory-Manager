@@ -13,6 +13,12 @@ description: >
 
 # photo-embed — CLIP embedding index (VS-1)
 
+> **Asking the owner (G46).** Every question to the owner goes through the
+> agent's question tool (Claude Code: **AskUserQuestion**): options with the
+> recommended one first, and free text (a name, a folder, a place word)
+> through its own-answer field. Never "reply X in chat", and never a silent
+> wait. An agent with no question tool asks the same in chat.
+
 Version: 0.3 (VS-1 build + code-review fixes E-1..E-7 + L17 magic-byte coverage fix)
 
 ## What it does

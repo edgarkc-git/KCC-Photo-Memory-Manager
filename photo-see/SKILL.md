@@ -22,6 +22,12 @@ description: >
 
 # photo-see — the see controller (VS-2)
 
+> **Asking the owner (G46).** Every question to the owner goes through the
+> agent's question tool (Claude Code: **AskUserQuestion**): options with the
+> recommended one first, and free text (a name, a folder, a place word)
+> through its own-answer field. Never "reply X in chat", and never a silent
+> wait. An agent with no question tool asks the same in chat.
+
 Version: 0.2 (VS-2 + F2/B1 rung-1 quota, N-4 naming carve-out, F7/F10/F12 fixes)
 
 ## What it does

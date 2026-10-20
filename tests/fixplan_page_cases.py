@@ -410,6 +410,19 @@ def a_plan_written_by_rc2_is_still_read():
         f"{d.get('title')} {got} {r.stderr[-200:]} {a.stderr[-200:]}"
 
 
+
+@case
+def the_page_says_the_agent_asks_for_go():
+    """⭐ REPRODUCTION (G46). ⛔ FAILS on c66e1be ("You say “go”"). The page
+    tells the owner the agent asks them to go on, with a Go button; it never
+    asks them to type "go"."""
+    tpl = (ROOT / "templates" / "fixplan-page.html").read_text(encoding="utf-8")
+    return ("The agent asks you to go on: Go — the plan is frozen and copied." in tpl
+            and "Tell the agent before you choose Go." in tpl
+            and "say “go”" not in tpl and "“go”" not in tpl), \
+        [l.strip() for l in tpl.splitlines() if "go”" in l or "Go" in l][:4]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")

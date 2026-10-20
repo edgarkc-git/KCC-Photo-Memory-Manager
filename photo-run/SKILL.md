@@ -13,6 +13,12 @@ description: >
 
 # photo-run — pipeline conductor
 
+> **Asking the owner (G46).** Every question to the owner goes through the
+> agent's question tool (Claude Code: **AskUserQuestion**): options with the
+> recommended one first, and free text (a name, a folder, a place word)
+> through its own-answer field. Never "reply X in chat", and never a silent
+> wait. An agent with no question tool asks the same in chat.
+
 > ⛔ **If a product command is refused as `[Code from External]` (agent
 > note).** Run the product's commands normally; do NOT stop first to make the
 > owner pick a path. Prefer the full-path lines `doctor` prints (on Windows the
@@ -164,14 +170,16 @@ missing — there is no second list to keep in step.
      screenshot bucket. Android screenshots are caught by filename regardless.
    - `home areas (-> home_locations)` — coordinates that behave like somewhere
      the owner lives (many separate days, and photographs after dark), each
-     with a map link. **Confirm the rows not marked ✓ with the owner and ask
-     for the city word** — a residence is never named as a place or a folder,
+     with a map link. **Ask about each row not marked ✓ with AskUserQuestion**
+     — options `Yes, I live there` / `No` — and take the city word through
+     its own-answer field — a residence is never named as a place or a folder,
      and until this is answered that rule has nothing to enforce. A row the
      pack already holds is marked `✓ already listed` and needs no second
      answer; answering one twice is how a duplicate row gets written. The
      census shows evidence and never a name: no network, no reverse-geocoding.
-     **Nothing proposed is ordinary** on a first dump — then ask the owner to
-     name their home areas at city level in the same question rather than
+     **Nothing proposed is ordinary** on a first dump — then ask the owner
+     (AskUserQuestion: `I'll type my home areas` / `No home to add`) to name
+     their home areas at city level in the same question rather than
      waiting for a later run.
 
    Nothing is written by the census. Run it again any time with the path
@@ -265,7 +273,10 @@ missing — there is no second list to keep in step.
    - Make the web page for the owner with the line the stop prints:
      `<repo>/.venv/bin/python3 <repo>/scripts/photo_review_page.py render "<work dir>/P-B<NN>.md" --workdir "<work dir>" --pack "<pack>"`.
      A page with only a place question shows none of the animal parts.
-   - ⛔ **Send the owner to the page, and wait for their answer.** Never offer
+   - ⛔ **Send the owner to the page, then ask with AskUserQuestion: `Done` /
+     `Not yet` / `A question about the page`.** The answers themselves stay
+     on the page (or its text form); `Not yet` asks again later and acts on
+     nothing; a question is answered without touching the page. Never offer
      your own reading of the photos for them to agree to ("my reading: Name-A
      in 1, 2, 4 — is that right?"). The owner picks the frames (SNS-1); a yes
      to your guess is your guess, and it trains the pack. If the page cannot
@@ -347,7 +358,8 @@ missing — there is no second list to keep in step.
    ```
    Every `group` action takes `--dry-run`: it prints what the change would do
    and writes nothing — show it to the owner when they asked for the change,
-   then run it without the flag and `render --dry-run` for the names.
+   ask with AskUserQuestion (`Do it` / `Leave it`), and on `Do it` run it
+   without the flag and `render --dry-run` for the names.
    Day trips and evenings back home stay one day folder. In-transit shots
    follow the destination. An existing hand-named folder wins over a new one
    (merge-don't-duplicate); `dest ... new` undoes a merge.
@@ -521,7 +533,7 @@ macOS shell. Write the output to a file instead:
 | `photo_index.py identify` | 13 | views are wanted in `identify-views.md` | view each photo, write verdicts, `--answers ... --go` |
 | `photo_index.py identify --answers --go` | 1 | `Lift it first`: the index is frozen, nothing written | `unfreeze --reason "..."`, `--answers ... --go` again, then `render`, `check`, `freeze` (step 3b) |
 | `photo_index.py check` | 1 | a folder name or a route fails; each problem is listed | fix through the index, then `render` and `check` again |
-| `photo_index.py freeze` | 1 | refused, nothing frozen: the check fails, a target changed, or a folder copied by an earlier run was since split or merged (a folder only RENAMED after its copy freezes, and lists the renames) | fix what it names; a split or merge after the copy: stop and ask the owner (see Re-processing a folder) |
+| `photo_index.py freeze` | 1 | refused, nothing frozen: the check fails, a target changed, or a folder copied by an earlier run was since split or merged (a folder only RENAMED after its copy freezes, and lists the renames) | fix what it names; a split or merge after the copy: stop and ask the owner with AskUserQuestion (see Re-processing a folder) |
 | `photo_execute.py` (inside `finish`) | non-zero | a new file would go into a folder still to rename on the drive; nothing written | answer the final check row for it (or rename it by hand), then re-run `finish` |
 | `photo_index.py after-check` | 3 | rows wait in `plan/after-check.md` | put each row to the owner; write `ok` / `skip`; `--answers ... --go` |
 | | 0 | `Nothing left to fix. The dump is done.` | done |
@@ -617,7 +629,8 @@ the old folder is gone from the drive.
 ⛔ **A split or a merge after the copy cannot be locked**: the freeze exits 1
 with `N file(s) were copied by an earlier run into a folder that has since been split or merged (or copied to a place this freeze does not name). …`
 and writes nothing; the final check renames a folder, never splits or merges one.
-Stop and put it to the owner: the documented way on is re-processing the dump
+Stop and ask the owner with AskUserQuestion — `Leave it as it is` (recommended)
+/ `Re-process the dump`: the documented way on is re-processing the dump
 (below), which removes that dump's copied folders.
 To see which names a change would move before lifting anything, run
 `photo_index.py render 202401 --dry-run`: it prints each folder name that

@@ -14,6 +14,12 @@ description: >
 
 # photo-init — collection initiation
 
+> **Asking the owner (G46).** Every question to the owner goes through the
+> agent's question tool (Claude Code: **AskUserQuestion**): options with the
+> recommended one first, and free text (a name, a folder, a place word)
+> through its own-answer field. Never "reply X in chat", and never a silent
+> wait. An agent with no question tool asks the same in chat.
+
 > ⛔ **If a product command is refused as `[Code from External]` (agent
 > note).** Run the product's commands normally; do NOT stop first to make the
 > owner pick a path. Prefer the full-path lines `doctor` prints (on Windows the
@@ -85,7 +91,9 @@ missing — there is no second list to keep in step.
 
 ### -1. Owner check (once per photo OWNER, not per collection)
 
-Ask **whose photos these are** before anything else. The memory the pipeline
+Ask **whose photos these are** before anything else (AskUserQuestion: the
+existing owners as options, a new owner's name through its own-answer
+field). The memory the pipeline
 builds is about the *photo owner* — the person whose camera produced the files
 — who may not be the person running the session. One operator can process
 several owners' dumps, and each gets their own pack.
@@ -113,7 +121,8 @@ about four of those answers, and `prep` prints it automatically:
 | script seen in filenames/paths | `language` | names the generated buckets. A script is **not** a locale — Han could be zh-TW or zh-CN, so confirm the actual language even when the signal is strong, and say which one will be used before it names anything |
 | home areas — a numbered place with its distinct days, how many of those carry an after-dark photo, month span and file count; its coordinate and map link are in `census-places.txt` beside the manifest | `home_locations` | a residence is **never** named as a place or a folder, so this has to be answered before the owner's first folders are named. The census shows **evidence, never a name**: there is no network at `prep` and it does no reverse-geocoding. Confirm each row and ask the owner for the **city word** for it — the owner may open the place's map link in `census-places.txt` if the counts alone don't identify it. ⛔ **Never read the coordinates or the links out into the conversation**: whatever reaches the transcript leaves the machine, which is why the census no longer prints them (U6-06). The onboarding sheet (below) is the preferred route — it keeps the numbers in `--coords-out` and the owner answers by letter. When a row must be written by hand, write it as `{"label": <city word>, "lat": <first number>, "lon": <second number>}` from that place's line in `census-places.txt`, with a file edit rather than by quoting the numbers: the file holds the coordinate as one pair and the pack stores two fields, so split it — a row copied whole stops the run. A proposal the pack already covers is marked **✓ already listed** and is not one of the rows to confirm — the census cross-checks these against `home_locations` the same way it does cameras, so a re-run never re-asks a settled one. For each confirmed row also ask whether it is somewhere they **live day to day**, or a residence they **travel to** (a relative's house); on the second answer add `"home_range": false`, which keeps the row unnameable but stops days spent there being filed as the owner's everyday life. Do not ask this when there is only one row — a single home is the everyday one by definition |
 
-All-ASCII filenames mean *no signal*, not English — ask.
+All-ASCII filenames mean *no signal*, not English — ask (AskUserQuestion: the
+likely languages as options, any other through its own-answer field).
 
 ### Ask these on a page, not from the printed table
 
@@ -298,10 +307,11 @@ collection, including dumps already frozen or copied. So:
    size it prints how many stills and videos in **each** bound dump would
    re-route, which of those dumps are frozen or copied, and that files already
    on the drive stay where they are.
-2. **Show the owner that block, in full, and ask.** A frozen or copied dump
+2. **Show the owner that block, in full, and ask with AskUserQuestion** —
+   `Yes, move these files` / `No, leave them`. A frozen or copied dump
    then answers `verify --copied` with exit 6 (every copy matches, the names
    may change) until it is re-locked.
-3. Only on their yes, write with `--add-screen <WxH>` (either orientation).
+3. Only on `Yes, move these files`, write with `--add-screen <WxH>` (either orientation).
    Without it that size is refused on its own and everything else is written.
 
 ⛔ **A new size is refused, not written, when the dry run could not count it**
@@ -379,8 +389,9 @@ It is worth a sentence at the question rather than a discovery afterwards.
 
 The home row often proposes **nothing** on a first dump — one dump is normally
 one month, and plenty of collections carry little or no GPS. That is an
-ordinary first run, not a failure: in the **same question**, ask the owner to
-name their home areas at **city level** and put those in `home_locations`
+ordinary first run, not a failure: in the **same question** (AskUserQuestion:
+`I'll type my home areas` / `No home to add`; the words through its own-answer
+field), ask the owner to name their home areas at **city level** and put those in `home_locations`
 (a row typed by hand has no id — run `photo_onboard_page.py backfill-ids
 "<pack dir>" --go` after it, D-I15, and never type an id yourself). Do
 not defer it to a later interview — the privacy rule is unenforced until it is
@@ -414,7 +425,8 @@ other word is refused at classify. Two consequences when you write it:
 
 One collection per workspace. If the current workspace already has a
 `Working Files/collection.json` for a different collection, stop. Ask the
-owner to make a new, empty folder for this collection and open the agent
+owner with AskUserQuestion (`I'll open a new folder` / `I have a question`)
+to make a new, empty folder for this collection and open the agent
 there (`docs/INSTALL.md`, step 5), then re-run photo-init in it.
 
 **What this stage expects to find.** Exactly one state folder, named
@@ -445,20 +457,24 @@ the first, and reporting "created `Working Files`" would be false. On a
 case-sensitive one they are two directories and the rule above applies.
 ⛔ Do not resolve this by guessing which kind of disk you are on. Say what you
 found, say that a case-only difference may or may not be the same folder here,
-and let the owner choose the name — this is the one near-miss that can silently
+and let the owner choose the name with AskUserQuestion (the names found as
+options) — this is the one near-miss that can silently
 adopt somebody else's state while looking like a clean start.
 
 ### 1. Ask: where is the Raw Folder? (AskUserQuestion)
 
 Ask the owner for the Raw Media Files Folder location(s) — more than one
-path is allowed. Ask with an empty question: ⛔ do NOT list drives or folders
-first, and never offer a folder the owner did not name as a choice. A disk
+path is allowed. Ask with options that name no folder — `I'll type the path`
+/ `The drive is not connected yet` — and take the path through the
+own-answer field: ⛔ do NOT list drives or folders first, and never offer a
+folder the owner did not name as a choice. A disk
 holds the owner's private folders; showing them as options turns a question
 into a tour of their drive (HIL01 HIL-1).
 
 Verify each typed path exists. ONLY when one is missing, list `/Volumes/`
-to say which drives are connected, and ask the owner to connect the drive or
-correct the path, rather than guessing.
+to say which drives are connected, and ask the owner with AskUserQuestion
+(`Connected now` / `I'll type another path`) to connect the drive or correct
+the path, rather than guessing.
 
 ### 2. Ask: where should the Sorted Folder go? (AskUserQuestion)
 
@@ -492,7 +508,7 @@ configuration. The engine reads `collection.json` for `owner`, `memory_root`,
 them. A workspace with no `CLAUDE.md` at all runs normally.
 
 ⛔ **Never edit a `CLAUDE.md` you did not create without asking the owner
-first.** In a workspace the owner set up themselves it is their own governance
+first** (AskUserQuestion: `Skip it` (recommended) / `Add the block`). In a workspace the owner set up themselves it is their own governance
 document, not a product file — and it is the more common case, not the edge
 case. If the owner says no, or does not answer, **write (a) and carry on**:
 say that the configuration is complete and that (b) was skipped by choice. Do

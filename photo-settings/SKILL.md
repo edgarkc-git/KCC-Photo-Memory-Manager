@@ -13,6 +13,12 @@ description: >
 
 # photo-settings — the settings conversation (SET-2)
 
+> **Asking the owner (G46).** Every question to the owner goes through the
+> agent's question tool (Claude Code: **AskUserQuestion**): options with the
+> recommended one first, and free text (a name, a folder, a place word)
+> through its own-answer field. Never "reply X in chat", and never a silent
+> wait. An agent with no question tool asks the same in chat.
+
 Version: 0.1 (SET-2 build)
 
 ## What this is
@@ -85,7 +91,8 @@ Every setting carries a **blast tag** — this is ONB-10's corollary, verbatim:
 `set` without `--go` is a dry run: it prints `old → new`, prints the tagline
 for that tag, and writes nothing. **Always run the dry run first and put its
 tagline in front of the owner before you add `--go`** — for a `moves-files`
-key, get an explicit yes. Files already copied are never moved or deleted
+key, get an explicit yes with AskUserQuestion (`Save it` / `Leave it as it
+is`). Files already copied are never moved or deleted
 retroactively; the tagline says so, so let it.
 
 ## What actually runs at each stage
@@ -237,7 +244,8 @@ This changes what a run costs in time or tokens. It does not move a file or rena
 Nothing was written. Re-run with --go to save it.
 ```
 
-Put that in front of them, get the yes, then add `--go`. The tool answers
+Put that in front of them, ask with AskUserQuestion (`Save it` / `Leave it as
+it is`), and on `Save it` add `--go`. The tool answers
 `Saved to <pack>/photo-profile.json.`
 
 **4. The copy model, same three beats** — `explain models.copy_conductor`

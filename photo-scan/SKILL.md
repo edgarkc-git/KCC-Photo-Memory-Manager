@@ -12,6 +12,12 @@ description: >
 
 # photo-scan — EXIF scan + leg detection
 
+> **Asking the owner (G46).** Every question to the owner goes through the
+> agent's question tool (Claude Code: **AskUserQuestion**): options with the
+> recommended one first, and free text (a name, a folder, a place word)
+> through its own-answer field. Never "reply X in chat", and never a silent
+> wait. An agent with no question tool asks the same in chat.
+
 Version: 0.1 (Phase 2 build)
 
 ## What it does
