@@ -478,6 +478,12 @@ it on a private web page:
    owner then names goes in with `group set-where`.
 2. Publish that file as a **private** artifact and send the owner its link
    through your own channel. ⛔ Never share it: it shows the owner's photos.
+   Then **ask with AskUserQuestion** (G46) — one question, three options:
+   `Sent` (go to step 3 and read the answers back from the republished
+   page), `Not yet` (ask again later; never act on the plan meanwhile),
+   `The page has a problem` (ask what it is; render again if needed). An
+   agent with no question tool asks the same in chat; a typed "sent" counts
+   the same as `Sent`. ⛔ Never just wait for a typed word.
 3. The owner presses Send; the page republishes itself with the answers. Write
    them into the plan's rows:
    `python3 scripts/photo_fixplan_page.py apply "<work dir>/plan/fix-plan.md" --answer <the republished page, or the copied lines>`,
@@ -486,7 +492,10 @@ it on a private web page:
    ⛔ A row left open is a **skip** — only rows the owner ticked are applied.
    A page answered for an earlier draft of the plan is refused; render it
    again (`--out-of-date "<why>"` shows the owner why on the same link first).
-4. Show the owner the final plan in chat and continue on their "go".
+4. Show the owner the final plan in chat, then **ask with AskUserQuestion**
+   — one question, options `Go` / `Change a row` — and continue only on
+   `Go`. On `Change a row`, ask which row and what, and render the page
+   again.
 5. ⛔ **Delete the page after the dump** (the artifact's delete) — it is not
    kept anywhere.
 
@@ -571,8 +580,11 @@ and one row per folder still to rename,
 `1. RENAME (R2) · \`<old>\` → \`<new>\` · <reason> · N photo(s) · answer: ______`
 (R2 when the new name adds a confirmed pet, else `re-lock`). With rows,
 `finish` stops with **exit 3**; with none it prints
-`Nothing left to fix. The dump is done.` Put each row to the owner, write
-`ok` or `skip` after `answer:` (a row left open is a skip), then:
+`Nothing left to fix. The dump is done.` Put each row to the owner **with
+AskUserQuestion** (G46) — one question per row, options `ok` / `skip`, up to 4
+rows in one call, never a free-text wait (an agent with no question tool asks
+the same in chat). Write the answer after `answer:` (a row left open is a
+skip), then:
 
     python3 scripts/photo_index.py after-check "<work dir>" --answers "<work dir>/plan/after-check.md"        # dry run
     python3 scripts/photo_index.py after-check "<work dir>" --answers "<work dir>/plan/after-check.md" --go
