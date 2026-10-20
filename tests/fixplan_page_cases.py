@@ -98,7 +98,7 @@ def the_rows_are_read_with_the_stages_own_pattern():
     plan = fp.parse_plan(PLAN)
     ops = plan["ops"]
     stage = [l for l in PLAN.splitlines() if photo_index.FIX_ROW.match(l)]
-    return (plan["title"] == "Fix plan · dump dump-a" and len(ops) == len(stage) == 4
+    return (plan["title"] == "Review folders · dump dump-a" and len(ops) == len(stage) == 4
             and ops[0]["folder"] == "F001" and ops[0]["rule"] == "R1"
             and ops[0]["to"] == "20250104_Lotus Beach Park_beach"
             and ops[0]["photos"] == 42 and ops[0]["answer"] == ""
@@ -356,6 +356,59 @@ def desktop_sample_photos_are_88_px_and_their_column_fits_three():
     got = tuple(int(m.group(1)) if m else None for m in (size, cols, first))
     return (got[0] == 88 and size.group(2) == "88" and got[1] == 88
             and got[2] is not None and got[2] >= 3 * 88 + 2 * gap), f"{got} gap={gap}"
+
+
+@case
+def the_owner_reads_review_folders_and_final_check():
+    """⭐ REPRODUCTION (G45). ⛔ FAILS on 201317e ("Fix plan", "After-check").
+    The rendered page's title and eyebrow, and the headings of `fix-plan.md`
+    and `after-check.md`, carry the owner's names; file names and commands
+    stay."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, md = workdir(tmp)
+        r = run("render", md)
+        out = md.with_suffix(".html")
+        html = out.read_text(encoding="utf-8") if out.exists() else ""
+    if r.returncode or not html:
+        return False, r.stderr[-300:]
+    title = re.search(r"<title>([^<]*)</title>", html)
+    stats = {"copied": 0, "wrong": [], "twins_ok": 0, "twins_bad": [],
+             "absent": [], "gone": []}
+    after = photo_index.after_check_text(Path("/work/dump-a"), {"dump": "dump-a"},
+                                         stats, (0, []), [])
+    heads = (PLAN.splitlines()[0], after.splitlines()[0])
+    return (title is not None and title.group(1) == "Review folders"
+            and page_data(html)["title"] == "Review folders · dump dump-a"
+            and "Review folders · before copy" in html and "Fix plan" not in html
+            and heads == ("# Review folders · dump dump-a", "# Final check · dump dump-a")
+            and "fix-plan \"" in PLAN), f"{title and title.group(1)} {heads}"
+
+
+@case
+def a_plan_written_by_rc2_is_still_read():
+    """REPRODUCTION (G45). ⛔ the title half FAILS on 201317e (the page showed
+    "Fix plan"); rows, digest and answers only guard. A plan still waiting
+    from rc2 heads `# Fix plan · dump …`: the page renders it under the new
+    name, with the same rows and digest, and its answers land."""
+    old = "# Fix plan · dump dump-a\n" + PLAN.split("\n", 1)[1]
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, md = workdir(tmp, old)
+        r = run("render", md)
+        out = md.with_suffix(".html")
+        d = page_data(out.read_text(encoding="utf-8")) if out.exists() else {}
+        ans = Path(tmp) / "answers.txt"
+        ans.write_text("1: ok\n3: skip\n", encoding="utf-8")
+        a = run("apply", md, "--answer", ans)
+        text = md.read_text(encoding="utf-8")
+    got = {row["n"]: row["answer"] for row in photo_index.parse_fix(text)}
+    return (r.returncode == 0 and a.returncode == 0
+            and d.get("title") == "Review folders · dump dump-a"
+            and len(d.get("rows", [])) == 4
+            and d.get("digest") == fp.plan_digest(fp.parse_plan(PLAN)["ops"])
+            and text.splitlines()[0] == "# Fix plan · dump dump-a"
+            and got == {1: "ok", 2: "", 3: "skip", 4: ""}), \
+        f"{d.get('title')} {got} {r.stderr[-200:]} {a.stderr[-200:]}"
+
 
 def main():
     ap = argparse.ArgumentParser()

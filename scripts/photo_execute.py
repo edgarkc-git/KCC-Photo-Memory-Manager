@@ -335,7 +335,7 @@ def main():
     blocked = blocked_renames(renames_to_do(config, dest_root), dest_root, pending)
     if blocked:
         sys.exit("a file to copy goes into a folder that is still to be renamed "
-                 "on the drive — rename it first (the after-check of `finish "
+                 "on the drive — rename it first (the final check of `finish "
                  "--go` offers it), then copy again. Nothing written:\n"
                  + "\n".join(f'  "{o}" -> "{n}"' for o, n in blocked))
     total_bytes = 0

@@ -3119,16 +3119,16 @@ def cmd_freeze(args):
     debug = []
     ops, refused_ops = draft_fix_plan(workdir, pack, index, debug)
     for line in debug:
-        print(f"  (fix plan, no word: {line})")
+        print(f"  (Review folders, no word: {line})")
     waiting = fix_waiting(index, ops)
     if waiting:
         page = write_fix_plan(workdir, index, waiting, refused_ops)
         print(page.read_text(encoding="utf-8").rstrip())
-        print(f"STOP (exit {EXIT_FIX_PLAN}): the fix plan waits for the owner's "
+        print(f"STOP (exit {EXIT_FIX_PLAN}): Review folders waits for the owner's "
               f"answers in {page} — nothing frozen")
         return EXIT_FIX_PLAN
     for op, why in refused_ops:
-        print(f"  ⚠️ fix plan row refused, never applied: {op['rule']} "
+        print(f"  ⚠️ Review folders row refused, never applied: {op['rule']} "
               f"{op['folder']} `{op['to']}` — {why}")
     by_number = {b["batch"]: b for b in json.loads(
         (workdir / "batches.json").read_text(encoding="utf-8")).get("batches", [])}
@@ -3221,7 +3221,7 @@ def cmd_freeze(args):
         renames_md.write_text(
             "# Folders to rename\n\n"
             f"Copied before their names changed, under `{dest_root}`, in this "
-            "order. The after-check of `finish --go` asks the owner about each "
+            "order. The final check of `finish --go` asks the owner about each "
             "one and renames only a folder this engine copied and created "
             "(ADR 0007); nothing new is copied into one still to rename.\n\n"
             + "".join(f'- "{r["old"]}" -> "{r["new"]}"\n' for r in renames),
@@ -3256,7 +3256,7 @@ def cmd_freeze(args):
     print(f"frozen {digest} in {seconds} s")
     if renames:
         print(f"{len(renames)} folder(s) already copied carry an old name. The "
-              "after-check of `finish --go` asks to rename each one, in this "
+              "final check of `finish --go` asks to rename each one, in this "
               "order:")
         for r in renames:
             print(f'  "{r["old"]}" -> "{r["new"]}"')
@@ -3964,7 +3964,7 @@ def fix_waiting(index, ops):
 
 
 def fix_plan_text(workdir, index, ops, refused):
-    lines = [f"# Fix plan · dump {index['dump']}", "",
+    lines = [f"# Review folders · dump {index['dump']}", "",
              "The engine's changes before the copy. Answer each row `ok`, `skip` "
              "or `word: <your words>`; a row left open is a skip.", "",
              f"## Rows · {len(ops)}", ""]
@@ -4073,12 +4073,12 @@ def cmd_fix_plan(args):
         log_entry(index, FIX_PLAN_CMD, f"{fo['id']}: agent row → {args.to.strip()!r}",
                   args.reason.strip(), by="agent")
         save(target, pack, index)
-        print(f"{fo['id']}: agent row added; the fix plan offers it, validated")
+        print(f"{fo['id']}: agent row added; Review folders offers it, validated")
         return 0
     debug = []
     ops, refused = draft_fix_plan(workdir, pack, index, debug)
     for line in debug:
-        print(f"  (fix plan, no word: {line})")
+        print(f"  (Review folders, no word: {line})")
     if not args.answers:
         waiting = fix_waiting(index, ops)
         page = write_fix_plan(workdir, index, waiting, refused)
@@ -4206,7 +4206,7 @@ def cmd_fix_plan(args):
                   (args.reason or "").strip() or "the owner answered the fix plan",
                   by="owner")
         save(target, pack, index)
-    print(f"fix plan: {len(done)} answer(s) recorded, {refused_n} refused; next: "
+    print(f"Review folders: {len(done)} answer(s) recorded, {refused_n} refused; next: "
           "render, check, freeze")
     return 1 if refused_n else 0
 
@@ -4225,7 +4225,7 @@ AFTER_ROW = re.compile(r"^(\d+)\. (RENAME) \(([^)]+)\) · `([^`]+)` → `([^`]+)
                        r".*· answer:\s*(.*?)\s*$")
 NOTHING_LEFT = "Nothing left to fix. The dump is done."
 HAND_CHANGED = ("The folder was changed by hand since the copy; nothing was "
-                "renamed. Ask the agent to re-run the after-check.")
+                "renamed. Ask the agent to re-run the final check.")
 
 
 def name_words(name):
@@ -4361,7 +4361,7 @@ def source_proof(workdir, index):
 def after_check_text(workdir, index, stats, sources, rows, held=()):
     n, changed = sources
     copied, bad = stats["copied"], len(stats["wrong"])
-    lines = [f"# After-check · dump {index['dump']}", "", "## Copy proof", "",
+    lines = [f"# Final check · dump {index['dump']}", "", "## Copy proof", "",
              f"- source files {n} ("
              + ("unchanged)" if not changed else
                 f"{len(changed)} changed or unreadable since the freeze: "
@@ -4618,8 +4618,8 @@ def apply_after(args, workdir, index, plans, pack=None):
         log = workdir / "plan" / AFTER_CHECK_LOG
         old_log = json.loads(log.read_text(encoding="utf-8")) if log.is_file() else []
         write_json(log, old_log + done)
-    print(f"after-check: {len(done)} renamed, {skipped} skipped, {refused} "
-          "refused; run the after-check again")
+    print(f"Final check: {len(done)} renamed, {skipped} skipped, {refused} "
+          "refused; run the final check again")
     return 1 if refused else 0
 
 
@@ -4655,7 +4655,7 @@ def cmd_after_check(args):
         print(f"⛔ the copy proof fails — see {page}")
         return 1
     if rows:
-        print(f"after-check: {len(rows)} row(s) wait for an answer in {page}")
+        print(f"Final check: {len(rows)} row(s) wait for an answer in {page}")
         return EXIT_AFTER_CHECK
     return 0
 
@@ -5346,7 +5346,7 @@ def main(argv=None):
     a.add_argument("--go", action="store_true")
     a.add_argument("--reason")
     a.set_defaults(fn=cmd_apply_page)
-    x = sub.add_parser("fix-plan", help=f"M6, before the freeze: the engine's "
+    x = sub.add_parser("fix-plan", help=f"M6, Review folders before the freeze: the engine's "
                                         f"changes in plan/{FIX_PLAN_MD}; exit "
                                         f"{EXIT_FIX_PLAN} when rows wait (freeze "
                                         "stops there too)")
@@ -5361,7 +5361,7 @@ def main(argv=None):
     x.add_argument("--to", help="with --agent: the new folder name")
     x.add_argument("--reason")
     x.set_defaults(fn=cmd_fix_plan)
-    a = sub.add_parser("after-check", help=f"M10, after verify: the copy proof "
+    a = sub.add_parser("after-check", help=f"M10, Final check after verify: the copy proof "
                                            f"and the leftover ops in plan/"
                                            f"{AFTER_CHECK_MD}; exit "
                                            f"{EXIT_AFTER_CHECK} when rows wait, 0 "

@@ -52,6 +52,8 @@ BLANK = re.compile(r"^_{2,}$")
 RE_PHOTOS = re.compile(r"^(\d+)\s+photo")
 RE_SAMPLES = re.compile(r"^\s+samples:\s*(.*)$")
 RE_TITLE = re.compile(r"^#\s+(.+)$")
+TITLE = "Review folders"
+OLD_TITLE = "Fix plan"
 REFUSED_HEAD = "## Refused (never applied)"
 RE_REPLY = re.compile(r"^\s*-?\s*(\d+)\s*[:.]\s*(ok|skip|word:\s*.+)\s*$", re.I)
 MAX_SAMPLES = 3
@@ -100,6 +102,9 @@ def parse_plan(md_text):
         m = RE_TITLE.match(line)
         if m and not title:
             title = m.group(1).strip()
+            if title.startswith(OLD_TITLE):
+                # A plan written before G45 keeps its old heading on disk.
+                title = TITLE + title[len(OLD_TITLE):]
             continue
         if line.startswith("## "):
             in_refused = line.strip() == REFUSED_HEAD
@@ -153,7 +158,7 @@ def build_data(plan, workdir, max_px, quality, out_of_date=None):
                      "from": op["from"], "to": op["to"], "reason": op["reason"],
                      "photos": op["photos"], "thumbs": thumbs,
                      "word": WORD_KIND.get(op["rule"]), "answer": op["answer"]})
-    return {"title": plan["title"] or "Fix plan", "rows": rows,
+    return {"title": plan["title"] or TITLE, "rows": rows,
             "refused": plan["refused"], "digest": plan_digest(plan["ops"]),
             "photos": sum(op["photos"] for op in plan["ops"]),
             "nothing": photo_index.NOTHING_TO_CHANGE,

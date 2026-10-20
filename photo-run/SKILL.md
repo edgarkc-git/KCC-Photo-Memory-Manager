@@ -464,9 +464,9 @@ missing — there is no second list to keep in step.
 `prep` and `finish` can be split across sessions freely — `status` always shows
 what's left.
 
-## The fix plan page (G20, G21)
+## The Review folders page (G20, G21, G45)
 
-When the fix plan stop writes `plan/fix-plan.md` (exit 3), the owner answers
+When the Review folders stop (`photo_index.py fix-plan`) writes `plan/fix-plan.md` (exit 3), the owner answers
 it on a private web page:
 
 1. `<repo>/.venv/bin/python3 <repo>/scripts/photo_fixplan_page.py render "<work dir>/plan/fix-plan.md"`
@@ -502,7 +502,7 @@ macOS shell. Write the output to a file instead:
 |---|---|---|---|
 | `photo_run.py finish` / `plan` | 0 | done (or a dry run finished) | read the status |
 | | 1 | a plan was flagged or failed during the copy | read `plan/execution-log_*.md` |
-| | 3 | a question was just put: a batch page, `identify-views.md`, or (after the copy) `plan/after-check.md` | answer it (step 3a / 3b, or the after-check below), then re-run |
+| | 3 | a question was just put: a batch page, `identify-views.md`, or (after the copy) `plan/after-check.md` | answer it (step 3a / 3b, or the final check below), then re-run |
 | | 4 | the dump has an index and its freeze is missing or no longer holds | `render`, `check`, `freeze`, then re-run |
 | | 5 | a naming stage did not finish (a batch page, the pre-plan round, or identify); nothing was copied, and the stop prints the line to run it again | run that line, fix what it says (for a place page: the repo `.venv`), then re-run |
 | `photo_memory.py review --next-page` | 11 | a page was written | answer it |
@@ -513,7 +513,7 @@ macOS shell. Write the output to a file instead:
 | `photo_index.py identify --answers --go` | 1 | `Lift it first`: the index is frozen, nothing written | `unfreeze --reason "..."`, `--answers ... --go` again, then `render`, `check`, `freeze` (step 3b) |
 | `photo_index.py check` | 1 | a folder name or a route fails; each problem is listed | fix through the index, then `render` and `check` again |
 | `photo_index.py freeze` | 1 | refused, nothing frozen: the check fails, a target changed, or a folder copied by an earlier run was since split or merged (a folder only RENAMED after its copy freezes, and lists the renames) | fix what it names; a split or merge after the copy: stop and ask the owner (see Re-processing a folder) |
-| `photo_execute.py` (inside `finish`) | non-zero | a new file would go into a folder still to rename on the drive; nothing written | answer the after-check row for it (or rename it by hand), then re-run `finish` |
+| `photo_execute.py` (inside `finish`) | non-zero | a new file would go into a folder still to rename on the drive; nothing written | answer the final check row for it (or rename it by hand), then re-run `finish` |
 | `photo_index.py after-check` | 3 | rows wait in `plan/after-check.md` | put each row to the owner; write `ok` / `skip`; `--answers ... --go` |
 | | 0 | `Nothing left to fix. The dump is done.` | done |
 | | 1 | the copy proof fails (a copy missing or changed, a twin not in the tree, a source changed), or with `--answers` a row was refused (the folder changed by hand, or not one this engine created) | read the page; nothing was renamed for a refused row |
@@ -551,7 +551,7 @@ nothing copied.
 **Before the freeze**, a name change re-renders: run `render`, `check` and
 `freeze` again. **After the freeze the names are locked** (D-I16): lift it with
 `photo_index.py unfreeze 202401 --reason "..."`, then render, check, freeze. A
-folder already copied is renamed only by the after-check, on the owner's `ok`.
+folder already copied is renamed only by the final check, on the owner's `ok`.
 
 **A name corrected after the copy** (the names are often first seen then) is
 locked the same way — unfreeze, render, check, `freeze --reason "..."` — and
@@ -559,12 +559,12 @@ nothing is copied again. When a folder already copied now renders under a new
 name, the freeze still succeeds and prints the renames:
 
 ```
-N folder(s) already copied carry an old name. The after-check of `finish --go` asks to rename each one, in this order:
+N folder(s) already copied carry an old name. The final check of `finish --go` asks to rename each one, in this order:
   "<old>" -> "<new>"
 The list is kept in plan/folder-renames.md.
 ```
 
-**The after-check (M10, ADR 0007).** `finish --go` ends, after the copy check,
+**The final check (M10, ADR 0007).** `finish --go` ends, after the copy check,
 with `photo_index.py after-check`. It writes `plan/after-check.md`: the copy
 proof (source files unchanged, copied = verified, skipped twins, missing 0)
 and one row per folder still to rename,
@@ -582,11 +582,11 @@ them) whose files are exactly its copies (name, size, SHA-256; Finder's hidden
 files aside). It prints `before N = after N` for the size + SHA-256 + name of
 every file and logs it in `plan/after-check-log.json`. A folder changed by hand
 since the copy, or one the engine did not create, is refused:
-`The folder was changed by hand since the copy; nothing was renamed. Ask the agent to re-run the after-check.`
-Nothing is ever deleted. Run `after-check` again until nothing is left.
+`The folder was changed by hand since the copy; nothing was renamed. Ask the agent to re-run the final check.`
+Nothing is ever deleted. Run the final check again until nothing is left.
 
-One more row kind (G41, ADR 0007 amendment): `RENAME (owner)`. When the fix
-plan's R4 merged days into the OWNER's folder and its name holds none of the
+One more row kind (G41, ADR 0007 amendment): `RENAME (owner)`. When Review
+folders' R4 merged days into the OWNER's folder and its name holds none of the
 place words the engine found for those days, the row offers
 `<owner name>_<place>`. A home is never added. It applies only on `ok`, with
 the same before = after proof, and is refused if the folder's files differ from
@@ -598,13 +598,13 @@ Until a rename is done:
   `⚠️ N folder rename(s) still to do on the drive (plan/folder-renames.md):`;
 - a copy that would put a NEW file into a folder still to rename is refused by
   `photo_execute` (non-zero exit, dry run and `--go`, nothing written):
-  `a file to copy goes into a folder that is still to be renamed on the drive — rename it first (the after-check of \`finish --go\` offers it), then copy again. Nothing written:`.
+  `a file to copy goes into a folder that is still to be renamed on the drive — rename it first (the final check of \`finish --go\` offers it), then copy again. Nothing written:`.
 
 The owner may still rename a folder by hand; a rename is known to be done when
 the old folder is gone from the drive.
 ⛔ **A split or a merge after the copy cannot be locked**: the freeze exits 1
 with `N file(s) were copied by an earlier run into a folder that has since been split or merged (or copied to a place this freeze does not name). …`
-and writes nothing; the after-check renames a folder, never splits or merges one.
+and writes nothing; the final check renames a folder, never splits or merges one.
 Stop and put it to the owner: the documented way on is re-processing the dump
 (below), which removes that dump's copied folders.
 To see which names a change would move before lifting anything, run

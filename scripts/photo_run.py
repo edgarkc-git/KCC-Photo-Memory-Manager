@@ -802,7 +802,7 @@ def print_status(workdir, pack=None, paths=False, write=True):
         todo = photo_execute.renames_to_do(plans, plans.get("dest_root") or "")
         if todo:
             print(f"\n⚠️  {len(todo)} folder rename(s) still to do on the drive — "
-                  "the after-check of `finish --go` offers each one"
+                  "the final check of `finish --go` offers each one"
                   + (":" if paths else " (status --paths lists them)"))
             if paths:
                 for old, new in todo:
@@ -1434,7 +1434,7 @@ def batch_page_checkpoint(workdir, pack=None):
               "to the copy when none is due. A name confirmed now is named INTO "
               "the folder. After the copy, a name the end-of-dump page changes "
               "reaches a folder only through a re-lock (render, check, freeze), "
-              "and the after-check of `finish --go` asks to rename the copied "
+              "and the final check of `finish --go` asks to rename the copied "
               "folder (plan/after-check.md).\n"
               "   To go ahead without answering, add --skip-memory.")
         return True
@@ -1597,7 +1597,7 @@ def cmd_finish(args):
         todo = photo_execute.renames_to_do(plans, plans.get("dest_root") or "")
         if todo:
             print(f"\n===== {len(todo)} folder(s) copied before their names "
-                  "changed =====\nThe after-check of `finish --go` asks the "
+                  "changed =====\nThe final check of `finish --go` asks the "
                   "owner to rename each one:")
             for old, new in todo:
                 print(f'  "{old}" -> "{new}"')
@@ -1616,7 +1616,7 @@ def cmd_finish(args):
     after_check = 0
     if frozen and args.go and not flagged:
         # M10 (ADR 0007) — the copy proof and the leftover ops, after verify.
-        print("\n===== after-check =====")
+        print("\n===== Final check (`photo_index.py after-check`) =====")
         after_check = run("photo_index.py", "after-check", workdir).returncode
         if after_check not in (0, AFTER_CHECK_WAITS):
             flagged.append("after-check")
@@ -1690,7 +1690,7 @@ def cmd_finish(args):
               f"{flagged} — see plan/execution-log_*.md")
         sys.exit(1)
     if after_check == AFTER_CHECK_WAITS:
-        print(f"\nSTOP (exit {AFTER_CHECK_WAITS}): the after-check waits for "
+        print(f"\nSTOP (exit {AFTER_CHECK_WAITS}): the final check waits for "
               f"the owner's answers in {workdir / 'plan' / 'after-check.md'}")
         sys.exit(AFTER_CHECK_WAITS)
 

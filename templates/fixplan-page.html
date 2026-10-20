@@ -2,7 +2,7 @@
 <!-- The page carries its own charset: opened from disk it has no wrapper to
      give it one, and every non-ASCII name would render as mojibake. -->
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fix Plan</title>
+<title>Review folders</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
@@ -108,7 +108,7 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
 <div class="wrap" id="app" aria-live="polite">
   <header>
     <div>
-      <div class="eyebrow">Fix plan · before copy</div>
+      <div class="eyebrow">Review folders · before copy</div>
       <h1>Loading the plan…</h1>
       <div class="sub">Loading the plan and thumbnails…</div>
     </div>
@@ -205,7 +205,7 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
 
   function head(title, sub){
     var h = el("header"), d = el("div");
-    d.appendChild(el("div", "eyebrow", "Fix plan · before copy"));
+    d.appendChild(el("div", "eyebrow", "Review folders · before copy"));
     d.appendChild(el("h1", null, title));
     if(sub) d.appendChild(el("div", "sub", sub));
     h.appendChild(d);
@@ -276,7 +276,7 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
   function readyView(focus){
     var app = document.getElementById("app");
     app.innerHTML = "";
-    var h = head((D.title || "Fix plan") + " · " + ROWS.length + " change" + (ROWS.length === 1 ? "" : "s"),
+    var h = head((D.title || "Review folders") + " · " + ROWS.length + " change" + (ROWS.length === 1 ? "" : "s"),
                  D.photos + " photos · nothing is copied until you send");
     var bulk = el("button", "ghost", "OK to all open rows");
     bulk.type = "button";
@@ -325,7 +325,7 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
   function emptyView(){
     var app = document.getElementById("app");
     app.innerHTML = "";
-    app.appendChild(head((D.title || "Fix plan") + " · 0 changes", D.photos ? D.photos + " photos" : ""));
+    app.appendChild(head((D.title || "Review folders") + " · 0 changes", D.photos ? D.photos + " photos" : ""));
     var m = el("main"); m.style.paddingTop = "24px";
     var c = el("section", "card");
     c.appendChild(el("h2", null, D.nothing || "Nothing to change."));
@@ -340,7 +340,7 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
   function errorView(){
     var app = document.getElementById("app");
     app.innerHTML = "";
-    app.appendChild(head((D.title || "Fix plan") + " · " + ROWS.length + " changes"));
+    app.appendChild(head((D.title || "Review folders") + " · " + ROWS.length + " changes"));
     var m = el("main"); m.style.paddingTop = "16px";
     var n = el("section", "notice");
     n.appendChild(el("h2", null, "This plan is out of date"));
@@ -357,7 +357,7 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
   function doneView(){
     var app = document.getElementById("app"), s = D.submitted;
     app.innerHTML = "";
-    app.appendChild(head("Answers sent", (D.title || "Fix plan") + " · " + s.at));
+    app.appendChild(head("Answers sent", (D.title || "Review folders") + " · " + s.at));
     var m = el("main"); m.style.paddingTop = "16px";
     var st = el("div", "stats");
     [["ok","OK"],["skip","Skip"],["word","Own word"]].forEach(function(k){
@@ -370,7 +370,7 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     var ol = el("ol");
     ["The agent shows the final plan in chat.",
      "You say “go”: the plan is frozen and copied.",
-     "Every copy is checked; then a short after-check."].forEach(function(t){ ol.appendChild(el("li", null, t)); });
+     "Every copy is checked; then a short final check."].forEach(function(t){ ol.appendChild(el("li", null, t)); });
     c.appendChild(ol);
     m.appendChild(c);
     m.appendChild(el("p", "sub", "This page is private and is deleted after the dump. Changed your mind? Tell the agent before you say “go”."));
