@@ -3128,6 +3128,9 @@ def cmd_freeze(args):
               f"answers in {page} — nothing frozen")
         return EXIT_FIX_PLAN
     for op, why in refused_ops:
+        if op.get("later"):
+            print(f"  After the copy: {why}")
+            continue
         print(f"  ⚠️ Review folders row refused, never applied: {op['rule']} "
               f"{op['folder']} `{op['to']}` — {why}")
     by_number = {b["batch"]: b for b in json.loads(
@@ -3451,7 +3454,9 @@ FIX_ROW = re.compile(r"^(\d+)\. (RENAME|INTO-EXISTING|DAYS-INTO-EXISTING|MAKE-TR
                      r"`([^`]*)` → `([^`]*)` · .*· answer:\s*(.*?)\s*$")
 NOTHING_TO_CHANGE = "Nothing to change."
 BY_HAND = "the engine did not create this folder: rename it by hand"
-OWNER_LATER = "your folder: the final check offers this rename after the copy"
+# A rename Review folders shows but never asks (G47): no row whose `ok` can
+# do nothing. Listed under its own heading, never as a refusal.
+AFTER_COPY_HEAD = "## After the copy"
 
 
 def fix_key(op):
@@ -3498,6 +3503,17 @@ def collection_dumps(workdir):
     return [d for d in sorted(root.iterdir())
             if d.is_dir() and (d / "plan").is_dir()
             and any((d / "plan").glob("execute-state_*.json"))]
+
+
+def unfinished_copy(workdir, path):
+    """-> the first dump of this collection holding copies inside `path`
+    whose copy or verify is unfinished, else None."""
+    for wd in collection_dumps(workdir):
+        recs = photo_execute.verified_anywhere(wd / "plan")
+        if (any(under(v.get("dest") or "", path) for v in recs.values())
+                and not copy_finished(wd)):
+            return wd
+    return None
 
 
 def copy_finished(workdir):
@@ -3571,9 +3587,10 @@ def rule_r2(ctx):
     folder so (SPEC G30); what is left is a folder this dump MERGES INTO,
     whose name is on the drive. A RENAME of it is the engine's only when an
     engine copy record of this collection lists it as created (ADR 0007,
-    Lead ruling 20261018). An owner's folder is never a row to answer here
-    (G47): it is listed as information — the final check offers its rename
-    when R4 scanned it, else it is a rename by hand."""
+    Lead ruling 20261018). A rename whose `ok` could do nothing is never a
+    row to answer (G47): it is listed `later` — an owner's folder R4 scanned
+    (the final check offers it), one declared by hand (a rename by hand), or
+    an engine folder whose earlier copy is unfinished."""
     import photo_subjects
     known = {s.name for s in photo_subjects.load(pack=ctx["pack"]).subjects
              if s.name and s.status == photo_subjects.STATUS_CONFIRMED}
@@ -3598,8 +3615,16 @@ def rule_r2(ctx):
                     len(copy_members(ctx["index"], fo["id"])), reason,
                     path=str(path), by_hand=owner is None,
                     dump=str(owner) if owner else None)
-        if owner is None:
-            op["why"] = OWNER_LATER if "owner_scan" in dest else BY_HAND
+        adds = ", ".join(missing)
+        if owner is None and "owner_scan" in dest:
+            op["later"] = (f"Your folder `{path.name}`: the final check offers to "
+                           f"add {adds} after the copy.")
+        elif owner is None:
+            op["later"] = f"Your folder `{path.name}`: adds {adds} — {BY_HAND}."
+        elif unfinished_copy(ctx["workdir"], path):
+            op["later"] = (f"`{path.name}`: adds {adds} — finish the copy of "
+                           f"{unfinished_copy(ctx['workdir'], path).name} first; "
+                           "then Review folders offers the rename.")
         out.append(op)
     return out
 
@@ -3959,6 +3984,9 @@ def draft_fix_plan(workdir, pack, index, debug=None):
             if f["source"] in previews][:3]
     offered, refused = [], []
     for op in ops:
+        if op.get("later"):
+            refused.append((op, op["later"]))
+            continue
         why = op.get("why") or fix_problem(op, ctx)
         (refused.append((op, why)) if why else offered.append(op))
     return offered, refused
@@ -3983,10 +4011,14 @@ def fix_plan_text(workdir, index, ops, refused):
         if op.get("samples"):
             # Indented, so FIX_ROW never reads it as a row.
             lines.append("   samples: " + " | ".join(op["samples"]))
+    later = [why for op, why in refused if op.get("later")]
+    refused = [(op, why) for op, why in refused if not op.get("later")]
     if refused:
         lines += ["", "## Refused (never applied)", ""]
         lines += [f"- {op['op']} ({op['rule']}) · {op['folder']} · `{op['from']}` → "
                   f"`{op['to']}` — {why}" for op, why in refused]
+    if later:
+        lines += ["", AFTER_COPY_HEAD, ""] + [f"- {note}" for note in later]
     if ops:
         lines += ["", "When the answers are written:", "",
                   f"    {run_line('photo_index.py')} fix-plan \"{workdir}\" "

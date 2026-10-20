@@ -404,7 +404,8 @@ def a_day_with_a_folder_in_the_dest_goes_into_it():
         later = owner_row(wd)
     return (code == 3 and len(r4) == 1 and f"(R4) · F001 · `{LOTUS_DAY}` → `{OLD}`" in r4[0]
             and "merges into the existing folder" in r4[0]
-            and fcode == 0 and photo_index.OWNER_LATER in fout and still
+            and fcode == 0 and "After the copy: Your folder `20241101_Old trip`: the "
+            "final check offers to add Lotus after the copy." in fout and still
             and run.returncode == 3 and "IMG_0101.jpg" in landed
             and "OLD_0001.jpg" in landed and len(later) == 1
             and f"`{OLD}` → `{OLD}_Lotus`" in later[0]), \
@@ -818,7 +819,9 @@ def an_owner_folder_gaining_pets_is_renamed_at_the_final_check():
         gcode, gout, gerr = ix.run("after-check", wd, "--answers", after_page(wd), "--go")
         moved = (root / new).is_dir() and not (root / AT_HOME).exists()
     return (len(r4) == 1 and "DAYS-INTO-EXISTING" in r4[0] and fcode == 0
-            and photo_index.OWNER_LATER in fout and "answer:" not in fout
+            and "After the copy: Your folder `20241101_At home`: the final check "
+            "offers to add Lotus, Birk after the copy." in fout
+            and "answer:" not in fout and "refused" not in fout and "⚠️" not in fout
             and run.returncode == 3 and len(got) == 1
             and f"1. RENAME (owner) · `{AT_HOME}` → `{new}` · " in got[0]
             and "adds Lotus, Birk" in got[0] and gcode == 0 and moved
@@ -946,8 +949,11 @@ def r2_renames_a_folder_an_earlier_dump_copied_and_moves_both_records():
 
 @case
 def r2_never_moves_a_folder_whose_earlier_copy_is_unfinished():
-    """GUARD (Lead). An earlier dump whose copy record misses a row: the R2
-    row renames nothing and says to rename by hand; the tree is untouched."""
+    """⭐ REPRODUCTION (G47, Lead F4b). ⛔ FAILS on 9d99b05: an earlier dump
+    whose copy record misses a row made an R2 row the owner could `ok`, and
+    `--go` renamed nothing ("rename it by hand"). Now it is information
+    under `## After the copy` — finish that copy first — the freeze asks
+    nothing, and the tree is untouched."""
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         wa, _pack = fin.ready(tmp)
         fin.finish(wa)
@@ -961,13 +967,42 @@ def r2_never_moves_a_folder_whose_earlier_copy_is_unfinished():
                     "--reason", "the same day"), "dest")
         must(ix.run("render", wb), "render b")
         must(ix.run("check", wb), "check b")
-        ix.run("freeze", wb)
-        answer(wb, "ok")
         before = ix.tree_state(sorted_root)
-        acode, aout, _ = apply(wb)
+        fcode, fout, ferr = ix.run("freeze", wb)
         same = before == ix.tree_state(sorted_root)
-    return (acode == 0 and "nothing renamed" in aout and "by hand" in aout
-            and "not finished" in aout and same), f"apply={acode} {aout[-400:]!r}"
+    note = (f"After the copy: `{LOTUS_DAY}`: adds Birk — finish the copy of dump-a "
+            "first; then Review folders offers the rename.")
+    return (fcode == 0 and note in fout and "answer:" not in fout and same), \
+        f"freeze={fcode} {fout[-500:]!r}{ferr[-200:]!r}"
+
+
+@case
+def a_merge_declared_by_hand_is_information_only():
+    """⭐ REPRODUCTION (G47, Lead F4b). ⛔ FAILS on 9d99b05 (listed under
+    "Refused (never applied)" with a ⚠️). The owner's folder is a `dest
+    merge` typed by hand — no R4 scan, so the final check cannot prove a
+    rename: Review folders lists it under `## After the copy` as a rename by
+    hand, asks nothing, and nothing says refused."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        owner_folder(tmp)
+        wd, _pack = ready(tmp)
+        target = Path(tmp).resolve() / "sorted" / OLD
+        # The dedupe reference: a work dir whose manifest holds no photo.
+        ref = Path(tmp).resolve() / "ref"
+        ref.mkdir()
+        head = (wd / "manifest.csv").read_text(encoding="utf-8").splitlines()[0]
+        (ref / "manifest.csv").write_text(head + "\n", encoding="utf-8")
+        must(ix.run("dest", wd, "F001", "merge", target, "--ref", ref,
+                    "--reason", "the owner's folder"), "dest")
+        must(ix.run("render", wd), "render")
+        must(ix.run("check", wd), "check")
+        fcode, fout, ferr = ix.run("freeze", wd)
+        _p, pout, _e = ix.run("fix-plan", wd)
+    note = (f"After the copy: Your folder `20241101_Old trip`: adds Lotus — "
+            f"{photo_index.BY_HAND}.")
+    return (fcode == 0 and note in fout and "refused" not in fout and "⚠️" not in fout
+            and "## After the copy" in pout and "## Refused" not in pout
+            and "answer:" not in pout), f"freeze={fcode} {fout[-400:]!r}{ferr[-200:]!r} {pout[-400:]!r}"
 
 
 @case

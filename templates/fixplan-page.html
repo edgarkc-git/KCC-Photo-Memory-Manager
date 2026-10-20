@@ -203,6 +203,20 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     return n;
   }
 
+  /* Renames the final check offers after the copy (G47): information only,
+     never a row with buttons. */
+  function laterBox(){
+    var list = D.later || [];
+    if(!list.length) return null;
+    var n = el("section", "notice");
+    n.appendChild(el("h2", null, "After the copy"));
+    var ul = el("ul");
+    list.forEach(function(t){ ul.appendChild(el("li", "small", t)); });
+    n.appendChild(ul);
+    n.appendChild(el("p", null, "Nothing to answer here."));
+    return n;
+  }
+
   function head(title, sub){
     var h = el("header"), d = el("div");
     d.appendChild(el("div", "eyebrow", "Review folders · before copy"));
@@ -301,6 +315,8 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     var main = el("main");
     var box = refusedBox();
     if(box) main.appendChild(box);
+    var later = laterBox();
+    if(later) main.appendChild(later);
     ROWS.forEach(function(r){
       if(!groups || state.chip === "All" || state.chip === r.chip || !groups[state.chip]) main.appendChild(rowCard(r));
     });
@@ -332,8 +348,9 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     c.appendChild(el("p", null, "Every folder name already follows the rules: landmark places, all your pets, year folders, days that already have a folder."));
     c.appendChild(el("p", null, "The agent asks you to go on: choose Go to freeze the plan and copy."));
     m.appendChild(c);
-    var box = refusedBox();
-    if(box){ box.style.marginTop = "12px"; m.appendChild(box); }
+    [refusedBox(), laterBox()].forEach(function(box){
+      if(box){ box.style.marginTop = "12px"; m.appendChild(box); }
+    });
     app.appendChild(m);
   }
 

@@ -423,6 +423,32 @@ def the_page_says_the_agent_asks_for_go():
         [l.strip() for l in tpl.splitlines() if "go”" in l or "Go" in l][:4]
 
 
+
+@case
+def a_rename_after_the_copy_is_information_with_no_buttons():
+    """⭐ REPRODUCTION (G47, Lead F4b). ⛔ FAILS on 9d99b05 (no such list).
+    The stage's `## After the copy` notes are read apart from the rows and
+    the refusals, and carried to the page as information; the rows and the
+    digest are unchanged, and a plan without that heading still reads."""
+    note = ("Your folder `20250116_At home`: the final check offers to add "
+            "Lotus, Birk after the copy.")
+    later = [({"op": "RENAME", "rule": "R2", "folder": "F006", "from": "a", "to": "b",
+               "later": note}, note)]
+    text = plan_text(refused=REFUSED + later)
+    plan = fp.parse_plan(text)
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, md = workdir(tmp, text)
+        r = run("render", md)
+        d = page_data(md.with_suffix(".html").read_text(encoding="utf-8"))
+    tpl = (ROOT / "templates" / "fixplan-page.html").read_text(encoding="utf-8")
+    return (photo_index.AFTER_COPY_HEAD in text and plan["later"] == [note]
+            and len(plan["refused"]) == 1 and len(plan["ops"]) == 4
+            and r.returncode == 0 and d["later"] == [note] and len(d["rows"]) == 4
+            and d["digest"] == fp.plan_digest(fp.parse_plan(PLAN)["ops"])
+            and fp.parse_plan(PLAN)["later"] == [] and "function laterBox" in tpl), \
+        f"{plan.get('later')} {plan['refused']} {r.stderr[-200:]}"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")

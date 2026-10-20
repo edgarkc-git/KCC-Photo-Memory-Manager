@@ -55,6 +55,7 @@ RE_TITLE = re.compile(r"^#\s+(.+)$")
 TITLE = "Review folders"
 OLD_TITLE = "Fix plan"
 REFUSED_HEAD = "## Refused (never applied)"
+LATER_HEAD = photo_index.AFTER_COPY_HEAD
 RE_REPLY = re.compile(r"^\s*-?\s*(\d+)\s*[:.]\s*(ok|skip|word:\s*.+)\s*$", re.I)
 MAX_SAMPLES = 3
 # The rules whose row takes the owner's own words (the fix plan's apply:
@@ -96,8 +97,9 @@ def parse_op(line):
 
 
 def parse_plan(md_text):
-    """-> {"title", "ops", "refused"} read off the fix plan's own lines."""
-    title, ops, refused, in_refused = "", [], [], False
+    """-> {"title", "ops", "refused", "later"} read off the fix plan's own
+    lines. A plan written before G47 has no `## After the copy`."""
+    title, ops, refused, later, in_list = "", [], [], [], None
     for line in md_text.splitlines():
         m = RE_TITLE.match(line)
         if m and not title:
@@ -107,13 +109,13 @@ def parse_plan(md_text):
                 title = TITLE + title[len(OLD_TITLE):]
             continue
         if line.startswith("## "):
-            in_refused = line.strip() == REFUSED_HEAD
+            in_list = {REFUSED_HEAD: refused, LATER_HEAD: later}.get(line.strip())
             continue
-        if in_refused:
+        if in_list is not None:
             if line.startswith("- "):
-                refused.append(line[2:].strip())
+                in_list.append(line[2:].strip())
             elif line.strip():
-                in_refused = False
+                in_list = None
             continue
         op = parse_op(line)
         if op:
@@ -129,7 +131,7 @@ def parse_plan(md_text):
             raise SystemExit("the fix plan numbers row %d twice — a row the "
                              "owner answers must name one op" % op["n"])
         seen.add(op["n"])
-    return {"title": title, "ops": ops, "refused": refused}
+    return {"title": title, "ops": ops, "refused": refused, "later": later}
 
 
 def plan_digest(ops):
@@ -159,7 +161,8 @@ def build_data(plan, workdir, max_px, quality, out_of_date=None):
                      "photos": op["photos"], "thumbs": thumbs,
                      "word": WORD_KIND.get(op["rule"]), "answer": op["answer"]})
     return {"title": plan["title"] or TITLE, "rows": rows,
-            "refused": plan["refused"], "digest": plan_digest(plan["ops"]),
+            "refused": plan["refused"], "later": plan["later"],
+            "digest": plan_digest(plan["ops"]),
             "photos": sum(op["photos"] for op in plan["ops"]),
             "nothing": photo_index.NOTHING_TO_CHANGE,
             "out_of_date": out_of_date or "", "submitted": None}
