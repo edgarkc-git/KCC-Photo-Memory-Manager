@@ -409,6 +409,12 @@ SHARED_FRAMES_FLAG = "named_on_shared_frames"
 # every other parsed value — the SENTENCE around it is owner language, so the
 # id itself is what is matched, inside the header fence and nowhere else.
 SNAPSHOT_ID = re.compile(r"sha256:[0-9a-f]{8,}")
+# B1-4 (E38) — a second pin in the header fence: the pack as THIS page's own
+# subjects stand in it. No `sha256:` prefix, so `pinned_snapshot()` still
+# reads the whole-pack id first and only.
+PAGE_PIN_LINE = "subjects pin: {pin} · {n} subject(s)"
+PAGE_PIN = re.compile(r"^subjects pin: ([0-9a-f]{16})\b", re.M)
+PAGE_SUBJECT = re.compile(r"subj-\d{4,}")
 # SNS-4 — the machine-readable trace that the guaranteed end-of-dump round has
 # already been asked in this work dir. An HTML COMMENT and ASCII, for the
 # reason every other parsed token on the page is: the sentence stating the
@@ -3039,7 +3045,57 @@ def render_review(workdir, pack, registry, rows, questions, suppressed,
         out += ["<!-- questions suppressed, and why:"]
         out += [f"     {sid}: {why}" for sid, why in suppressed]
         out += ["-->", ""]
-    return "\n".join(out)
+    text = "\n".join(out)
+    ids = page_subject_ids(text)
+    pin = page_pin(pack, ids)
+    if pin:
+        head, fence, rest = text.partition("```\n\n")
+        text = (head + PAGE_PIN_LINE.format(pin=pin, n=len(ids)) + "\n"
+                + fence + rest)
+    return text
+
+
+def page_subject_ids(text):
+    """-> every subject id the page names below its header fence."""
+    parts = text.split("```", 2)
+    return sorted(set(PAGE_SUBJECT.findall(parts[2] if len(parts) > 2 else text)))
+
+
+def page_pin(pack, subject_ids):
+    """B1-4 (E38) — a digest of what the page's numbers point into: the pack's
+    profile, the registry's own settings, and for each subject the page names
+    its record and its files in all three vector stores. A confirm of ANOTHER
+    page that moves none of these leaves this page's map exactly as it was,
+    so it no longer stales it; one that moves any of them (an absorb, a fold,
+    a new exemplar, a settings change) still does. -> 16 hex chars, or None
+    with no pack."""
+    if pack is None or not getattr(pack, "dir", None) or not Path(pack.dir).is_dir():
+        return None
+    import hashlib
+    digest = hashlib.sha256()
+    profile = Path(pack.dir) / photo_profile.PROFILE_NAME
+    digest.update(profile.read_bytes() if profile.is_file() else b"-")
+    registry = photo_subjects.load(pack=pack)
+    digest.update(json.dumps({k: v for k, v in registry.data.items()
+                              if k != "subjects"}, sort_keys=True).encode())
+    records = {r.get("subject_id"): r for r in registry.data.get("subjects") or []}
+    for sid in subject_ids:
+        digest.update(sid.encode())
+        digest.update(json.dumps(records.get(sid), sort_keys=True).encode())
+        for path in (registry.vectors_path(sid), registry.draft_vectors_path(sid),
+                     registry.identity_vectors_path(sid)):
+            if path is not None and Path(path).is_file():
+                digest.update(Path(path).name.encode())
+                digest.update(Path(path).read_bytes())
+    return digest.hexdigest()[:16]
+
+
+def pinned_page(text):
+    """-> the `subjects pin:` this page was written with, or None (a page
+    written before B1-4)."""
+    parts = text.split("```")
+    found = PAGE_PIN.search(parts[1]) if len(parts) > 1 else None
+    return found.group(1) if found else None
 
 
 # ----------------------------------------------------------------- parse ----
@@ -5459,7 +5515,18 @@ def cmd_confirm(args):
         # not, and `--sync` reaches those write paths with no file at all.
         pinned = pinned_snapshot(text)
         snapshot = pack.snapshot() or {}
-        if pinned and snapshot.get("id") and pinned != snapshot["id"]:
+        own_pin = pinned_page(text)
+        own_map_unmoved = bool(own_pin) and own_pin == page_pin(
+            pack, page_subject_ids(text))
+        if (pinned and snapshot.get("id") and pinned != snapshot["id"]
+                and own_map_unmoved):
+            # B1-4 (E38) — another page's confirm moved the pack, and nothing
+            # this page's numbers point into. Said, then applied as usual.
+            print(f"  note: {path.name} was written when this pack held "
+                  f"{pinned}; the pack now holds {snapshot['id']}, but not one "
+                  "subject this page names has changed since, so its numbers "
+                  "still mean what they meant.")
+        elif pinned and snapshot.get("id") and pinned != snapshot["id"]:
             print(f"  ! {path.name} was written when this pack held {pinned}, "
                   f"and the pack now holds {snapshot['id']}. NOTHING in the "
                   "file was applied — not one row. The numbers on that page "

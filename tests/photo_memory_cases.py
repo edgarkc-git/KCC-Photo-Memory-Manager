@@ -4150,6 +4150,9 @@ def case_a_recheck_row_is_one_answer(tmp):
     path.write_text(text)
     moved = psub.load(pack=open_pack(pack_dir))
     moved.create_subject(kind="dog")
+    # B1-4 — the page's own subject moves too, or the page still holds.
+    moved.get(subject_id).record["files"] = int(
+        moved.get(subject_id).record.get("files", 0)) + 1
     moved.save()
     rc, said = confirm(pack_dir, workdir, checkpoint=8, go=True)
     assert rc == 1 and "NOTHING in the file was applied" in said, said
@@ -4753,6 +4756,10 @@ def case_a_stale_page_refusal_leads_to_a_page_that_asks(tmp):
     data["subjects"].append({"subject_id": "subj-0950", "name": "Other",
                              "who": "pet", "kind": "cat",
                              "status": psub.STATUS_CONFIRMED, "exemplars": []})
+    # B1-4 — an unrelated subject no longer stales a page; its own one does.
+    for record in data["subjects"]:
+        if record["subject_id"] in asked:
+            record["files"] = int(record.get("files", 0)) + 1
     reg.write_text(json.dumps(data))
     page.write_text(fill_pick(page.read_text(), [1], name="Name-A"))
     rc, said = confirm(pack_dir, workdir)

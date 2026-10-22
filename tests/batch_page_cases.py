@@ -238,6 +238,11 @@ def the_lines_a_waiting_page_and_a_stale_page_print_name_their_scripts():
         data["subjects"].append({"subject_id": "subj-0950", "name": "Other",
                                  "who": "pet", "kind": "cat",
                                  "status": "human-confirmed", "exemplars": []})
+        # B1-4 — an unrelated subject no longer stales a page; the page's own
+        # subject moving does.
+        for record in data["subjects"]:
+            if record["subject_id"] in page_ids(page.read_text()):
+                record["files"] = int(record.get("files", 0)) + 1
         reg.write_text(json.dumps(data))
         page.write_text(pmc.fill_pick(page.read_text(), [1], name="Name-A"))
         _rc2, stale = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
@@ -1081,6 +1086,11 @@ def a_stale_batch_page_refusal_leads_to_the_page_again():
         data["subjects"].append({"subject_id": "subj-0950", "name": "Other",
                                  "who": "pet", "kind": "cat",
                                  "status": "human-confirmed", "exemplars": []})
+        # B1-4 — an unrelated subject no longer stales a page; the page's own
+        # subject moving does.
+        for record in data["subjects"]:
+            if record["subject_id"] in page_ids(page.read_text()):
+                record["files"] = int(record.get("files", 0)) + 1
         reg.write_text(json.dumps(data))
         page.write_text(pmc.fill_pick(page.read_text(), [1], name="Name-A"))
         rc, said = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
@@ -1230,6 +1240,112 @@ def a_draft_with_no_unit_on_its_evidence_keeps_its_batch_reading():
             photo_profile.review_messages(pack.profile), batch=1)[0]
         asked = [t["subject_id"] for q in questions for t in q["tiles"]]
     return asked == [draft.subject_id], f"asked={asked}"
+
+
+def page_ids(text):
+    """The subject ids a page names below its header fence."""
+    import re
+    return sorted(set(re.findall(r"subj-\d{4,}", text.split("```", 2)[-1])))
+
+
+def three_pages_one_confirmed(tmp):
+    """Three pet pages written up front, P-B01 answered (Lotus) and confirmed
+    with --go; P-B02 answered (Birk) and not yet confirmed.
+    -> (work dir, pack dir, what P-B01's --go said)."""
+    wd, pack_dir, extra = page_dump(tmp, pets=(1, 2, 3), place_batches=())
+    walk_pages(tmp, wd, extra)
+    for page, name in (("P-B01", "Lotus"), ("P-B02", "Birk")):
+        path = wd / f"{page}.md"
+        path.write_text(pmc.fill_pick(path.read_text(), [1], who="pet", name=name))
+    rc, said = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+    return wd, pack_dir, f"rc={rc} {said[-200:]}"
+
+
+@case
+def a_confirm_stales_no_page_whose_own_subjects_it_left_alone():
+    """⭐ REPRODUCTION (B1-4, E38). ⛔ FAILS on 2c1bf34: P-B01's `--go` moved
+    the pack, and P-B02 was refused whole although nothing it asks about
+    changed."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, first = three_pages_one_confirmed(tmp)
+        dry, said_dry = pmc.confirm_page(pack_dir, wd, page="P-B02", go=False)
+        go, said_go = pmc.confirm_page(pack_dir, wd, page="P-B02", go=True)
+        birk = subjects_named(pack_dir, "Birk")
+    return (dry == 0 and go == 0 and "1 refused" not in said_dry
+            and "not one subject this page names has changed" in said_dry
+            and len(birk) == 1), \
+        f"{first} dry={dry} go={go} said={said_dry[-400:]!r}"
+
+
+def stale_after(tmp, change):
+    wd, pack_dir, _first = three_pages_one_confirmed(tmp)
+    change(wd, pack_dir)
+    rc, said = pmc.confirm_page(pack_dir, wd, page="P-B02", go=False)
+    return rc, said
+
+
+def touch_record(wd, pack_dir):
+    path = pack_dir / "photo-subjects" / "subjects.json"
+    data = json.loads(path.read_text())
+    on_page = page_ids((wd / "P-B02.md").read_text())
+    for record in data["subjects"]:
+        if record["subject_id"] in on_page:
+            record["status"] = "absorbed"
+    path.write_text(json.dumps(data))
+
+
+def touch_vectors(wd, pack_dir):
+    sid = page_ids((wd / "P-B02.md").read_text())[0]
+    store = pack_dir / "photo-subjects" / "draft-vectors" / f"{sid}.npy"
+    store.parent.mkdir(parents=True, exist_ok=True)
+    store.write_bytes(store.read_bytes() + b"x" if store.exists() else b"x")
+
+
+def touch_profile(wd, pack_dir):
+    path = pack_dir / photo_profile.PROFILE_NAME
+    prof = json.loads(path.read_text())
+    prof.setdefault("memory", {})["batch_pages"] = 9
+    path.write_text(json.dumps(prof))
+
+
+def strip_pin(wd, pack_dir):
+    path = wd / "P-B02.md"
+    path.write_text("\n".join(l for l in path.read_text().splitlines()
+                              if not l.startswith("subjects pin:")) + "\n")
+
+
+@case
+def a_page_whose_own_subject_another_confirm_moved_is_still_stale():
+    """GUARD (B1-4). Page Y's confirm absorbs (or folds) a draft page X shows:
+    X's numbers no longer mean what they meant, so X is refused whole, as
+    before. Simulated on the record; the sweep that does it for real is D-23's."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        rc, said = stale_after(tmp, touch_record)
+    return rc == 1 and "1 refused" in said, f"rc={rc} said={said[-300:]!r}"
+
+
+@case
+def a_page_whose_subject_vectors_moved_is_still_stale():
+    """GUARD (B1-4). A vector store file of a subject the page names changed."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        rc, said = stale_after(tmp, touch_vectors)
+    return rc == 1 and "1 refused" in said, f"rc={rc} said={said[-300:]!r}"
+
+
+@case
+def a_settings_change_still_stales_every_page():
+    """GUARD (B1-4). The pack's profile is part of every page's pin."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        rc, said = stale_after(tmp, touch_profile)
+    return rc == 1 and "1 refused" in said, f"rc={rc} said={said[-300:]!r}"
+
+
+@case
+def a_page_written_before_the_subjects_pin_keeps_the_whole_pack_rule():
+    """GUARD (B1-4). No `subjects pin:` line: any pack change stales it."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        rc, said = stale_after(tmp, strip_pin)
+    return rc == 1 and "1 refused" in said, f"rc={rc} said={said[-300:]!r}"
 
 
 # ---------------------------------------------------------------------------
