@@ -581,9 +581,10 @@ def each_photo_votes_once_for_the_landmark_it_is_at():
 def a_failed_landmark_lookup_is_said_out_loud():
     """⭐ REPRODUCTION (F2). With every request refused, the away days fall
     to the town or nothing — and the stage SAYS so: batches.json carries the
-    count, stderr prints it, `render` and `photo_where` print it again, so a
-    short outage never leaves town names that look final. ⛔ FAILS on
-    bd4d047 (silent)."""
+    count, stderr prints it, and `photo_where` prints it again, so a short
+    outage never leaves town names that look final. ⛔ FAILS on bd4d047
+    (silent). M12 (U6-4, Lead ruling 20261022): said ONCE per dump — the
+    `render` after `cluster` no longer repeats it."""
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         days = {k: DAYS[k] for k in ("2025-05-01", "2025-05-02")}
         wd = dump(tmp, days=days, cache={})
@@ -603,7 +604,7 @@ def a_failed_landmark_lookup_is_said_out_loud():
         _c, out, _e = ix.run("render", wd, "--no-vision")
     said = "landmark lookup failed for"
     return (proc.returncode == 0 and failed >= 2 and len(flagged) >= 1
-            and said in proc.stderr and said in out and said in where.stderr
+            and said in proc.stderr and said not in out and said in where.stderr
             and overpass == failed), \
         (f"rc={proc.returncode} failed={failed} flagged={flagged} "
          f"overpass={overpass} stderr={proc.stderr[-200:]!r} out={out[-200:]!r} "

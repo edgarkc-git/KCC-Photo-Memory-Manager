@@ -933,7 +933,8 @@ def next_command(workdir):
     if not (wd / "batches.json").exists():
         return f'{me()} cluster "{wd}"'
     coll = load_collection(wd.parent) or {}
-    if not indexed(wd) and coll.get("owner"):
+    # A dump sorted from hand-written plans (no index) never needs `init`.
+    if not indexed(wd) and coll.get("owner") and not (wd / "plans.json").exists():
         return f'{photo_platform.run_line(PY, HERE / "photo_index.py")} init "{wd}"'
     unseen = unseen_batches(wd)
     vision_left = unseen and not (indexed(wd) and _no_vision_render(wd))
@@ -986,8 +987,8 @@ def print_estimate(workdir):
     photos = manifest_rows(workdir)
     line = photo_progress.picture_estimate(workdir, photos, record=False)
     print("  " + (line or f"Picture pass: {photos} photos — no rate recorded on "
-                  "this machine yet; photo_embed times its first files and "
-                  "prints the estimate"))
+                  "this machine yet; the embed stage times its first files "
+                  "and prints the estimate"))
 
 
 def print_visual_pass(workdir, unseen):
