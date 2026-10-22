@@ -490,7 +490,10 @@ def main():
     plans_done = dict(rec.get("plans") or {})
     plans_done[label] = resume
     photo_progress.update(workdir, "copy", plans=plans_done)
-    if failed:
+    # U6-4 — the log above keeps the note; the console says it once per dump.
+    if failed and photo_cluster.landmark_failed_once(
+            [b for b in bdata["batches"] if plan and b["batch"] in plan["batches"]],
+            workdir):
         print(failed)
     if flags:
         sys.exit(1)

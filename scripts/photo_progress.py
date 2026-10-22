@@ -22,9 +22,11 @@ starts (never a hardcoded number).
 Test seam: `fault(point)` ends the process at once when $PHOTO_TEST_FAULT names
 that point (`point` or `point@N` = its N-th call). Set only by tests.
 """
+import hashlib
 import json
 import os
 import platform
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -53,6 +55,8 @@ def fault(point):
         return
     _fault_calls[point] = _fault_calls.get(point, 0) + 1
     if _fault_calls[point] >= int(nth or 1):
+        sys.stdout.flush()
+        sys.stderr.flush()
         os._exit(FAULT_RC)
 
 
@@ -61,7 +65,9 @@ def now():
 
 
 def machine():
-    return platform.node() or "unknown"
+    """A short hash of the host name: rates are matched per machine, and the
+    name itself (often the owner's) is never written."""
+    return hashlib.sha256((platform.node() or "unknown").encode()).hexdigest()[:12]
 
 
 def path(workdir):
@@ -167,6 +173,10 @@ def said_once(workdir, key, text):
     return True
 
 
+def already_said(workdir, key, text):
+    return (load(workdir).get("said") or {}).get(key) == text
+
+
 def forget_said(workdir, key):
     data = load(workdir)
     if (data.get("said") or {}).pop(key, None) is not None:
@@ -208,11 +218,31 @@ def estimate_line(photos, rate, basis):
             f"(rate {rate:.2f} s/photo from {basis})")
 
 
-def record_estimate(workdir, photos, rate, basis, stages):
-    est = {"photos": photos, "seconds": round(photos * rate), "rate_s": round(rate, 4),
-           "basis": basis, "stages": list(stages), "at": now()}
-    note(workdir, "estimate", est)
-    return est
+def picture_estimate(workdir, photos, sample=None, record=True):
+    """-> the estimate line for the picture pass, or None when no stage of it
+    has a rate yet. `sample` = {stage: (rate, basis)} timed in THIS run; any
+    other stage takes its recorded rate on this machine. A stage with neither
+    is left out and the basis says so — never a guessed number."""
+    parts, bases, missing = [], [], []
+    for name in PICTURE_STAGES:
+        got = (sample or {}).get(name) or recorded_rate(workdir, name)
+        if got:
+            parts.append(got[0])
+            bases.append(f"{name}: {got[1]}")
+        else:
+            missing.append(name)
+    if not parts:
+        return None
+    rate = sum(parts)
+    basis = "; ".join(bases) + (f"; {', '.join(missing)} not timed yet on this "
+                                "machine, not included" if missing else "")
+    if record:
+        data = load(workdir)
+        data.setdefault("estimates", []).append(
+            {"photos": photos, "seconds": round(photos * rate),
+             "rate_s": round(rate, 4), "basis": basis, "at": now()})
+        save(workdir, data)
+    return estimate_line(photos, rate, basis)
 
 
 def picture_actual(workdir):
@@ -225,9 +255,10 @@ def picture_actual(workdir):
     return round(sum(r["seconds"] for r in recs), 1)
 
 
-def compact_line(workdir, done_what):
+def compact_line(workdir, done_what, command=None):
     """⛔ The agent may compact (or the session may end) here: everything
     before this line is on disk. The command is the one `status` prints."""
-    import photo_run  # lazy: photo_run imports this module
-    return (f"SAFE TO COMPACT — {done_what}. Resume with:\n"
-            f"    {photo_run.next_command(workdir)}")
+    if command is None:
+        import photo_run  # lazy: photo_run imports this module
+        command = photo_run.next_command(workdir)
+    return f"SAFE TO COMPACT — {done_what}. Resume with:\n    {command}"

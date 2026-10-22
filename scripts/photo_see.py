@@ -168,6 +168,7 @@ import photo_evidence  # noqa: E402
 import photo_identity
 import photo_platform  # noqa: E402
 import photo_profile  # noqa: E402
+import photo_progress  # noqa: E402
 import photo_subjects  # noqa: E402
 from photo_cluster import parse_date  # noqa: E402
 from photo_recurrence import META_IDENTITY, TEXT_IDENTITY, cluster  # noqa: E402
@@ -2798,6 +2799,10 @@ def main():
             report_path.write_text(json.dumps(report, ensure_ascii=False, indent=1))
         result = validate(report, entries, samples_dir)
         print(json.dumps(result, ensure_ascii=False, indent=1))
+        if args.apply and result["ok"]:
+            see_tick(workdir, report["batch"], "applied")
+            print(photo_progress.compact_line(
+                workdir, f"batch {report['batch']}'s labels are on disk"))
         sys.exit(0 if result["ok"] else 1)
 
     if report_path.exists() and not args.force:
@@ -2884,12 +2889,34 @@ def main():
               "Build it once with:")
         print(f"    {photo_platform.run_line(photo_platform.venv_python(), Path(__file__).resolve().parent / 'photo_identity.py')}"
               f" \"{workdir}\"")
+    see_tick(workdir, report["batch"], "selected")
     # Last, after the report is written and every warning is out.
     if not args.no_thumbnails:
         photo_embed.exit_if_nothing_viewable(
             "photo_see", len(report["selected"]),
             sum(1 for e in report["selected"] if e.get("sample")),
             report["sample_failures_by_cause"])
+
+
+def see_tick(workdir, batch, what):
+    """M12 — per batch `selected` (the report) or `applied` (the labels); the
+    stage is done when every batch that is not held has its labels."""
+    rec = photo_progress.stage(workdir, "see")
+    batches = dict(rec.get("batches") or {})
+    batches[str(batch)] = what
+    try:
+        bdata = json.loads((Path(workdir) / "batches.json").read_text())
+        live = [b["batch"] for b in bdata["batches"] if b.get("status") != "held"]
+    except (OSError, ValueError, KeyError):
+        live = []
+    labelled = sum(1 for n in live if (Path(workdir) / "classify" / f"batch-{n:02d}"
+                                      / "see-labels.json").exists())
+    if live and labelled == len(live):
+        photo_progress.update(workdir, "see", batches=batches)
+        photo_progress.finish(workdir, "see", done=labelled, total=len(live))
+    else:
+        photo_progress.update(workdir, "see", state=photo_progress.RUNNING,
+                              batches=batches, done=labelled, total=len(live))
 
 
 if __name__ == "__main__":

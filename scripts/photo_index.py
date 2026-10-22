@@ -1522,7 +1522,8 @@ def cmd_render(args):
                 print(f"        why: {why}")
         else:
             print("no folder name would change")
-        failed = photo_cluster.landmark_failed_note(by_number.values())
+        failed = photo_cluster.landmark_failed_once(by_number.values(), workdir,
+                                                      record=False)
         if failed:
             print(failed)
         if refused:
@@ -1549,7 +1550,7 @@ def cmd_render(args):
     if rerouted or folder_moves:
         print(f"{rerouted} route(s) differ from the earlier ones and {folder_moves} "
               "folder-only move(s) — each is in the log")
-    failed = photo_cluster.landmark_failed_note(by_number.values())
+    failed = photo_cluster.landmark_failed_once(by_number.values(), workdir)
     if failed:
         print(failed)
     if refused:

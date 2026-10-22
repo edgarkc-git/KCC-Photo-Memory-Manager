@@ -90,6 +90,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pack_state  # noqa: E402
 import photo_platform  # noqa: E402
 import photo_profile  # noqa: E402
+import photo_progress  # noqa: E402
 
 # Written by photo_plan.SCREEN_PROPOSALS_NAME. Spelled out rather than
 # imported: this conductor shells out to every stage and holds no stage
@@ -180,8 +181,13 @@ def exiftool_fact():
         return ""
 
 
+# M12 (G50) — the reachability probe is counted on its own, never as a lookup.
+PROBES = [0]
+
+
 def network_fact():
     """-> None when Nominatim answers, else why not."""
+    PROBES[0] += 1
     try:
         # ⛔ Identify the probe. Anonymous, this is a 403 every time and the
         # check tells the operator to turn a working feature OFF.
@@ -882,9 +888,112 @@ def print_status(workdir, pack=None, paths=False, write=True):
               "any remaining, or you're done")
 
 
+def manifest_rows(workdir):
+    try:
+        with open(Path(workdir) / "manifest.csv", newline="", encoding="utf-8") as f:
+            return max(sum(1 for _ in f) - 1, 0)
+    except OSError:
+        return 0
+
+
+def map_note(workdir, **counts):
+    """M12 (G50) — the map request counts of this dump, kept in the progress
+    file: `photo_cluster` writes its lookup counts, prep the probe."""
+    data = photo_progress.load(workdir)
+    m = dict(data.get("map") or {})
+    m.update(counts)
+    photo_progress.note(workdir, "map", m)
+
+
+def unseen_batches(workdir):
+    bdata = load_batches(workdir) or {"batches": []}
+    return [b["batch"] for b in bdata["batches"] if b.get("status") != HELD
+            and not (Path(workdir) / "classify" / f"batch-{b['batch']:02d}"
+                     / "see-labels.json").exists()]
+
+
+def stage_open(workdir, name, output):
+    """A stage still to run: its output is missing, or the progress file says
+    it was started and never finished (a kill)."""
+    return (not output.exists()
+            or photo_progress.state(workdir, name) == photo_progress.RUNNING)
+
+
+def next_command(workdir):
+    """M12 — the ONE next command for this dump, from the progress file and
+    what is on disk. Printed by `status`, by every SAFE TO COMPACT line and
+    by a refused second prep. An agent that lost its session runs this."""
+    wd = Path(workdir)
+    venv = lambda script: photo_platform.run_line(VENV_PYTHON, HERE / script)  # noqa: E731
+    me = lambda: photo_platform.run_line(PY, HERE / "photo_run.py")  # noqa: E731
+    if not (wd / "manifest.csv").exists() or photo_progress.state(
+            wd, "scan") == photo_progress.RUNNING:
+        src = photo_progress.stage(wd, "scan").get("source") or "<source folder>"
+        return f'{me()} prep "{src}"'
+    if not (wd / "batches.json").exists():
+        return f'{me()} cluster "{wd}"'
+    coll = load_collection(wd.parent) or {}
+    if not indexed(wd) and coll.get("owner"):
+        return f'{photo_platform.run_line(PY, HERE / "photo_index.py")} init "{wd}"'
+    unseen = unseen_batches(wd)
+    vision_left = unseen and not (indexed(wd) and _no_vision_render(wd))
+    if vision_left:
+        # Once a batch is being seen, the pass goes on batch by batch: a scene
+        # axis or identity index added now would not reach the batches before.
+        started = any((wd / "classify").glob("batch-*/see-report.json"))
+        if stage_open(wd, "embed", wd / "embed" / "embeddings.npy"):
+            return f'{venv("photo_embed.py")} "{wd}"'
+        if not started and stage_open(wd, "scene_labels", wd / "embed" / "scene-labels.json"):
+            return f'{venv("photo_embed.py")} "{wd}" --scene-labels'
+        if not started and stage_open(wd, "identity", wd / "embed" / "identity.csv"):
+            return f'{venv("photo_identity.py")} "{wd}"'
+        n = unseen[0]
+        if (wd / "classify" / f"batch-{n:02d}" / "see-report.json").exists():
+            return (f"look at {wd / 'classify' / f'batch-{n:02d}' / 'samples'}, write "
+                    f"decisions.json (photo-see/SKILL.md), then: "
+                    f'{venv("photo_see.py")} "{wd}" --batch {n} --apply decisions.json --memorize')
+        return f'{venv("photo_see.py")} "{wd}" --batch {n}'
+    return f'{me()} finish "{wd}" --go'
+
+
+def _no_vision_render(workdir):
+    try:
+        pack = photo_profile.resolve_pack(workdir=workdir)
+    except SystemExit:
+        return False
+    return rendered_without_vision(workdir, pack)
+
+
+def freeze_key(workdir):
+    """-> "<freeze hash> · pack <id>" while the freeze holds, else None. A
+    stage of `finish` marked done under one key is skipped only under the
+    same key: a re-lock or a confirm moves it, and the stage runs again."""
+    r = subprocess.run([sys.executable, str(HERE / "photo_index.py"), "verify",
+                        str(workdir)], capture_output=True, text=True)
+    m = re.search(r"the freeze holds: (\S+) · pack (\S+)", r.stdout)
+    return f"{m.group(1)} · pack {m.group(2)}" if r.returncode == 0 and m else None
+
+
+def done_under(workdir, name, key):
+    rec = photo_progress.stage(workdir, name)
+    return bool(key) and rec.get("state") == photo_progress.DONE and rec.get("key") == key
+
+
+def print_estimate(workdir):
+    """G11 — before the picture pass: how long it will take, from the rate
+    recorded on this machine. With none yet, photo_embed times the first
+    files of this run and prints it."""
+    photos = manifest_rows(workdir)
+    line = photo_progress.picture_estimate(workdir, photos, record=False)
+    print("  " + (line or f"Picture pass: {photos} photos — no rate recorded on "
+                  "this machine yet; photo_embed times its first files and "
+                  "prints the estimate"))
+
+
 def print_visual_pass(workdir, unseen):
     """The visual pass's commands, each one only while its output is missing."""
     if not (workdir / "embed" / "embeddings.npy").exists():
+        print_estimate(workdir)
         print(f"    {photo_platform.run_line(VENV_PYTHON, HERE / 'photo_embed.py')} "
               f"\"{workdir}\"")
     if not (workdir / "embed" / "identity.csv").exists():
@@ -974,12 +1083,32 @@ def cmd_prep(args):
                  + photo_platform.source_missing_hint())
     workdir_root = args.workdir_root or default_workdir_root(load_profile_cached(args))
     workdir = Path(workdir_root) / Path(args.source).name
-    scan = ["photo_scan.py", args.source, "--workdir-root", workdir_root]
-    if args.no_recursive:
-        scan.append("--no-recursive")
-    r = run(*scan)
-    if r.returncode != 0:
-        sys.exit("scan failed — aborting before cluster")
+    if (workdir / "batches.json").exists() and not args.force:
+        # M12 — a second prep re-scanned and REWROTE manifest.csv under a
+        # clustered dump, then stopped at cluster (measured). Said before any
+        # write; a resume never re-runs a done prep.
+        sys.exit(f"⛔ {workdir} is already scanned and clustered (batches.json) "
+                 "— nothing was written. prep would rewrite manifest.csv under "
+                 f"it. The next step:\n    {next_command(workdir)}\n"
+                 "To scan and cluster again anyway, add --force (batches.json "
+                 "keeps a .bak).")
+    if (photo_progress.is_done(workdir, "scan") and (workdir / "manifest.csv").exists()
+            and not args.force):
+        rec = photo_progress.stage(workdir, "scan")
+        print(f"scan: skipped (done {rec.get('ended')}) · {rec.get('done')} file(s) "
+              "in manifest.csv · new work 0")
+    else:
+        workdir.mkdir(parents=True, exist_ok=True)
+        photo_progress.start(workdir, "scan", source=str(args.source))
+        scan = ["photo_scan.py", args.source, "--workdir-root", workdir_root]
+        if args.no_recursive:
+            scan.append("--no-recursive")
+        r = run(*scan)
+        if r.returncode != 0:
+            sys.exit("scan failed — aborting before cluster")
+        rows = manifest_rows(workdir)
+        photo_progress.finish(workdir, "scan", done=rows, total=rows, items=rows)
+    map_note(workdir, probe=PROBES[0])
     if getattr(args, "no_cluster", False):
         # G4 / D-I1, a FIRST dump: the census and the onboarding page read the
         # manifest only, and clustering before the owner's homes are in the
@@ -989,13 +1118,17 @@ def cmd_prep(args):
         print("\n--- prep done: scanned, NOT clustered (--no-cluster) ---")
         print("next: onboarding (photo-init), `apply --write-pack`, then:")
         print(f"  {photo_platform.run_line(PY, HERE / 'photo_run.py')} cluster \"{workdir}\"")
+        print(photo_progress.compact_line(workdir, "scan done",
+                                          next_command(workdir)))
         return
     cluster = ["photo_cluster.py", workdir]
     if args.force:
         cluster.append("--force")
+    photo_progress.start(workdir, "cluster")
     r = run(*cluster)
     if r.returncode != 0:
         sys.exit("cluster failed")
+    photo_progress.finish(workdir, "cluster")
     # Device/screen checkpoint: which cameras and screen sizes this dump
     # actually contains, versus what the owner's pack claims. A gap here is
     # silent otherwise — it surfaces later as plan documents calling the
@@ -1003,6 +1136,8 @@ def cmd_prep(args):
     run("photo_census.py", workdir)
     print("\n--- prep done ---")
     print_status(workdir, load_pack_cached(args, workdir))
+    print("\n" + photo_progress.compact_line(workdir, "scan and cluster done",
+                                             next_command(workdir)))
 
 
 def cmd_cluster(args):
@@ -1016,15 +1151,51 @@ def cmd_cluster(args):
     cluster = ["photo_cluster.py", workdir]
     if args.force:
         cluster.append("--force")
+    photo_progress.start(workdir, "cluster")
     if run(*cluster).returncode != 0:
         sys.exit("cluster failed")
+    photo_progress.finish(workdir, "cluster")
     print("\n--- cluster done ---")
     print_status(workdir, load_pack_cached(args, workdir))
+    print("\n" + photo_progress.compact_line(workdir, "cluster done",
+                                             next_command(workdir)))
 
 
 def cmd_status(args):
     wd = resolve_workdir(args.workdir, args)
     print_status(wd, load_pack_cached(args, wd), paths=args.paths)
+    print_progress(wd)
+
+
+def print_progress(workdir):
+    """M12 — the progress file, one line per stage it knows, and the one
+    command to run next (the same one every SAFE TO COMPACT line prints)."""
+    data = photo_progress.load(workdir)
+    if data["stages"]:
+        print(f"\nprogress ({photo_progress.PROGRESS_NAME}):")
+        for name in photo_progress.STAGES:
+            rec = data["stages"].get(name)
+            if not rec:
+                continue
+            count = (f" {rec.get('done')}/{rec.get('total')}"
+                     if rec.get("total") is not None else "")
+            when = rec.get("ended") or rec.get("started") or ""
+            print(f"  {name:<12} {rec.get('state', '?'):<8}{count}  {when}")
+        if data.get("map"):
+            print("  map: " + map_line(data["map"]))
+        if data.get("estimates"):
+            est = data["estimates"][0]
+            actual = photo_progress.picture_actual(workdir)
+            print(f"  picture pass: estimated {photo_progress.duration(est['seconds'])}"
+                  + (f", took {photo_progress.duration(actual)}" if actual is not None else ""))
+    print(f"\nresume with:\n    {next_command(workdir)}")
+
+
+def map_line(m):
+    c = m.get("cluster") or {}
+    return (f"network {c.get('network', 0)} · cache {c.get('cache', 0)} · "
+            f"retries {c.get('retries', 0)} · failed {c.get('failed', 0)} · "
+            f"probe {m.get('probe', 0)}")
 
 
 def run_one_plan(workdir, plans, plan_num, go, force=False,
@@ -1127,6 +1298,8 @@ def freeze_gate(args, workdir, when):
     after the freeze is kept out of the copy."""
     load_pack_cached(args, workdir)   # exports PHOTO_PROFILE for the stage
     if run("photo_index.py", "verify", workdir).returncode == 0:
+        if args.go:
+            photo_progress.finish(workdir, "freeze", key=freeze_key(workdir))
         return
     tool = HERE / "photo_index.py"
     print(f"\n⛔ STOPPED {when} — nothing was copied.\n"
@@ -1333,7 +1506,22 @@ def pre_plan_checkpoint(args, workdir):
               "round is skipped; there is no owner memory to name from)")
         return False
     if indexed(workdir):
-        return batch_page_checkpoint(workdir, pack)
+        # M12 — pages and views done under THIS freeze are not asked again: a
+        # confirm or a re-lock moves the key, and then they run.
+        key = freeze_key(workdir)
+        if done_under(workdir, "pages", key) and done_under(workdir, "identify", key):
+            print("\n===== per-batch pages + agent identification =====\n"
+                  "  skipped (done under this freeze) · new work 0")
+            return False
+        photo_progress.start(workdir, "pages")
+        photo_progress.start(workdir, "identify")
+        if batch_page_checkpoint(workdir, pack):
+            return True
+        photo_progress.finish(workdir, "pages", key=key)
+        photo_progress.finish(workdir, "identify", key=key)
+        print("\n" + photo_progress.compact_line(
+            workdir, "the pages and the views are done", next_command(workdir)))
+        return False
     print("\n===== pre-plan naming checkpoint (U-2) =====")
     checkpoint = next_checkpoint(workdir)
     rc = run("photo_memory.py", "review", workdir, "--pre-plan",
@@ -1526,6 +1714,24 @@ def cmd_plan(args):
     sys.exit(rc)
 
 
+def copy_summary(workdir, skipped, new_work, flagged, key):
+    """M12 — the counts a resumed copy is checked by, summed over the plans
+    this run copied (each plan's own `resume` line is above)."""
+    rec = photo_progress.stage(workdir, "copy")
+    per = rec.get("plans") or {}
+    tot = {k: sum(int(v.get(k, 0)) for v in per.values())
+           for k in ("already_verified", "copied_now", "found_present", "twins")}
+    print(f"\n===== copy: skipped (done) {skipped} plan(s) · new work {new_work} plan(s) =====\n"
+          f"  over every plan's last run: already verified {tot['already_verified']} · "
+          f"copied now {tot['copied_now']} · found on the drive {tot['found_present']} · "
+          f"twins {tot['twins']}")
+    if not flagged:
+        if rec.get("state") == photo_progress.RUNNING:
+            photo_progress.finish(workdir, "copy", key=key)
+        print(photo_progress.compact_line(workdir, "the copy is done",
+                                          next_command(workdir)))
+
+
 def cmd_finish(args):
     workdir = resolve_workdir(args.workdir, args)
     frozen = indexed(workdir)
@@ -1548,7 +1754,15 @@ def cmd_finish(args):
         freeze_gate(args, workdir, "BEFORE COPYING")
         plans = load_plans(workdir)
     flagged = []
-    for p in sorted(plans["plans"], key=lambda x: x["plan"]):
+    statuses = {b["batch"]: b.get("status", "pending")
+                for b in (load_batches(workdir) or {}).get("batches", [])}
+    all_plans = sorted(plans["plans"], key=lambda x: x["plan"])
+    plans_done = [p for p in all_plans
+                  if p["batches"] and all(statuses.get(b) == "done" for b in p["batches"])]
+    new_work = len(all_plans) - len(plans_done) if not args.force else len(all_plans)
+    if args.go and new_work:
+        photo_progress.start(workdir, "copy", total=len(all_plans))
+    for p in all_plans:
         print(f"\n===== P{p['plan']} — {p.get('title', '')} =====")
         rc = run_one_plan(workdir, plans, p["plan"], args.go,
                           force=args.force, no_vision=args.no_vision,
@@ -1582,13 +1796,28 @@ def cmd_finish(args):
                 flagged.append("no-date")
         else:
             flagged.append("no-date")
-    if frozen and args.go:
+    key = freeze_key(workdir) if frozen and args.go else None
+    if args.go:
+        copy_summary(workdir, len(plans_done) if not args.force else 0, new_work,
+                     flagged, key)
+    # M12 — with no new copy under the same freeze, the checks after the copy
+    # have nothing new to check.
+    after_done = (not new_work and not flagged
+                  and all(done_under(workdir, n, key)
+                          for n in ("verify", "rename", "after_check")))
+    if frozen and args.go and after_done:
+        print("\n===== copy check, rename backstop, final check =====\n"
+              "  skipped (done under this freeze, nothing copied since) · new work 0")
+    elif frozen and args.go:
         print("\n===== copy check against the freeze =====")
+        photo_progress.start(workdir, "verify")
         rc = run("photo_index.py", "verify", workdir, "--copied").returncode
         # F-mm — 6: every copy matches, only the owner pack moved since the
         # freeze (said above by verify). Not a failed copy, so not a flag.
         if rc not in (0, EXIT_PACK_MOVED):
             flagged.append("copy-check")
+        else:
+            photo_progress.finish(workdir, "verify", key=key)
     if frozen and not args.go:
         # FIX8 F8-2 — the folders a re-lock found renamed after their copy;
         # `--go` puts them to the owner in the after-check (M10).
@@ -1601,7 +1830,9 @@ def cmd_finish(args):
                   "owner to rename each one:")
             for old, new in todo:
                 print(f'  "{old}" -> "{new}"')
-    if args.go:
+    if args.go and frozen and after_done:
+        pass
+    elif args.go:
         # OA-4 backstop: mislabeled extensions are corrected at copy time
         # (D13), but merge destinations may hold older mismatched copies —
         # sweep this dump's destination folders (copies only, never sources)
@@ -1611,15 +1842,20 @@ def cmd_finish(args):
         if r.returncode != 0:
             print("⚠️  rename step failed — run photo_rename_mismatches.py "
                   "manually on this dump's destination folders")
+        else:
+            photo_progress.finish(workdir, "rename", key=key)
     else:
         print("\n(extension-mismatch rename runs only with --go)")
     after_check = 0
-    if frozen and args.go and not flagged:
+    if frozen and args.go and not flagged and not after_done:
         # M10 (ADR 0007) — the copy proof and the leftover ops, after verify.
         print("\n===== Final check (`photo_index.py after-check`) =====")
+        photo_progress.start(workdir, "after_check")
         after_check = run("photo_index.py", "after-check", workdir).returncode
         if after_check not in (0, AFTER_CHECK_WAITS):
             flagged.append("after-check")
+        elif after_check == 0:
+            photo_progress.finish(workdir, "after_check", key=key)
 
     # ---- SNS-4's guaranteed end-of-dump round --------------------------------
     #
@@ -1679,6 +1915,10 @@ def cmd_finish(args):
     print_screen_checkpoint(workdir)
     print_paperwork_checkpoint(workdir)
     print("\n--- finish done ---")
+    if args.go and not flagged and after_check == 0:
+        print(photo_progress.compact_line(workdir, "finish done",
+                                          f"{photo_platform.run_line(PY, HERE / 'photo_run.py')} "
+                                          f"status \"{workdir}\""))
     # An indexed dry run writes nothing, the status ledger included (M5); a
     # dry run without an index approved batches, and the ledger says so.
     print_status(workdir, load_pack_cached(args, workdir),

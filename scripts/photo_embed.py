@@ -142,12 +142,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from photo_sample import IMAGE_TYPES, VIDEO_TYPES  # noqa: E402
 import photo_magic  # noqa: E402
+import photo_progress  # noqa: E402
 
 MODEL_ID = "ViT-B-32"
 PRETRAINED_TAG = "laion2b_s34b_b79k"
@@ -547,7 +549,7 @@ def reclaim_hit(pool, src, st):
     return None
 
 
-def run(manifest_rows, embed_dir, force, device_arg, errors_log):
+def run(manifest_rows, embed_dir, force, device_arg, errors_log, workdir=None):
     existing_rows, existing_vectors, existing_meta = ([], None, None) if force \
         else load_existing(embed_dir)
 
@@ -666,8 +668,16 @@ def run(manifest_rows, embed_dir, force, device_arg, errors_log):
                              device_arg=device_arg)
         summary = summarize()
         print(json.dumps(summary, indent=1))
+        if workdir:
+            photo_progress.finish(workdir, "embed", done=len(rows), total=len(rows))
         return summary
 
+    if workdir:
+        # G11 — before the pass: the rate recorded on this machine, if any.
+        line = photo_progress.picture_estimate(workdir, len(pending))
+        if line:
+            print(line)
+        photo_progress.start(workdir, "embed", total=len(pending))
     torch, model, preprocess, device = load_model(device_arg)
     with torch.no_grad():
         embed_dim = model.visual.output_dim if hasattr(model.visual, "output_dim") \
@@ -692,6 +702,7 @@ def run(manifest_rows, embed_dir, force, device_arg, errors_log):
                           else None) or datetime.now().strftime("%Y-%m-%d %H:%M")
 
     doc_raw = {}
+    t_loop = time.time()
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         for i in range(0, len(pending), BATCH_SIZE):
@@ -727,11 +738,22 @@ def run(manifest_rows, embed_dir, force, device_arg, errors_log):
                 for (source_file, kind, st), vec in zip(meta_for_thumb, feats):
                     record(source_file, kind, st, "embedded", vec)
                     embedded += 1
+                if i == 0 and workdir:
+                    # G11 — this run's own timed sample, the model load left out.
+                    n = embedded + failed
+                    print(photo_progress.picture_estimate(
+                        workdir, len(pending),
+                        sample={"embed": ((time.time() - t_loop) / max(n, 1),
+                                          f"a timed sample of the first {n} files of this run")}))
                 if (i // BATCH_SIZE) % 5 == 0:
                     meta["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                     save_index(embed_dir, rows, vectors, meta)
-                    print(f"  {min(i + BATCH_SIZE, len(pending))}/{len(pending)} "
+                    done_n = min(i + BATCH_SIZE, len(pending))
+                    print(f"  {done_n}/{len(pending)} "
                           f"({embedded} embedded, {failed} failed)")
+                    if workdir:
+                        photo_progress.tick(workdir, "embed", done_n, len(pending))
+                        photo_progress.fault("embed_saved")
             finally:
                 # Thumbnails (and the corrected-extension source copies, which
                 # are full-size) used to accumulate for the whole run.
@@ -749,6 +771,10 @@ def run(manifest_rows, embed_dir, force, device_arg, errors_log):
 
     summary = summarize(device)
     print(json.dumps(summary, indent=1))
+    if workdir:
+        photo_progress.finish(workdir, "embed", done=len(pending), total=len(pending),
+                              items=embedded + failed)
+        print(photo_progress.compact_line(workdir, "embed done"))
     return summary
 
 
@@ -1116,12 +1142,16 @@ def main():
         import photo_profile
         root = Path(args.index_root).resolve() / ".photo-embed-index" if args.index_root \
             else Path(args.workdir).resolve() / "embed"
+        wd = Path(args.workdir).resolve() if args.workdir else None
+        if wd:
+            photo_progress.start(wd, "scene_labels")
         encode_scene_labels(
             root,
-            photo_profile.load_profile(explicit=args.profile,
-                                       workdir=Path(args.workdir).resolve()
-                                       if args.workdir else None),
+            photo_profile.load_profile(explicit=args.profile, workdir=wd),
             args.device, args.force)
+        if wd:
+            photo_progress.finish(wd, "scene_labels")
+            print(photo_progress.compact_line(wd, "scene labels done"))
         return
 
     if args.index_root:
@@ -1135,7 +1165,7 @@ def main():
         manifest_rows = list(csv.DictReader(f))
     embed_dir = workdir / "embed"
     sys.exit(exit_code(run(manifest_rows, embed_dir, args.force, args.device,
-                           embed_dir / "embed-errors.log")))
+                           embed_dir / "embed-errors.log", workdir=workdir)))
 
 
 if __name__ == "__main__":

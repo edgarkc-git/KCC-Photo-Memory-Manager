@@ -21,7 +21,9 @@ Run:
 
 import argparse
 import io
+import os
 import shutil
+import stat
 import sys
 import urllib.request
 from contextlib import redirect_stdout
@@ -113,9 +115,14 @@ def the_prep_stop_quotes_a_product_path_with_a_space():
         return False, "prep returned"
     except SystemExit as exc:
         said = str(exc.code)
-        want = ('`"/opt/my env/bin/python3" "/opt/my product/scripts/'
-                'photo_run.py" doctor`')
-        return want in said, said
+        # W11-1 — the platform's own form, from the helper the product uses:
+        # POSIX `"<python>" "<path>"`, PowerShell `& "<python>" "<path>"`.
+        want = ("`" + photo_platform.run_line("/opt/my env/bin/python3",
+                                              photo_run.HERE / "photo_run.py")
+                + " doctor`")
+        quoted = '"/opt/my env/bin/python3"' in want and "my product" in want \
+            and want.count('"') == 4
+        return quoted and want in said, said
     finally:
         restore()
         photo_run.HERE, photo_platform.owner_python = saved
@@ -752,6 +759,11 @@ def a_clone_names_its_build_through_git():
     return got == "v9.9.9 (a git clone)", got
 
 
+def _writable_then_retry(func, path, _exc):
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
 @case
 def a_copy_with_neither_says_it_does_not_know():
     """GUARD (H-G), route 3: no stamp and no git — a copied folder — says it
@@ -763,7 +775,12 @@ def a_copy_with_neither_says_it_does_not_know():
         return False, "photo_run has no build_id"
     with tempfile.TemporaryDirectory() as tmp:
         repo = tagged_repo(tmp)
-        sh.rmtree(repo / ".git")
+        # W11-2 — git writes its objects read-only, and Windows refuses to
+        # delete a read-only file: clear the bit, then delete.
+        sh.rmtree(repo / ".git", **{"onexc" if sys.version_info >= (3, 12)
+                                    else "onerror": _writable_then_retry})
+        if (repo / ".git").exists():
+            return False, ".git was not removed — the case never reached its check"
         got = photo_run.build_id(repo / "scripts" / "BUILD.txt", repo)
     return got == "unknown (not a release download) — version 9.9.9", got
 

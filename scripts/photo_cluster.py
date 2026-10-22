@@ -45,6 +45,7 @@ import argparse
 import csv
 import json
 import math
+import os
 import re
 import shutil
 import sys
@@ -57,6 +58,7 @@ from statistics import median
 
 sys.path.insert(0, str(Path(__file__).parent))
 import photo_profile  # noqa: E402
+import photo_progress  # noqa: E402
 
 # K20 — the day test for an owner's OWN country: is a day at home-country or
 # abroad? One row per country the engine can test offline, (lat min, lat max,
@@ -780,12 +782,39 @@ def landmark_query(bbox):
             + "\n);\nout body bb;")
 
 
+# M12 (G50, SPEC §8 item 6) — map requests of this process, counted only in
+# the two request points: `Geocoder.nominatim()` and `overpass_post()`.
+# `network` = requests sent; `retries` = the sends after a first failure;
+# `http_5xx` = answers 502/504 (or any 5xx); `failed` = lookups with no answer.
+MAP_COUNTS = {svc: {"network": 0, "cache": 0, "retries": 0, "http_5xx": 0,
+                    "failed": 0} for svc in ("nominatim", "overpass")}
+
+
+def _count(svc, key, n=1):
+    MAP_COUNTS[svc][key] += n
+
+
+def _is_5xx(ex):
+    return 500 <= int(getattr(ex, "code", 0) or 0) < 600
+
+
+def map_count_line(counts=None):
+    c = counts or MAP_COUNTS
+    return "map requests: " + " · ".join(
+        f"{svc} network {v['network']} / cache {v['cache']} / retries "
+        f"{v['retries']} ({v['http_5xx']} were 5xx answers) / failed {v['failed']}"
+        for svc, v in c.items())
+
+
 def overpass_post(query, backoffs=(0, 15, 45)):
     """-> the elements of one Overpass answer, or None when it failed. The
     one Overpass caller: `photo_where`'s peak query posts through here too."""
     err = None
-    for backoff in backoffs:
+    for i, backoff in enumerate(backoffs):
         time.sleep(backoff)
+        _count("overpass", "network")
+        if i:
+            _count("overpass", "retries")
         try:
             req = urllib.request.Request(OVERPASS, data=query.encode(),
                                          headers={"User-Agent": USER_AGENT})
@@ -793,6 +822,9 @@ def overpass_post(query, backoffs=(0, 15, 45)):
                 return json.loads(r.read().decode()).get("elements", [])
         except Exception as ex:                       # noqa: BLE001
             err = ex
+            if _is_5xx(ex):
+                _count("overpass", "http_5xx")
+    _count("overpass", "failed")
     print(f"overpass failed after retries: {err}", file=sys.stderr)
     return None
 
@@ -943,6 +975,39 @@ class Geocoder:
         self.landmark_failed_last = []
         if cache_path.exists():
             self.cache = json.loads(cache_path.read_text())
+        # M12 — written every SAVE_EVERY new rows or SAVE_SECONDS, so a kill
+        # mid-cluster keeps the lookups already answered (measured: it lost
+        # every one and the re-run sent them all again).
+        self.unsaved = 0
+        self.saved_at = time.time()
+
+    SAVE_EVERY = 10
+    SAVE_SECONDS = 60
+
+    def nominatim(self, url):
+        """⛔ The ONE Nominatim request point (every URL from `reverse_url`):
+        the usage-policy pause, the request, and its count. Raises on no
+        answer; each caller keeps its own fallback."""
+        time.sleep(1.1)  # Nominatim usage policy: max 1 req/s
+        _count("nominatim", "network")
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return json.loads(r.read().decode())
+        except Exception as ex:                       # noqa: BLE001
+            if _is_5xx(ex):
+                _count("nominatim", "http_5xx")
+            _count("nominatim", "failed")
+            raise
+        finally:
+            photo_progress.fault("map_lookup")
+
+    def stored(self):
+        self.dirty = True
+        self.unsaved += 1
+        if (self.unsaved >= self.SAVE_EVERY
+                or time.time() - self.saved_at >= self.SAVE_SECONDS):
+            self.save()
 
     def key_for(self, pt, zoom, precise=False):
         """⛔ Coarse unless `precise`: a key is what is written to disk, and a
@@ -993,15 +1058,13 @@ class Geocoder:
             key = self.key_for(pt, 10)
             row, old = self.cache.get(key), None
         if row is not None:
+            _count("nominatim", "cache")
             return None if row.get("country") else (row.get("name") or None)
         if not self.enabled:
             return (old or {}).get("name") or None
-        url = reverse_url(pt, 10, self.language, "namedetails", precise=precise)
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         try:
-            time.sleep(1.1)  # Nominatim usage policy: max 1 req/s
-            with urllib.request.urlopen(req, timeout=10) as r:
-                data = json.loads(r.read().decode())
+            data = self.nominatim(reverse_url(pt, 10, self.language, "namedetails",
+                                              precise=precise))
             name, tag = read_name(data, self.language)
             if not name:
                 # This stage's own last resorts, which carry no language at
@@ -1018,7 +1081,7 @@ class Geocoder:
                                # abroad's folder (D-F12); no extra request.
                                "country_name": address.get("country") or "",
                                **({"country": True} if country else {})}
-            self.dirty = True
+            self.stored()
             return None if country else (name or None)
         except Exception:
             return (old or {}).get("name") or None
@@ -1060,6 +1123,8 @@ class Geocoder:
             bbox = points_bbox(stop, LANDMARK_RADIUS_M)
             key = "landmarks:" + ",".join(f"{v:.{PRECISE_DP}f}" for v in bbox)
             got = self.cache.get(key)
+            if got is not None:
+                _count("overpass", "cache")
             if got is None and self.enabled and key not in self.landmark_failed:
                 got = overpass_post(landmark_query(bbox), backoffs=(1.1, 15))
                 if got is None:
@@ -1074,7 +1139,7 @@ class Geocoder:
                            for el in got if landmark_rank(el.get("tags") or {}) is not None
                            and any(feature_km((p[0], p[1]), el) <= radius for p in stop)]
                     self.cache[key] = got
-                    self.dirty = True
+                    self.stored()
             if key in self.landmark_failed:
                 self.landmark_failed_last.append(photo_where.stop_center(stop))
             elements.extend(got or [])
@@ -1091,15 +1156,14 @@ class Geocoder:
         """Nominatim zoom 18 at an AWAY point: a name only when the answer is
         a landmark (category, or a SIGHT/STAY tag), never a road or house."""
         key, row = self.cached(pt, 18)
+        if row is not None:
+            _count("nominatim", "cache")
         if row is None:
             if not self.enabled:
                 return None
-            url = reverse_url(pt, 18, self.language, "namedetails", precise=True)
-            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
             try:
-                time.sleep(1.1)  # Nominatim usage policy: max 1 req/s
-                with urllib.request.urlopen(req, timeout=10) as r:
-                    data = json.loads(r.read().decode())
+                data = self.nominatim(reverse_url(pt, 18, self.language,
+                                                  "namedetails", precise=True))
             except Exception:
                 return None
             cat, typ = data.get("category", ""), data.get("type", "")
@@ -1108,7 +1172,7 @@ class Geocoder:
             name, tag = read_name(data, self.language) if ok else (None, None)
             row = {"name": name or "", "name_tag": tag, "cat": cat, "type": typ}
             self.cache[key] = row
-            self.dirty = True
+            self.stored()
         name = row.get("name") or None
         return None if not name or is_address(name) else name
 
@@ -1135,6 +1199,7 @@ class Geocoder:
         silently, on every cache hit."""
         key = self.key_for(pt, "10adm")
         if key in self.cache:
+            _count("nominatim", "cache")
             return self.cache[key].get("name") or None
         if not self.enabled:
             return None
@@ -1146,23 +1211,24 @@ class Geocoder:
         # coarser than a front door — and it is already the cache key's
         # precision, so nothing is lost and one fewer copy of the owner's
         # doorstep exists off this machine. RS7c: every reverse call now does.
-        url = reverse_url(pt, 10, self.language, "addressdetails")
-        req = urllib.request.Request(url, headers={"User-Agent": "kcc-photo-manager/0.1"})
         try:
-            time.sleep(1.1)  # Nominatim usage policy: max 1 req/s
-            with urllib.request.urlopen(req, timeout=10) as r:
-                data = json.loads(r.read().decode())
+            data = self.nominatim(reverse_url(pt, 10, self.language, "addressdetails"))
             address = data.get("address", {}) or {}
             name = next((address[f] for f in self.ADMIN_FIELDS if address.get(f)), None)
             self.cache[key] = {"name": name, "name_tag": "admin"}
-            self.dirty = True
+            self.stored()
             return name or None
         except Exception:
             return None
 
     def save(self):
         if self.dirty:
-            self.path.write_text(json.dumps(self.cache, ensure_ascii=False, indent=1))
+            tmp = self.path.with_name(self.path.name + ".tmp")
+            tmp.write_text(json.dumps(self.cache, ensure_ascii=False, indent=1))
+            os.replace(tmp, self.path)
+            self.dirty = False
+        self.unsaved = 0
+        self.saved_at = time.time()
 
 
 def split_run(days, day_files, max_batch):
@@ -1648,8 +1714,35 @@ def main():
     if said:
         print(said, file=sys.stderr)
     said = landmark_failed_note(batches)
+    # U6-4 — said here, by the stage that looked; later stages say it once
+    # per dump (`landmark_failed_once`), counted from this new outcome.
+    photo_progress.forget_said(workdir, LANDMARK_SAID_KEY)
     if said:
         print(said, file=sys.stderr)
+        photo_progress.said_once(workdir, LANDMARK_SAID_KEY, said)
+    totals = {svc: {k: v[k] for k in v} for svc, v in MAP_COUNTS.items()}
+    flat = {k: sum(v[k] for v in totals.values()) for k in ("network", "cache", "retries",
+                                                           "http_5xx", "failed")}
+    data = photo_progress.load(workdir)
+    data["map"] = dict(data.get("map") or {}, cluster=flat, cluster_by_service=totals)
+    photo_progress.save(workdir, data)
+    print(map_count_line(totals), file=sys.stderr)
+
+
+LANDMARK_SAID_KEY = "landmark_failed"
+
+
+def landmark_failed_once(batches, workdir, record=True):
+    """-> the F2 note the FIRST time it is due for this dump, else None (U6-4:
+    it was printed again on every render and every copy). The execution log
+    still records it every time; only the console line is once. A dry run
+    passes record=False: it says a note not yet said and writes nothing."""
+    said = landmark_failed_note(batches)
+    if not said:
+        return None
+    if not record:
+        return None if photo_progress.already_said(workdir, LANDMARK_SAID_KEY, said) else said
+    return said if photo_progress.said_once(workdir, LANDMARK_SAID_KEY, said) else None
 
 
 def landmark_failed_note(batches):

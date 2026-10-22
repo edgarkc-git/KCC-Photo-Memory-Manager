@@ -63,12 +63,14 @@ import hashlib
 import json
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import photo_embed
+import photo_progress
 
 DETECTOR_ID = "fasterrcnn_resnet50_fpn_v2"
 DETECTOR_WEIGHTS = "COCO_V1"
@@ -131,6 +133,9 @@ STATUS_NO_SUBJECT = "no-subject"
 STATUS_FAILED = "failed"
 
 BATCH_SIZE = 16
+# M12 — a save at least every SAVE_FILES files or SAVE_SECONDS, animals or not.
+SAVE_FILES = 64
+SAVE_SECONDS = 60
 
 
 def dinov2_source(hub_dir):
@@ -722,8 +727,10 @@ def run(workdir, force=False, device_arg=None, limit=None):
             save_index(embed_dir, rows, vectors, existing_meta)
         summary = summarize(0, None)
         print(json.dumps(summary, indent=1, ensure_ascii=False))
+        photo_progress.finish(workdir, "identity", done=len(wanted), total=len(wanted))
         return summary
 
+    photo_progress.start(workdir, "identity", total=len(pending))
     torch, detector, labels, embedder, transform, device = load_models(device_arg)
     with torch.no_grad():
         embed_dim = int(embedder(torch.zeros(1, 3, 224, 224).to(device)).shape[-1])
@@ -746,6 +753,11 @@ def run(workdir, force=False, device_arg=None, limit=None):
     zero = [0.0] * embed_dim
     pending_set = {r["SourceFile"] for r in pending}
     processed = 0
+    # M12 — files this run looked at, whatever they held (the old counter
+    # counted detections, so an animal-free run reported 0), and the save
+    # cadence by files and time: a stretch with no animal saved nothing.
+    files_new = 0
+    saved_files, saved_at = 0, time.time()
 
     def embed_crops(crops):
         tensors = torch.stack([transform(c) for c in crops])
@@ -786,12 +798,32 @@ def run(workdir, force=False, device_arg=None, limit=None):
             buffer_rows.clear()
             buffer_crops.clear()
 
+        def checkpoint():
+            nonlocal saved_files, saved_at
+            flush()
+            meta["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            save_index(embed_dir, rows, vectors, meta)
+            saved_files, saved_at = files_new, time.time()
+            print(f"  {files_with_subject + counts[STATUS_NO_SUBJECT]}"
+                  f"/{len(wanted)} files "
+                  f"({counts[STATUS_OK]} detections in {files_with_subject} "
+                  f"of them, {shared_frames} shared, "
+                  f"{counts[STATUS_NO_SUBJECT]} without, "
+                  f"{counts[STATUS_FAILED]} failed)", flush=True)
+            photo_progress.tick(workdir, "identity", files_new, len(pending))
+            photo_progress.fault("identity_saved")
+
         for source in wanted:
             path = source["SourceFile"]
             if path not in pending_set:
                 if path in done:
                     keep_file(done[path])
                 continue
+            # ⛔ A file boundary: nothing of the next file is buffered yet.
+            if (files_new - saved_files >= SAVE_FILES
+                    or (files_new > saved_files and time.time() - saved_at >= SAVE_SECONDS)):
+                checkpoint()
+            files_new += 1
             manifest_row = pending_index[path]
             base = {"SourceFile": path, "sha256": manifest_row.get("sha256", ""),
                     "det_index": 0, "det_count": 0,
@@ -836,15 +868,7 @@ def run(workdir, force=False, device_arg=None, limit=None):
             # and leave the buffer together, so a batch never splits one frame's
             # animals across two saved states.
             if len(buffer_crops) >= BATCH_SIZE:
-                flush()
-                meta["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                save_index(embed_dir, rows, vectors, meta)
-                print(f"  {files_with_subject + counts[STATUS_NO_SUBJECT]}"
-                      f"/{len(wanted)} files "
-                      f"({counts[STATUS_OK]} detections in {files_with_subject} "
-                      f"of them, {shared_frames} shared, "
-                      f"{counts[STATUS_NO_SUBJECT]} without, "
-                      f"{counts[STATUS_FAILED]} failed)")
+                checkpoint()
         flush()
 
     meta["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -857,8 +881,16 @@ def run(workdir, force=False, device_arg=None, limit=None):
     elif log.exists():
         log.unlink()
 
-    summary = summarize(processed, device)
+    summary = summarize(files_new, device)
     print(json.dumps(summary, indent=1, ensure_ascii=False))
+    photo_progress.finish(workdir, "identity", done=files_new, total=len(pending),
+                          items=files_new)
+    actual = photo_progress.picture_actual(workdir)
+    est = (photo_progress.load(workdir).get("estimates") or [None])[0]
+    if actual is not None and est:
+        print(f"Picture pass took {photo_progress.duration(actual)} "
+              f"(estimated {photo_progress.duration(est['seconds'])}, embed + identity)")
+    print(photo_progress.compact_line(workdir, "identity done"))
     return summary
 
 
