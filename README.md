@@ -35,5 +35,6 @@ untested. Claude Cowork is not supported.** Details: [docs/INSTALL.md](docs/INST
   machine, and how to delete it all.
 - [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md): the pipeline, what is in this folder,
   status and licence (Apache 2.0).
+- [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md): known issues in this release.
 - Running the tests: see [tests/README.md](tests/README.md) and the last section of
   [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md#running-the-tests).
