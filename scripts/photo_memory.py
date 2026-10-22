@@ -1625,6 +1625,18 @@ def tile_frames(subject, sheet, workdir=None, crops=None, where=None):
     return frames, reasons
 
 
+def seen_in_unit(subject, unit, batch=None):
+    """B1-2 — was this draft observed in work dir `unit` (and in its
+    `batch`)? Read off the draft's own evidence, which names the unit of every
+    sighting. A record whose evidence names no unit at all predates that field
+    and is read by its batch numbers alone, as before."""
+    evidence = subject.record.get("evidence") or []
+    if not any(e.get("unit") for e in evidence):
+        return batch is None or batch in subject.observed_in
+    return any(e.get("unit") == unit and (batch is None or e.get("batch") == batch)
+               for e in evidence)
+
+
 def build_questions(registry, workdir, pack, profile, rmsg, last_ask=False,
                     batch=None):
     """-> (questions, suppressed, round_deferred, held_for_final). ONE `Group
@@ -1688,8 +1700,10 @@ def build_questions(registry, workdir, pack, profile, rmsg, last_ask=False,
     crops = FrameCrops(workdir, pack)
     where = FrameWhere(profile, rmsg)
 
+    unit = Path(workdir).name
     for subject in sorted(registry.drafts,
-                          key=lambda s: (-int(s.record.get("files", 0)),
+                          key=lambda s: (not seen_in_unit(s, unit),
+                                         -int(s.record.get("files", 0)),
                                          s.subject_id)):
         if batch is not None and batch not in subject.observed_in:
             # G6 (R7) — a batch page asks about the drafts OBSERVED in its
@@ -1792,8 +1806,11 @@ def build_questions(registry, workdir, pack, profile, rmsg, last_ask=False,
         photo_subjects.DEFAULT_THRESHOLDS["drafts_rendered_per_question"]))
 
     # ---- the ROUND ceiling, and it cuts BEFORE the kinds are separated -----
-    # `renderable` is in the outer loop's total order (-files, subject_id) —
-    # blast radius, the SPEC's ranking key, and the same key the per-kind slice
+    # `renderable` is in the outer loop's total order (this unit first, then
+    # -files, subject_id). B1-2 (E34) — a draft seen in THIS dump ranks above
+    # every draft only earlier dumps saw, so old wide drafts can no longer
+    # fill the round and keep this dump's animals off the page. Within each
+    # half the order is blast radius, the SPEC's ranking key, and the same key the per-kind slice
     # and the question sort below use. ONE SCALE, THREE PLACES, ONE KEY: no new
     # sort is introduced here, which is the whole determinism argument. A total
     # order is also what keeps two replays of one checkpoint byte-identical.

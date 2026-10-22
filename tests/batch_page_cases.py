@@ -1157,6 +1157,46 @@ def web_answer_route_explicit_profile():
 
 # ---------------------------------------------------------------------------
 # one case per pack route (LL-PHO-132)
+def earlier_dump_drafts(registry, src, n, unit="dump-old", files=50):
+    """`n` drafts an EARLIER dump observed in its batch 1, each wider than
+    `src`: a copy of `src`'s record (so its frames resolve) with every
+    sighting re-labelled to `unit`."""
+    out = []
+    for _ in range(n):
+        new = registry.create_subject(kind="dog",
+                                      status=pm.photo_subjects.STATUS_DRAFT)
+        record = json.loads(json.dumps(src.record))
+        record.pop("subject_id", None)
+        record.update(kind="dog", files=files, observed_in=[1])
+        for e in record.get("evidence") or []:
+            e["unit"] = unit
+        if isinstance(record.get("origin"), dict):
+            record["origin"]["unit"] = unit
+        new.record.update(record)
+        out.append(new.subject_id)
+    return out
+
+
+@case
+def a_round_asks_about_this_dumps_animals_before_earlier_dumps():
+    """⭐ REPRODUCTION (B1-2, E34/OR-5). ⛔ FAILS on 2c1bf34: twelve wider
+    drafts from an earlier dump filled the 12-tile round and this dump's cat
+    never reached a page."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, _extra = page_dump(tmp, pets=(1,), place_batches=())
+        pack = photo_profile.resolve_pack(explicit=pack_dir / photo_profile.PROFILE_NAME)
+        registry = pm.photo_subjects.load(pack=pack)
+        mine = registry.drafts[0].subject_id
+        old = earlier_dump_drafts(registry, registry.drafts[0], 12)
+        questions, suppressed, over, _held = pm.build_questions(
+            registry, str(wd), pack, pack.profile,
+            photo_profile.review_messages(pack.profile))
+        asked = [t["subject_id"] for q in questions for t in q["tiles"]]
+    return (mine in asked and len(asked) == 12 and over == 1
+            and sum(1 for s in old if s in asked) == 11), \
+        f"mine={mine} asked={asked} over={over}"
+
+
 # ---------------------------------------------------------------------------
 
 def route_case(route):
