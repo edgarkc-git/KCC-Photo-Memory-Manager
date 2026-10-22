@@ -16,10 +16,6 @@ Nothing here touches your original photos: the product stays copy-only.
   again" answer yet. Skip the extra crops.
 - **No command removes one pet from one folder name.** `photo_subjects.py review
   --detach` takes back a whole group of photos, not one folder.
-- **A dry run can accept a two-name answer that `--go` refuses.** On a photo with
-  three or more animals, marking one as "not an animal" leaves fewer animals at
-  `--go` than the dry run counted. Answer that photo again with one name per
-  animal still in it.
 - **A pet seen only at home can be paired with an away-day word.** If a proposed
   `[what]` is wrong, set the folder's own words with
   `photo_index.py group set-what`.

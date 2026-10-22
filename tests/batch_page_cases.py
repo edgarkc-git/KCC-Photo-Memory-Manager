@@ -1348,6 +1348,72 @@ def a_page_written_before_the_subjects_pin_keeps_the_whole_pack_rule():
     return rc == 1 and "1 refused" in said, f"rc={rc} said={said[-300:]!r}"
 
 
+def identity_rows(wd, source, sha, count):
+    """An identity index holding `count` detections of one photo, each its own
+    row (det_index 0..count-1) keyed by the photo's content sha."""
+    import csv as _csv
+    import numpy as np
+    import photo_identity
+    embed = wd / "embed"
+    embed.mkdir(parents=True, exist_ok=True)
+    with open(embed / "identity.csv", "w", newline="") as fh:
+        w = _csv.DictWriter(fh, fieldnames=photo_identity.CSV_FIELDS)
+        w.writeheader()
+        for i in range(count):
+            w.writerow({"SourceFile": source, "sha256": sha,
+                        "status": photo_identity.STATUS_OK, "det_index": i,
+                        "det_count": count, "kind": "cat", "det_score": 0.9,
+                        "box": f"{i},0,10,10", "box_share": 0.5, "error": ""})
+    with open(embed / "identity.npy", "wb") as fh:
+        np.save(fh, np.ones((count, 6), dtype=np.float32))
+    (embed / "identity-meta.json").write_text(json.dumps(
+        {**photo_identity.meta_identity(6), "created_at": "2029-01-01 00:00"}))
+
+
+def crowded_page(tmp, animals, skip_row, names=("Pebble same", "Juniper same")):
+    """P-B01 over one photo holding `animals` animals, one name row each for
+    `names` and the given `skip:` row. -> (work dir, pack dir)."""
+    wd, pack_dir, extra = page_dump(tmp, pets=(1,), place_batches=())
+    op.declare_pets(str(pack_dir), ["Pebble", "Juniper"])
+    next_page(wd, extra)
+    pack = photo_profile.resolve_pack(explicit=pack_dir / photo_profile.PROFILE_NAME)
+    sha = pm.photo_subjects.load(pack=pack).drafts[0].record[
+        "evidence"][0]["looks"][0]["vec_ref"]
+    identity_rows(wd, str(wd / "B1_C0_000.JPG"), sha, animals)
+    page = wd / "P-B01.md"
+    text = page.read_text()
+    for name in names:
+        text = pmc.fill_pick(text, [1], who="pet", name=name)
+    page.write_text(text.replace("> - `skip:` ______", f"> - `skip:` {skip_row}", 1))
+    return wd, pack_dir
+
+
+@case
+def a_dry_run_counts_the_animals_go_counts_after_a_not_an_animal_mark():
+    """⭐ REPRODUCTION (B1-9, K33/OR-6). ⛔ FAILS on 2c1bf34: on a photo with
+    3 animals, two marked not a real animal, the dry run still counted 3 and
+    accepted two names that `--go` then refused."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir = crowded_page(tmp, 3, "1.2, 1.3 not-a-subject")
+        dry, said_dry = pmc.confirm_page(pack_dir, wd, page="P-B01", go=False)
+        go, said_go = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+    refused = "more than one row" in said_dry
+    return (dry == go == 1 and refused and "more than one row" in said_go), \
+        f"dry={dry} go={go} said_dry={said_dry[-400:]!r}"
+
+
+@case
+def a_dry_run_still_accepts_two_names_when_two_animals_stay():
+    """GUARD (B1-9). 3 animals, ONE marked not a real animal: 2 stay, so two
+    names are accepted by the dry run and by --go alike."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir = crowded_page(tmp, 3, "1.3 not-a-subject")
+        dry, said_dry = pmc.confirm_page(pack_dir, wd, page="P-B01", go=False)
+        go, said_go = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+    return (dry == 0 and go == 0), \
+        f"dry={dry} go={go} said_dry={said_dry[-300:]!r} go={said_go[-300:]!r}"
+
+
 # ---------------------------------------------------------------------------
 
 def route_case(route):

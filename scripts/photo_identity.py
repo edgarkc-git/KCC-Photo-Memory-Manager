@@ -506,6 +506,12 @@ def not_mine_keys(by_file, marks):
     return out
 
 
+# B1-9 (K33) — marks a `confirm` DRY RUN would write, keyed (work dir, list
+# name). Read exactly like the index's own, so the dry run counts the animals
+# `--go` counts; nothing is written. Set and cleared by `photo_memory`.
+PENDING_MARKS = {}
+
+
 def _index_marks(embed_dir, pack, key):
     """One list of crop marks for this dump — `not_animals` (Q8-c, "not a
     real animal") or `not_mine` (C10) — kept in its INDEX, so the freeze hash
@@ -517,8 +523,9 @@ def _index_marks(embed_dir, pack, key):
     folder, or its profile path; None = collection.json / $PHOTO_PROFILE), so
     a pack bound by --profile ALONE reaches this reader too."""
     workdir = Path(embed_dir).parent
+    pending = list(PENDING_MARKS.get((str(workdir.resolve()), key)) or [])
     if not (workdir / "index-pointer.json").is_file():
-        return []
+        return pending
     import contextlib
     import io
     import photo_index
@@ -538,7 +545,7 @@ def _index_marks(embed_dir, pack, key):
                   "with collection.json or $PHOTO_PROFILE (this reader was "
                   "given no pack).", file=sys.stderr)
         return []
-    return list(loaded[2].get(key) or [])
+    return list(loaded[2].get(key) or []) + pending
 
 
 _MARKS_UNREAD = set()

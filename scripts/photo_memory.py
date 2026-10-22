@@ -3667,6 +3667,9 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
     out of the exemplars, and the owner's pick on the same photo keeps its
     name. A photo with ONE animal is refused here — that is `skip: N confirm`."""
     import photo_index
+    for key in [k for k in photo_identity.PENDING_MARKS
+                if k[0] == str(Path(workdir).resolve())]:
+        photo_identity.PENDING_MARKS.pop(key)
     wanted = []
     for block in blocks:
         if not block.get("skip_animals"):
@@ -3725,9 +3728,9 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
     if not marks:
         return []
     lists = {BASIS_NOT_A_SUBJECT: "not_animals", BASIS_NOT_MINE: "not_mine"}
-    said = {BASIS_NOT_A_SUBJECT: ("would stop counting as an animal; this dry "
-                                  "run still counts it, so a pick on that "
-                                  "photo is judged with --go",
+    said = {BASIS_NOT_A_SUBJECT: ("would stop counting as an animal; this "
+                                  "dry run judges the picks without it, as "
+                                  "--go does",
                                   "no longer counted as an animal (the "
                                   "photo's other animals are unchanged)"),
             BASIS_NOT_MINE: ("would be recorded as not your animal (the "
@@ -3739,7 +3742,14 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
         return ", ".join(m["source"].split()[-1] for m in marks
                          if m["basis"] == basis)
     if not go:
-        for basis in lists:
+        # B1-9 (K33) — the dry run counts the photo as `--go` will: without
+        # the crops it would mark, read through the same index reader.
+        for basis, key in lists.items():
+            mine = [{k: v for k, v in m.items() if k != "basis"}
+                    for m in marks if m["basis"] == basis]
+            if mine:
+                photo_identity.PENDING_MARKS[
+                    (str(Path(workdir).resolve()), key)] = mine
             if shown(basis):
                 changes.append(f"{shown(basis)} -> {said[basis][0]}")
         return marks
@@ -5377,6 +5387,16 @@ def split_child_holding(registry, parent, ref):
 
 
 def cmd_confirm(args):
+    try:
+        return _cmd_confirm(args)
+    finally:
+        # B1-9 — a dry run's predicted marks never outlive it.
+        for key in [k for k in photo_identity.PENDING_MARKS
+                    if k[0] == str(Path(getattr(args, "workdir", None) or ".").resolve())]:
+            photo_identity.PENDING_MARKS.pop(key)
+
+
+def _cmd_confirm(args):
     workdir = Path(args.workdir).resolve()
     pack = require_pack(workdir, args.profile)
     registry = photo_subjects.load(pack=pack)
