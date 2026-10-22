@@ -60,6 +60,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import photo_cluster  # noqa: E402
 import photo_profile  # noqa: E402
+import photo_progress  # noqa: E402
 from photo_platform import path_key  # noqa: E402
 
 FREE_SPACE_MARGIN = 1 << 30  # 1 GB on top of the plan's estimated size
@@ -396,6 +397,12 @@ def main():
             p = p.parent
         Path(d).mkdir(parents=True, exist_ok=True)
     state[CREATED_KEY] = sorted(created)
+    # M12 — on disk before the first copy: a kill after the mkdir used to lose
+    # the record, and the re-run finds the folders already there, so a folder
+    # this engine made read as the owner's and the after-check would refuse
+    # to rename it (ADR 0007).
+    save_state(state_path, state)
+    photo_progress.tick(workdir, "copy", 0, len(pending), plan=label)
     for i, r in enumerate(pending, 1):
         status, sha = copy_one(Path(r["SourceFile"]), Path(r["destination"]),
                                r["FileName"], flags, msg)
@@ -408,6 +415,7 @@ def main():
                 "at": datetime.now().strftime("%Y-%m-%d %H:%M")}
         if i % 50 == 0 or i == len(pending):
             save_state(state_path, state)
+            photo_progress.tick(workdir, "copy", i, len(pending), plan=label)
             print(f"  {i}/{len(pending)} ({counts['copied']} copied, "
                   f"{counts['already_present']} already present, "
                   f"{counts['flagged']} flagged)")
@@ -468,6 +476,20 @@ def main():
     print(f"{label}: {counts['copied']} copied + "
           f"{counts['already_present']} already present, {len(flags)} flags, "
           f"{elapsed:.0f}s -> {log_path}")
+    # M12 — the counts a resume is checked by: a file the state already held,
+    # one copied by this run, one found on the drive with its own SHA (a kill
+    # after the rename, before the state recorded it), and the twins.
+    resume = {"already_verified": len(copies) - len(pending),
+              "copied_now": counts["copied"],
+              "found_present": counts["already_present"],
+              "twins": len(twins_kept), "flagged": len(flags)}
+    print(f"  resume {label}: already verified {resume['already_verified']} · "
+          f"copied now {resume['copied_now']} · found on the drive "
+          f"{resume['found_present']} · twins {resume['twins']}")
+    rec = photo_progress.stage(workdir, "copy")
+    plans_done = dict(rec.get("plans") or {})
+    plans_done[label] = resume
+    photo_progress.update(workdir, "copy", plans=plans_done)
     if failed:
         print(failed)
     if flags:

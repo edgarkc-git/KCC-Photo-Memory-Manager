@@ -24,6 +24,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -271,6 +272,60 @@ def a_rename_blocks_a_windows_shaped_destination():
         f"got={got} other={other}"
 
 
+
+def run_killed(wd, kill):
+    env = {**os.environ, "PYTHONPATH": str(ROOT / "tests" / "kill"),
+           "PHOTO_TEST_KILL": kill}
+    return subprocess.run(
+        [sys.executable, str(SCRIPTS / "photo_execute.py"), str(wd),
+         "--plan", "1", "--go"], capture_output=True, text=True, env=env)
+
+
+def a_copy_killed_after_its_mkdir_still_records_the_folder_it_made():
+    """M12 (P2 gate item 3). ⛔ FAILS on 2c1bf34: the created folders lived in
+    memory until the first state save at row 50, so a kill before it lost
+    them, and the re-run found the folder already there — the engine's own
+    folder then read as the owner's and the after-check refused its rename
+    (ADR 0007). Killed on the first copy, re-run, the folder is recorded."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        dest_root = tmp / "drive" / "_Photo_Manager"
+        (tmp / "drive").mkdir()
+        wd, sources, trip = build_dump(tmp, dest_root)
+        r1 = run_killed(wd, "copy2@1")
+        r2 = run_execute(wd, "--go")
+        created = photo_execute.created_anywhere(wd / "plan")
+        keys = {photo_execute.real_key(p) for p in created.values()}
+        ok = (r1.returncode == 137 and r2.returncode == 0
+              and photo_execute.real_key(trip) in keys
+              and all((trip / s.name).read_bytes() == s.read_bytes() for s in sources))
+        return ok, f"rc={r1.returncode}/{r2.returncode} created={sorted(created.values())}"
+
+
+def a_copy_killed_after_a_rename_copies_no_file_twice():
+    """M12 — killed after the first file is renamed into place, before the
+    state records it: the re-run finds it by SHA and does not copy it again
+    (same inode and mtime), and every source SHA is in the state. A guard:
+    it passes on 2c1bf34 too."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        dest_root = tmp / "drive" / "_Photo_Manager"
+        (tmp / "drive").mkdir()
+        wd, sources, trip = build_dump(tmp, dest_root)
+        r1 = run_killed(wd, "replace@1")
+        first = sorted(trip.glob("*.jpg"))
+        before = {p.name: (p.stat().st_ino, p.stat().st_mtime_ns) for p in first}
+        r2 = run_execute(wd, "--go")
+        after = {p.name: (p.stat().st_ino, p.stat().st_mtime_ns) for p in first}
+        state = json.loads((wd / "plan" / "execute-state_P1.json").read_text())
+        shas = {v["sha256"] for v in state["verified"].values()}
+        want = {hashlib.sha256(s.read_bytes()).hexdigest() for s in sources}
+        ok = (r1.returncode == 137 and len(first) == 1 and before == after
+              and shas == want and not list(trip.glob("*.part")))
+        return ok, f"rc={r1.returncode}/{r2.returncode} first={list(before)} same={before == after}"
+
+
+
 CASES = [free_space_walks_up_to_an_existing_ancestor,
          free_space_matches_the_existing_path_case,
          dry_run_survives_a_dest_root_that_does_not_exist,
@@ -280,7 +335,9 @@ CASES = [free_space_walks_up_to_an_existing_ancestor,
          go_creates_no_folder_that_receives_no_file,
          a_file_copied_under_another_plan_number_is_not_copied_again,
          a_new_file_waits_for_its_folder_rename,
-         a_rename_blocks_a_windows_shaped_destination]
+         a_rename_blocks_a_windows_shaped_destination,
+         a_copy_killed_after_its_mkdir_still_records_the_folder_it_made,
+         a_copy_killed_after_a_rename_copies_no_file_twice]
 
 
 def main():
