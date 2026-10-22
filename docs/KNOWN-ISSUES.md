@@ -8,9 +8,6 @@ Nothing here touches your original photos: the product stays copy-only.
 
 ### All platforms (found on macOS)
 
-- **A later photo set's pet pages can ask only about earlier sets.** The page may
-  show animals from photo sets you sorted before, and none from this one. Answer
-  or skip them; nothing is copied again.
 - **A pet seen only at home can be paired with an away-day word.** If a proposed
   `[what]` is wrong, set the folder's own words with
   `photo_index.py group set-what`.
