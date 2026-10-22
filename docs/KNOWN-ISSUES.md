@@ -11,8 +11,6 @@ Nothing here touches your original photos: the product stays copy-only.
 - **A later photo set's pet pages can ask only about earlier sets.** The page may
   show animals from photo sets you sorted before, and none from this one. Answer
   or skip them; nothing is copied again.
-- **No command removes one pet from one folder name.** `photo_subjects.py review
-  --detach` takes back a whole group of photos, not one folder.
 - **A pet seen only at home can be paired with an away-day word.** If a proposed
   `[what]` is wrong, set the folder's own words with
   `photo_index.py group set-what`.

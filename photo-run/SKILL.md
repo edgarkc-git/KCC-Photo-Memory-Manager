@@ -360,6 +360,7 @@ missing — there is no second list to keep in step.
    python3 scripts/photo_index.py group merge 202401 F034 --into F033 --reason "..."
    python3 scripts/photo_index.py group set-what 202401 F044 "<text>" --reason "..."
    python3 scripts/photo_index.py group set-where 202401 F044 "<place>" --reason "..."   # the owner's place word for a day folder or leg; --clear gives the looked-up place back
+   python3 scripts/photo_index.py group set-who 202401 F044 --drop <name> --reason "..."   # one pet out of THIS folder's name; --clear gives it back
    python3 scripts/photo_index.py dest 202401 F003 merge "<existing folder>" --ref "<its work dir>" --reason "..."
    ```
    Every `group` action takes `--dry-run`: it prints what the change would do
@@ -636,6 +637,16 @@ nothing copied.
 `freeze` again. **After the freeze the names are locked** (D-I16): lift it with
 `photo_index.py unfreeze 202401 --reason "..."`, then render, check, freeze. A
 folder already copied is renamed only by the final check, on the owner's `ok`.
+
+**One pet out of one folder's name.** When the owner says a pet should not be
+in ONE folder's name (it was there, but the folder is not about it), run
+`photo_index.py group set-who 202401 F044 --drop <name> --reason "<the owner's
+words>"` (`--dry-run` first), then render, check and freeze. Only a pet the
+folder's `[who]` names now is accepted. The pet stays remembered, its picked
+photos keep its name, and every other folder is unchanged; `--clear` gives the
+pet back. For a folder already copied, the new name reaches the drive by the
+usual rename row of the final check. To take a photo away from a pet, use
+`--detach` (below).
 
 **A name corrected after the copy** (the names are often first seen then) is
 locked the same way — unfreeze, render, check, `freeze --reason "..."` — and

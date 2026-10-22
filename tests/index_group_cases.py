@@ -710,6 +710,60 @@ def check_says_r7_once_for_every_folder_it_names():
         warned[-600:]
 
 
+def two_pet_dump(tmp):
+    wd, pack = ix.g3_dump(tmp)
+    reg = pack / "photo-subjects" / "subjects.json"
+    data = json.loads(reg.read_text(encoding="utf-8"))
+    data["subjects"] = [ix.subject("subj-0001", "Lotus"),
+                        ix.subject("subj-0002", "Birk", "dog")]
+    reg.write_text(json.dumps(data), encoding="utf-8")
+    must(run("init", wd), "init")
+    must(run("render", wd), "render")
+    return wd, reg
+
+
+@case
+def set_who_takes_one_pet_out_of_one_folder_and_clear_gives_it_back():
+    """⭐ REPRODUCTION (B1-11, U5-14/K32, G52). ⛔ FAILS on 2c1bf34: there was
+    no `group set-who`; only `review --detach` (a whole draft). Lotus leaves
+    F001's name only: F002 keeps its own name, the pet memory file is byte for
+    byte the same, and `--clear` puts Lotus back."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, reg = two_pet_dump(tmp)
+        before = folders(tmp)
+        memory = reg.read_bytes()
+        code, said, err = run("group", "set-who", wd, "F001", "--drop", "lotus",
+                              "--reason", "the owner: not on that walk")
+        run("render", wd)
+        dropped = folders(tmp)
+        same_memory = reg.read_bytes() == memory
+        run("group", "set-who", wd, "F001", "--clear", "--reason", "back")
+        run("render", wd)
+        back = folders(tmp)
+    return (code == 0 and "Lotus" in before["F001"]["rendered"]
+            and "Lotus" not in dropped["F001"]["rendered"]
+            and dropped["F001"]["who_drop"] == ["Lotus"]
+            and dropped["F002"]["rendered"] == before["F002"]["rendered"]
+            and same_memory
+            and back["F001"]["rendered"] == before["F001"]["rendered"]), \
+        f"code={code} said={said[-200:]!r} err={err[-200:]!r} " \
+        f"before={before['F001']['rendered']} dropped={dropped['F001']['rendered']}"
+
+
+@case
+def set_who_refuses_a_pet_the_folder_does_not_name():
+    """GUARD (B1-11). A name not in the folder's [who] is refused out loud
+    and the index is unchanged."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _reg = two_pet_dump(tmp)
+        before = index(tmp)
+        code, said, err = run("group", "set-who", wd, "F001", "--drop", "Nobody",
+                              "--reason", "r")
+        after = index(tmp)
+    return (code != 0 and "is not in F001's [who]" in err + said
+            and before == after), f"code={code} {err[-200:]!r}"
+
+
 @case
 def the_shipped_minimum_is_three_visits():
     """GUARD (R4, the owner's ruling). The ONE case that reads the code

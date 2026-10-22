@@ -23,6 +23,7 @@
   python3 photo_index.py group merge "<dump>" F034 --into F033 --reason "..."
   python3 photo_index.py group set-what "<dump>" F044 "<text>" --reason "..." | --clear
   python3 photo_index.py group set-where "<dump>" F044 "<place>" --reason "..." | --clear
+  python3 photo_index.py group set-who "<dump>" F044 --drop <name> --reason "..." | --clear
 
 `group` (D-I8) is how the agent changes the folder structure, each change with a
 reason in the log: day folders become the LEGS of a trip parent or of a monthly
@@ -1129,6 +1130,10 @@ def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
         start, end = min(s[0] for s in spans), max(s[1] for s in spans)
     where, unknown = where_words(fo, labels)
     backed = backed_subjects(members, cells, keep)
+    # B1-11 (G52) — a pet the owner took out of THIS folder's name. Memory,
+    # picks and the photos' own labels are untouched.
+    dropped = {d.casefold() for d in fo.get("who_drop") or []}
+    backed = [b for b in backed if (b[1] or "").casefold() not in dropped]
     who = (photo_plan.render_who([b[1] for b in backed], [b[2] for b in backed],
                                  cap, profile, rmsg) if backed else "")
     mine = {f["source"]: cells[f["source"]] for f in own if cells.get(f["source"])}
@@ -5132,6 +5137,8 @@ def group_split(index, args, pack, by_number, cmd, reason):
     new.update(parent=fo.get("parent"), split_from=fo["id"])
     if fo.get("where_set"):
         new["where_set"] = json.loads(json.dumps(fo["where_set"]))
+    if fo.get("who_drop"):
+        new["who_drop"] = list(fo["who_drop"])
     index["folders"].insert(index["folders"].index(fo) + 1, new)
     owned[fo["id"]], owned[nid] = earlier, later
     moved = move_files(index, fo["id"], nid, later, cmd, reason)
@@ -5281,9 +5288,46 @@ def group_set_where(index, args, pack, by_number, cmd, reason):
     return said + "".join(f"\n  ⚠️ {w}" for w in warnings)
 
 
+def group_set_who(index, args, pack, by_number, cmd, reason):
+    """B1-11 (G52) — take one pet out of ONE folder's `[who]`, or `--clear`
+    to give them back. Only a pet the folder's rendered `[who]` names now.
+    Stored on the folder (`who_drop`), inside the freeze hash; the pet stays
+    remembered and keeps every picked photo. After the copy, the new name
+    reaches the drive through the usual rename row."""
+    fo = group_target(index, args.folder)
+    held = list(fo.get("who_drop") or [])
+    if args.clear:
+        if args.drop:
+            raise Refused("--clear takes no --drop — nothing changed")
+        if not held:
+            raise Refused(f"{fo['id']} has no pet taken out of its [who] — "
+                          "nothing changed")
+        fo["who_drop"] = None
+        change = f"{fo['id']}: [who] gets back {' + '.join(held)}"
+    else:
+        if not args.drop:
+            raise Refused("name the pet to take out with --drop <name>, or "
+                          "--clear — nothing changed")
+        if fo.get("validation") is None:
+            raise Refused(f"{fo['id']} has no rendered name yet, so its [who] "
+                          "is not known: run `render` first — nothing changed")
+        names = [w["name"] for w in fo["validation"].get("who") or []]
+        match = next((n for n in names if n.casefold() == args.drop.casefold()), None)
+        if match is None:
+            raise Refused(f"{args.drop!r} is not in {fo['id']}'s [who] ("
+                          + (" + ".join(names) or "it names no pet")
+                          + ") — nothing changed")
+        fo["who_drop"] = held + [match]
+        change = f"{fo['id']}: [who] without {match}"
+    fo.update(rendered=None, validation=None)
+    log_entry(index, cmd, change, reason, by="agent")
+    return change
+
+
 GROUP_ACTIONS = {"make-trip": group_make_trip, "make-fsl-month": group_make_fsl_month,
                  "move": group_move, "split": group_split, "merge": group_merge,
-                 "set-what": group_set_what, "set-where": group_set_where}
+                 "set-what": group_set_what, "set-where": group_set_where,
+                 "set-who": group_set_who}
 
 
 def cmd_group(args):
@@ -5500,6 +5544,11 @@ def main(argv=None):
     p = action("set-what", "the agent's own [what] for a folder, or --clear")
     p.add_argument("folder")
     p.add_argument("text", nargs="?")
+    p.add_argument("--clear", action="store_true")
+    p = action("set-who", "take one pet out of ONE folder's [who] (--drop), "
+                          "or --clear to give them back")
+    p.add_argument("folder")
+    p.add_argument("--drop")
     p.add_argument("--clear", action="store_true")
     p = action("set-where", "the owner's own [where] for a day folder or leg, "
                             "or --clear (back to the looked-up place)")
