@@ -2,8 +2,46 @@
 
 ## v2.2.0
 
-Two test-only defects, found on Windows 11 in the release check. The product
-itself behaves correctly; only the tests are wrong there. On macOS all cases pass.
+Measured in the v2.2.0 release checks: a fresh install and a sample dump on
+macOS, a real 951-file dump on macOS, and a fresh clone on Windows 11.
+Nothing here touches your original photos: the product stays copy-only.
+
+### All platforms (found on macOS)
+
+- **A typed answer on a pet page goes to the page's first question.** When you
+  answer a pet page in its text file, the answer is applied to question 1 even
+  if you meant a later one. Read `confirm`'s dry run before you run it with
+  `--go`; it says which photos each name lands on.
+- **A later photo set's pet pages can ask only about earlier sets.** The page may
+  show animals from photo sets you sorted before, and none from this one. Answer
+  or skip them; nothing is copied again.
+- **Close-ups of one animal can be asked as several animals.** Crops of one pet
+  (paws, a tail) can come as separate questions; there is no "same animal
+  again" answer yet. Skip the extra crops.
+- **No command removes one pet from one folder name.** `photo_subjects.py review
+  --detach` takes back a whole group of photos, not one folder.
+- **A dry run can accept a two-name answer that `--go` refuses.** On a photo with
+  three or more animals, marking one as "not an animal" leaves fewer animals at
+  `--go` than the dry run counted. Answer that photo again with one name per
+  animal still in it.
+- **A pet seen only at home can be paired with an away-day word.** If a proposed
+  `[what]` is wrong, set the folder's own words with
+  `photo_index.py group set-what`.
+- **Place names abroad can come in the local script.** When the map has no name
+  in your language, the local name is used. Change it on the Review folders page
+  with "my word".
+- **The map service can fail for a while (502/504).** A first `cluster` on a large
+  dump can run past an agent's tool time limit, and a failed place lookup is
+  named by its town and said again on later steps. Run `photo_run.py cluster
+  <dump> --force` before the dump's index is made to retry the lookups.
+- **No time estimate or resume for a very long run yet.** Sorting thousands of
+  files in one go is planned for the next release; until then, run a large
+  collection one dump at a time.
+
+### Windows 11
+
+Two test-only defects. The product itself behaves correctly; only the tests are
+wrong there. On macOS all cases pass.
 
 - **W11-1** `tests/doctor_cases.py` `the_prep_stop_quotes_a_product_path_with_a_space`
   fails on Windows. The test expects the POSIX form of the doctor line. Windows
@@ -16,3 +54,4 @@ itself behaves correctly; only the tests are wrong there. On macOS all cases pas
 
 Result on Windows 11: `doctor_cases` 32 of 34. `doctor` and `fresh_owner_smoke`
 pass. Both defects are older than v2.2.0 and are planned for a later release.
+Run every command with `PYTHONUTF8=1` set (see docs/INSTALL.md).
