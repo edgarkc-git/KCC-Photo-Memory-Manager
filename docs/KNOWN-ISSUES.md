@@ -30,13 +30,9 @@ Nothing here touches your original photos: the product stays copy-only.
 - **Place names abroad can come in the local script.** When the map has no name
   in your language, the local name is used. Change it on the Review folders page
   with "my word".
-- **The map service can fail for a while (502/504).** A first `cluster` on a large
-  dump can run past an agent's tool time limit, and a failed place lookup is
-  named by its town and said again on later steps. Run `photo_run.py cluster
-  <dump> --force` before the dump's index is made to retry the lookups.
-- **No time estimate or resume for a very long run yet.** Sorting thousands of
-  files in one go is planned for the next release; until then, run a large
-  collection one dump at a time.
+- **The map service can fail for a while (502/504).** A place lookup that
+  failed is named by its town. Run `photo_run.py cluster <dump> --force` before
+  the dump's index is made to retry the lookups.
 
 ### Windows 11
 

@@ -137,6 +137,8 @@ missing — there is no second list to keep in step.
    python3 scripts/photo_run.py prep "/Volumes/EXAMPLE_DRIVE/<source-root>/202401"
    python3 scripts/photo_index.py init 202401
    ```
+   On a large dump, run `prep` and `cluster` in the background: the map lookups
+   can outlive your tool time limit (see "A long run").
    The source path is the one place a path is typed: it is the owner's raw
    folder, recorded in `collection.json` under `raw_roots`. Sanity-check the
    printed counts (main + AAE = total seen; date range plausible).
@@ -474,7 +476,57 @@ missing — there is no second list to keep in step.
    in Finder and, if something's wrong, **re-processes** the folder (below).
 
 `prep` and `finish` can be split across sessions freely — `status` always shows
-what's left.
+what's left, and its last line is the one command to run next.
+
+## A long run (estimate, resume, compact)
+
+A dump of thousands of files runs as one job. Read this to the owner before
+the picture pass, and follow it whenever a session ends mid-run.
+
+- **The progress file.** Every stage writes `run-progress.json` in the work
+  dir: `pending`, `running` or `done`, when it started and ended, and how many
+  files it has done of how many. `photo_run.py status "<work dir>"` prints it,
+  then `resume with:` and the ONE command to run next. A session that lost its
+  context runs that command and nothing else.
+- **The estimate.** Before the picture pass, `status` and `photo_embed.py`
+  print `Picture pass: N photos, about H h M min (rate R s/photo from <basis>)`.
+  Tell the owner that line as it is, basis included. The basis is either the
+  last run on this machine or a timed sample of this run's first files. A stage
+  that has never been timed on this machine is left out of the number, and the
+  line says so. Your own viewing of the samples is NOT in it. When identity
+  ends, it prints `Picture pass took <time> (estimated <time>)`; tell the owner
+  that line too.
+- **Long stages in the background.** `cluster` (map lookups, with retries when
+  the map service fails), `photo_embed.py`, `photo_identity.py` and the copy
+  in `finish --go` can each outlive your tool time limit. Start them in the
+  background and watch `run-progress.json` (or `status`), never a fixed sleep.
+  The map cache saves every 10 lookups, identity every 64 files, embed every
+  160 files and the copy every 50 files. A stage killed mid-way loses only the
+  work since its last save.
+- **SAFE TO COMPACT.** At each stage boundary the engine prints
+  `SAFE TO COMPACT — <what is done>. Resume with:` and the exact command.
+  Everything before that line is on disk. That is where to let the
+  conversation compact or end. Between two such lines, finish the step first.
+  After each `photo_see.py --apply`, a batch's labels are safe. Your views of a
+  batch NOT yet applied are lost if the session ends, so apply each batch as
+  soon as its decisions are written.
+- **Resume.** Run the `resume with:` command. `finish --go` skips its done
+  stages and says so: `skipped (done under this freeze) · new work 0` for the
+  pages and views, `copy: skipped (done) N plan(s) · new work M plan(s)`, and
+  per plan `resume PN: already verified N · copied now M · found on the drive
+  K · twins T`. A file renamed into place before the kill is found by its
+  SHA-256 and never copied again. A done stage is skipped only under the SAME
+  freeze. After a confirm or a re-lock it runs again, as it must.
+- **`prep` runs once.** A second `prep` on a dump that is already clustered
+  stops before it writes anything and prints the next command. `--force`
+  scans and clusters again.
+- **Map requests.** `cluster` ends with one line,
+  `map requests: nominatim network N / cache C / retries R (K were 5xx
+  answers) / failed F · overpass …`, and keeps it in the progress file with the
+  reachability probe counted apart. A landmark lookup that failed is said once
+  for the dump, by `cluster`. Later renders and the copy do not repeat it; the
+  execution log still records it. Retry with `photo_run.py cluster "<work dir>"
+  --force` before the index is made.
 
 ## The Review folders page (G20, G21, G45)
 
