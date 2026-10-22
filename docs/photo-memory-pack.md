@@ -836,6 +836,7 @@ suppression:
 | **picked** | on a `pick:` row with `who` + `name` | `human-confirmed`, **only the picked frames** become exemplars, never asked again |
 | **deferred** | left out of every row | **nothing.** Stays `ai-drafted`, keeps proposing `draft:` names, returns at a later checkpoint once its evidence grew |
 | **`skip:`** | its number on the `skip:` row, plus the word `confirm` | `rejected` — never asked again, in any run |
+| **same animal** | a crop `N.M` on the `skip:` row, plus `same-animal` | that crop stops counting as its own animal, in this dump's index only (`same_animal`); the photo is still never an exemplar |
 
 **Silence is never rejection.** Answering three of eight frames must not
 retire the other five. A draft the engine did not RENDER is deferred too, and

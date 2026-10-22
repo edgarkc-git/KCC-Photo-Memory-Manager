@@ -1414,6 +1414,56 @@ def a_dry_run_still_accepts_two_names_when_two_animals_stay():
         f"dry={dry} go={go} said_dry={said_dry[-300:]!r} go={said_go[-300:]!r}"
 
 
+@case
+def a_crop_of_the_same_animal_stops_counting_as_its_own_animal():
+    """⭐ REPRODUCTION (B1-10, U5-13/U6-6/K31, G52). ⛔ FAILS on 2c1bf34: there
+    was no answer for a paw or a tail cropped as a second animal. Now `skip:
+    1.2 same-animal` is recorded in the dump index's `same_animal` list, the
+    photo counts ONE animal for this photo set, and it is still never an
+    example photo (D-24: the detector found two)."""
+    import photo_identity
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir = crowded_page(tmp, 2, "1.2 same-animal", names=("Pebble same",))
+        dry, said_dry = pmc.confirm_page(pack_dir, wd, page="P-B01", go=False)
+        go, said_go = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+        marks = index_of(tmp).get("same_animal") or []
+        pack = photo_profile.resolve_pack(explicit=pack_dir / photo_profile.PROFILE_NAME)
+        counted = pm.frame_animals(wd, pack).get(str(wd / "B1_C0_000.JPG"))
+        by_file, _ = photo_identity.load_detections(wd / "embed", pack)
+        row = by_file[str(wd / "B1_C0_000.JPG")][0][0]
+        pebble = subjects_named(pack_dir, "Pebble").get("Pebble") or {}
+    return (dry == 0 and go == 0 and [m["det_index"] for m in marks] == [1]
+            and counted == 1 and photo_identity.detected_count(row) == 2
+            and not photo_identity.exemplar_quality(row)[0]
+            and not pebble.get("exemplars")), \
+        f"dry={dry} go={go} marks={marks} counted={counted} row={row} " \
+        f"said={said_go[-300:]!r}"
+
+
+@case
+def same_animal_on_a_one_animal_photo_is_refused():
+    """GUARD (B1-10). A photo with one animal has no other animal for a crop
+    to be part of: refused, nothing marked."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir = crowded_page(tmp, 1, "1.1 same-animal", names=("Pebble same",))
+        rc, said = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+        marks = index_of(tmp).get("same_animal") or []
+    return ("holds no other animal" in said and marks == []), \
+        f"rc={rc} marks={marks} said={said[-300:]!r}"
+
+
+@case
+def a_crop_marked_twice_ways_is_refused():
+    """GUARD (B1-10). One crop cannot be both `same-animal` and `confirm`."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir = crowded_page(tmp, 2, "1.2 same-animal, 1.2 confirm",
+                                    names=("Pebble same",))
+        rc, said = pmc.confirm_page(pack_dir, wd, page="P-B01", go=True)
+        idx = index_of(tmp)
+    return ("keep the one you mean" in said and not idx.get("same_animal")
+            and not idx.get("not_mine")), f"rc={rc} said={said[-300:]!r}"
+
+
 # ---------------------------------------------------------------------------
 
 def route_case(route):

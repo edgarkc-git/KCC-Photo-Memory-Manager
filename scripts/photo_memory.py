@@ -338,6 +338,11 @@ CROP_ARMED = re.compile(
 # not the owner's. Bound the same way, to the refs right before the word.
 CROP_CONFIRMED = re.compile(
     r"((?:(?<![\d.])\d+\.\d+(?![\d.])\s*,?\s*)+)confirm\b", re.I)
+# B1-10 (G52) — `skip: N.M same-animal`: that crop is part of an animal another
+# crop of the same photo already shows (a paw, a tail). Bound the same way.
+BASIS_SAME_ANIMAL = "same-animal"
+CROP_SAME = re.compile(
+    rf"((?:(?<![\d.])\d+\.\d+(?![\d.])\s*,?\s*)+){BASIS_SAME_ANIMAL}\b", re.I)
 FIELD_LINE = re.compile(rf"^\s*[-*]?\s*(?=`?(?:{FIELD_KEYS})\b)", re.I)
 FIELD_SCAN = re.compile(rf"`?\b({FIELD_KEYS})\b`?\s*:\s*`?\s*", re.I)
 # The closing backtick after the colon is eaten HERE, the way `FIELD_SCAN` eats
@@ -3316,17 +3321,21 @@ def parse_review(text):
                                            CROP_REF.findall(value)]
                 armed = [(int(n), int(a)) for m in CROP_ARMED.findall(value)
                          for n, a in CROP_REF.findall(m)]
+                same = [(int(n), int(a)) for m in CROP_SAME.findall(value)
+                        for n, a in CROP_REF.findall(m)]
                 mine = [(int(n), int(a)) for m in CROP_CONFIRMED.findall(
-                            CROP_ARMED.sub(" ", value))
+                            CROP_SAME.sub(" ", CROP_ARMED.sub(" ", value)))
                         for n, a in CROP_REF.findall(m)]
                 current["skip_animals_armed"] = bool(current["skip_animals"]) \
-                    and all(r in armed or r in mine
+                    and all(r in armed or r in mine or r in same
                             for r in current["skip_animals"])
                 current["skip_animals_armed_refs"] = armed
                 current["skip_animals_mine_refs"] = mine
+                current["skip_animals_same_refs"] = same
                 # What is left is the whole-photo half, read on its own — the
                 # crops' word must not become the frames' basis (U2-10).
-                value = CROP_REF.sub(" ", CROP_ARMED.sub(" ", value))
+                value = CROP_REF.sub(" ", CROP_SAME.sub(
+                    " ", CROP_ARMED.sub(" ", value)))
                 current["skip_numbers"] = tile_numbers(value)
                 # The one row that has to be typed on purpose. `rejected` is
                 # the only outcome no later checkpoint can reach, so the
@@ -3685,11 +3694,18 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
             continue
         mine_refs = block.get("skip_animals_mine_refs") or []
         armed_refs = block.get("skip_animals_armed_refs") or []
+        same_refs = block.get("skip_animals_same_refs") or []
         for n, a in block["skip_animals"]:
-            if (n, a) in mine_refs and (n, a) in armed_refs:
-                refusals.append(f"Q{block['n']}: `skip:` {n}.{a} carries both "
-                                f"`confirm` and `{BASIS_NOT_A_SUBJECT}` — keep "
-                                "the one you mean. Nothing was marked.")
+            words = [w for w, refs in (("confirm", mine_refs),
+                                       (BASIS_NOT_A_SUBJECT, armed_refs),
+                                       (BASIS_SAME_ANIMAL, same_refs))
+                     if (n, a) in refs]
+            if len(words) > 1:
+                refusals.append(f"Q{block['n']}: `skip:` {n}.{a} carries "
+                                + ("both " if len(words) == 2 else "")
+                                + " and ".join(f"`{w}`" for w in words)
+                                + " — keep the one you mean. Nothing was "
+                                "marked.")
                 continue
             frame = block["frames"].get(n)
             if not frame:
@@ -3697,7 +3713,9 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
                                 f"frame {n} on any question of this page. "
                                 "Nothing was marked.")
                 continue
-            basis = BASIS_NOT_MINE if (n, a) in mine_refs else BASIS_NOT_A_SUBJECT
+            basis = (BASIS_NOT_MINE if (n, a) in mine_refs
+                     else BASIS_SAME_ANIMAL if (n, a) in same_refs
+                     else BASIS_NOT_A_SUBJECT)
             wanted.append((block["n"], n, a, frame.get("ref"), basis))
     if not wanted:
         return []
@@ -3721,14 +3739,26 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
                             "animal, so the whole photo is the answer: "
                             f"`skip: {n} confirm`. Nothing was marked.")
             continue
+        if basis == BASIS_SAME_ANIMAL and int(row.get("det_count") or 0) < 2:
+            refusals.append(f"Q{q}: `skip:` {n}.{a} {BASIS_SAME_ANIMAL} — photo "
+                            f"{n} holds no other animal for it to be part of. "
+                            "Nothing was marked.")
+            continue
         marks.append({"sha256": row["sha256"], "det_index": a - 1,
                       "box": row.get("box"), "file": Path(source).name,
                       "by": by, "source": f"{page} Q{q} {n}.{a}", "at": now,
                       "basis": basis})
     if not marks:
         return []
-    lists = {BASIS_NOT_A_SUBJECT: "not_animals", BASIS_NOT_MINE: "not_mine"}
-    said = {BASIS_NOT_A_SUBJECT: ("would stop counting as an animal; this "
+    lists = {BASIS_NOT_A_SUBJECT: "not_animals", BASIS_NOT_MINE: "not_mine",
+             BASIS_SAME_ANIMAL: "same_animal"}
+    said = {BASIS_SAME_ANIMAL: ("would count as part of another animal in the "
+                                "same photo; this dry run judges the picks "
+                                "without it, as --go does",
+                                "counted as part of another animal in the "
+                                "same photo (this photo set only; still never "
+                                "an example photo)"),
+            BASIS_NOT_A_SUBJECT: ("would stop counting as an animal; this "
                                   "dry run judges the picks without it, as "
                                   "--go does",
                                   "no longer counted as an animal (the "
@@ -3776,16 +3806,19 @@ def mark_not_animals(workdir, profile, blocks, refusals, changes, by, page, go):
         new = [m for m in mine if (m["sha256"], m["det_index"]) not in have]
         if new:
             index.setdefault(key, []).extend(new)
-            what = ("marked not a real animal" if basis == BASIS_NOT_A_SUBJECT
-                    else "recorded as not the owner's animal")
+            what = {BASIS_NOT_A_SUBJECT: "marked not a real animal",
+                    BASIS_NOT_MINE: "recorded as not the owner's animal",
+                    BASIS_SAME_ANIMAL: "marked part of another animal in the "
+                                       "same photo"}[basis]
             photo_index.log_entry(
                 index, "photo_memory confirm",
                 f"{len(new)} crop(s) {what}: "
                 + ", ".join(f"{m['file']} animal {m['det_index'] + 1}"
                             for m in new),
-                (f"Q8-c: `skip: … {BASIS_NOT_A_SUBJECT}` on {page}"
-                 if basis == BASIS_NOT_A_SUBJECT
-                 else f"C10: `skip: N.M confirm` on {page}"), by=by or "owner")
+                {BASIS_NOT_A_SUBJECT: f"Q8-c: `skip: … {BASIS_NOT_A_SUBJECT}` on {page}",
+                 BASIS_NOT_MINE: f"C10: `skip: N.M confirm` on {page}",
+                 BASIS_SAME_ANIMAL: f"B1-10: `skip: N.M {BASIS_SAME_ANIMAL}` "
+                                    f"on {page}"}[basis], by=by or "owner")
             wrote = True
         changes.append(f"{shown(basis)} -> {said[basis][1]}")
     if wrote:
@@ -4028,7 +4061,7 @@ def attach_exemplars(registry, subject, only_refs):
                          "run_id")}
             id_row = id_index.get(path)
             try:
-                animals = int((id_row[0].get("det_count") if id_row else 0) or 0)
+                animals = photo_identity.detected_count(id_row[0]) if id_row else 0
             except (TypeError, ValueError):
                 animals = 0
             if animals > 1:

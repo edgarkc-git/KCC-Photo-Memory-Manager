@@ -1112,6 +1112,16 @@ A note.
           rcq == 0 and sorted(p["name"] for p in q2["picks"]) == ["Birk", "Lotus"],
           "%r" % (rcq,))
 
+    # ---- B1-10 — `same-animal` survives a split across questions ---------
+    try:
+        routed = rp.apply_answer(TWO_Q, ["skip: 1 confirm, 4.2 same-animal"])
+        q1, q2 = pm2.parse_review(routed)[:2]
+        got = (q1["skip_numbers"], q2.get("skip_animals_same_refs"))
+    except (SystemExit, KeyError) as e:
+        got = ("refused", str(e))
+    check("B1-10 a `same-animal` crop keeps its word when its row is split "
+          "per question (REPRODUCTION)", got == ([1], [(4, 2)]), "%r" % (got,))
+
     print("\n%d/%d review_page cases passed"
           % (len(PASS), len(PASS) + len(FAIL)))
     if FAIL:

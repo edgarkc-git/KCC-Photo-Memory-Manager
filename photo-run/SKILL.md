@@ -295,6 +295,10 @@ missing — there is no second list to keep in step.
      answer without it. One row per animal: copy a row for each more animal.
      Two animals in one photo take two rows with the same photo number;
      `pick: 3.1` is refused (a `<photo>.<animal>` number belongs on `skip:` only).
+     A crop that is a paw or a tail of an animal another crop of the same photo
+     shows is `skip: 3.2 same-animal`: it stops counting as its own animal for
+     this photo set (never learned for later dumps), and the photo is still
+     never an example photo.
      To change an answer before its confirm, see step f.
    - Then the two lines the stop printed:
      `photo_memory.py confirm "<work dir>" --page P-B<NN> --go` (the names into

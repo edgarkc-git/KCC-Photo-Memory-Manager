@@ -381,10 +381,7 @@ def exemplar_quality(row):
         share = float(row.get("box_share") or 0.0)
     except (TypeError, ValueError):
         return False, "box_share is not readable"
-    try:
-        count = int(row.get("det_count") or 0)
-    except (TypeError, ValueError):
-        count = 0
+    count = detected_count(row)
     if count > 1:
         return False, (f"this frame holds {count} animals, and the exemplar "
                        "store keys on the file — one photograph cannot bank a "
@@ -468,11 +465,32 @@ def load_detections(embed_dir, pack=None):
         by_file.setdefault(r["SourceFile"], []).append((r, vectors[i]))
     for entries in by_file.values():
         entries.sort(key=lambda e: int(e[0].get("det_index") or 0))
-    return apply_marks(by_file, not_animal_marks(embed_dir, pack)), space_of(meta)
+    return apply_marks(by_file, not_animal_marks(embed_dir, pack)
+                       + [dict(m, same_animal=True)
+                          for m in same_animal_marks(embed_dir, pack)]), space_of(meta)
 
 
 def not_animal_marks(embed_dir, pack=None):
     return _index_marks(embed_dir, pack, "not_animals")
+
+
+def same_animal_marks(embed_dir, pack=None):
+    """B1-10 (G52) — the crops the owner said are part of an animal another
+    crop of the same photo shows (`skip: N.M same-animal`): the `same_animal`
+    list of this dump's index, for this photo set only. Missing = none. They
+    stop counting as animals, and `det_count_detected` keeps what the
+    detector found, so D-24 still holds the photo out of the exemplars."""
+    return _index_marks(embed_dir, pack, "same_animal")
+
+
+def detected_count(row):
+    """-> the animals the DETECTOR found in a photo: `det_count`, or the
+    count before a same-animal mark lowered it. What D-24 reads."""
+    try:
+        return max(int(row.get("det_count") or 0),
+                   int(row.get("det_count_detected") or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def not_mine_marks(embed_dir, pack=None):
@@ -569,12 +587,13 @@ def apply_marks(by_file, marks):
         if not any(r.get("sha256") in shas for r, _v in entries):
             out[source] = entries
             continue
-        keep, dropped = [], 0
+        keep, dropped, same = [], 0, False
         for row, vec in entries:
             mark = keyed.get((row.get("sha256"), int(row.get("det_index") or 0)))
             if mark is not None and row.get("status") == STATUS_OK:
                 if mark.get("box") in (None, "", row.get("box")):
                     dropped += 1
+                    same = same or bool(mark.get("same_animal"))
                     continue
                 print(f"  ⚠️ a not-an-animal mark on {Path(source).name} animal "
                       f"{int(row.get('det_index') or 0) + 1} is stale (the photo "
@@ -585,7 +604,10 @@ def apply_marks(by_file, marks):
             continue
         real = sum(1 for r, _v in keep if r.get("status") == STATUS_OK)
         if real:
-            out[source] = [(dict(r, det_count=real), v) for r, v in keep]
+            # B1-10 — a same-animal mark keeps what the detector found.
+            found = ({"det_count_detected": max(detected_count(r) for r, _v in entries)}
+                     if same else {})
+            out[source] = [(dict(r, det_count=real, **found), v) for r, v in keep]
         else:
             first, vec = entries[0]
             out[source] = [(dict(first, status=STATUS_NO_SUBJECT, det_count=0,

@@ -576,7 +576,8 @@ def _skip_meaning(pm, value):
             "basis": b["skip_basis"],
             "crops": [tuple(r) for r in b["skip_animals"]],
             "not_animal": {tuple(r) for r in b["skip_animals_armed_refs"]},
-            "mine": {tuple(r) for r in b["skip_animals_mine_refs"]}}
+            "mine": {tuple(r) for r in b["skip_animals_mine_refs"]},
+            "same": {tuple(r) for r in b.get("skip_animals_same_refs") or []}}
 
 
 def _skip_text(pm, m):
@@ -588,7 +589,9 @@ def _skip_text(pm, m):
                      + (" confirm" if m["armed"] else ""))
     for refs, word in ((m["mine"], " confirm"),
                        (m["not_animal"], " " + pm.BASIS_NOT_A_SUBJECT),
-                       ({r for r in m["crops"]} - m["mine"] - m["not_animal"], "")):
+                       (m.get("same", set()), " " + pm.BASIS_SAME_ANIMAL),
+                       ({r for r in m["crops"]} - m["mine"] - m["not_animal"]
+                        - m.get("same", set()), "")):
         ordered = [r for r in m["crops"] if r in refs]
         if ordered:
             parts.append(", ".join("%d.%d" % r for r in ordered) + word)
@@ -599,7 +602,8 @@ def _same_skip(a, b):
     if a["whole"] and (a["armed"], a["basis"]) != (b["armed"], b["basis"]):
         return False
     return (a["whole"] == b["whole"] and sorted(a["crops"]) == sorted(b["crops"])
-            and a["mine"] == b["mine"] and a["not_animal"] == b["not_animal"])
+            and a["mine"] == b["mine"] and a["not_animal"] == b["not_animal"]
+            and a.get("same", set()) == b.get("same", set()))
 
 
 def route_rows(md_text, picks, skips):
@@ -651,7 +655,8 @@ def route_rows(md_text, picks, skips):
             piece = dict(meaning, whole=part["whole"], crops=part["crops"],
                          mine={r for r in meaning["mine"] if r in part["crops"]},
                          not_animal={r for r in meaning["not_animal"]
-                                     if r in part["crops"]})
+                                     if r in part["crops"]},
+                         same={r for r in meaning["same"] if r in part["crops"]})
             text = row if len(by_q) == 1 else _skip_text(pm, piece)
             if text is not row and not _same_skip(
                     piece, _skip_meaning(pm, text[5:])):
@@ -674,7 +679,8 @@ def route_rows(md_text, picks, skips):
                   "basis": wholes[0]["basis"] if wholes else got[0][2]["basis"],
                   "crops": [r for _, _, p in got for r in p["crops"]],
                   "mine": set().union(*(p["mine"] for _, _, p in got)),
-                  "not_animal": set().union(*(p["not_animal"] for _, _, p in got))}
+                  "not_animal": set().union(*(p["not_animal"] for _, _, p in got)),
+                  "same": set().union(*(p["same"] for _, _, p in got))}
         text = _skip_text(pm, joined)
         if any((p["armed"], p["basis"]) != (joined["armed"], joined["basis"])
                for p in wholes) or not _same_skip(

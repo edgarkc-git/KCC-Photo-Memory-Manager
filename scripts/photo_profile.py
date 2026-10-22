@@ -1565,7 +1565,11 @@ REVIEW_VOCAB = {
                                    "a real animal that is not yours, use "
                                    "confirm instead, e.g. `skip: {ref} "
                                    "confirm`: only that animal is recorded as "
-                                   "not yours.",
+                                   "not yours. If it is a paw or a tail of an "
+                                   "animal another crop of this photo shows, "
+                                   "use same-animal, e.g. `skip: {ref} "
+                                   "same-animal`: it stops counting as its own "
+                                   "animal.",
         # C10 — one animal of a shared photo already recorded as not the
         # owner's, so the page does not ask about it again.
         "review_frame_not_mine": "Photo {n}, animal {ref}: recorded as not "
@@ -1728,7 +1732,11 @@ REVIEW_VOCAB = {
                               "write `skip: 2.1 not-a-subject` in text. If "
                               "a crop is a real animal that is not yours, "
                               "tick \"not my pet\" under it on the web page, "
-                              "or write `skip: 2.2 confirm` in text. A photo "
+                              "or write `skip: 2.2 confirm` in text. If a "
+                              "crop is a paw or a tail of an animal another "
+                              "crop of the photo shows, tick \"the same "
+                              "animal\", or write `skip: 2.3 same-animal`. "
+                              "A photo "
                               "holding only animals that are not yours is "
                               "\"Not my pet\" for the whole photo "
                               "(`skip: 3 confirm`). " + STRANGER_ANIMAL,
