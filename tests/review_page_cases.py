@@ -990,11 +990,18 @@ A note.
               "%r" % (rc,))
         rc, after = run_w4(CROPPED, ["page: P-B01", "skip: 2.1 confirm",
                                      "skip: 2.2 confirm"])
-        check("U5-11 a second `skip:` row is refused out loud, nothing written "
-              "(REPRODUCTION, FAILS on d5201b6: the second row was dropped "
-              "while 'written' was said)",
-              str(rc).startswith("refused: 2 `skip:` rows") and "2.2 confirm" in str(rc)
-              and after == CROPPED, "%r" % (rc,))
+        blk = pm.parse_review(after)[0]
+        check("B1-1 two `skip:` rows that read the same apart and joined are "
+              "joined, nothing lost (REPRODUCTION, FAILS on 2c1bf34: refused "
+              "as a second row)",
+              rc == 0 and blk.get("skip_animals_mine_refs") == [(2, 1), (2, 2)],
+              "%r" % (rc,))
+        rc, after = run_w4(CROPPED, ["page: P-B01", "skip: 1",
+                                     "skip: 2.2 confirm"])
+        check("U5-11 two `skip:` rows one row cannot hold (a crop's confirm "
+              "would arm photo 1) are refused out loud, nothing written (GUARD)",
+              str(rc).startswith("refused: 2 `skip:` rows")
+              and "2.2 confirm" in str(rc) and after == CROPPED, "%r" % (rc,))
         rc, after = run_w4(CROPPED, ["page: P-B01", "skip: 2.1 confirm, 2.2 confirm",
                                      "skip: ______"])
         blk = pm.parse_review(after)[0]
@@ -1033,6 +1040,77 @@ A note.
           "backtick typed inside a name kept (GUARD)",
           [(r["name"], r["not_frames"]) for r in a20]
           == [("Birk", []), (None, [5]), ("Lotus`", [])], "%r" % (a20,))
+
+    # ---- B1-1 — every row lands on the question that holds its photos ------
+    TWO_Q = ("<!-- sns-page: P-B07 -->\n\n### Questions\n\n"
+             "**Q1 · Group it — hound** — affects 2 file(s) / 1 batch(es)\n"
+             "> `subjects:` 1=subj-0001\n"
+             "> `frames:` 1=subj-0001 aa11bb22 s/a.png, 2=subj-0001 bb22cc33 s/b.png\n"
+             "> - `pick:` ______   `who:` ______   `name:` ______\n"
+             "> - `pick:` ______   `who:` ______   `name:` ______\n"
+             "> - `skip:` ______\n\n"
+             "**Q2 · Group it — cat** — affects 3 file(s) / 1 batch(es)\n"
+             "> `subjects:` 1=subj-0002\n"
+             "> `frames:` 3=subj-0002 cc33dd44 s/c.png, 4=subj-0002 dd44ee55 s/d.png, "
+             "5=subj-0002 ee55ff66 s/e.png\n"
+             "> `animals:` 4=2\n"
+             "> - `pick:` ______   `who:` ______   `name:` ______\n"
+             "> - `pick:` ______   `who:` ______   `name:` ______\n"
+             "> - `skip:` ______\n")
+    import photo_memory as pm2
+    routed = rp.apply_answer(TWO_Q, ["pick: 3,4 who: pet name: Lotus",
+                                     "pick: 1 who: pet name: Birk"])
+    q1, q2 = pm2.parse_review(routed)[:2]
+    check("B1-1 a Q2 pick row lands on Q2, a Q1 row on Q1 (REPRODUCTION, "
+          "FAILS on 2c1bf34: both rows went to Q1)",
+          [p["name"] for p in q1["picks"]] == ["Birk"]
+          and [p["name"] for p in q2["picks"]] == ["Lotus"]
+          and q2["picks"][0]["numbers"] == [3, 4], routed)
+    routed = rp.apply_answer(TWO_Q, ["skip: 1 confirm, 5 confirm, 4.2 not-a-subject"])
+    q1, q2 = pm2.parse_review(routed)[:2]
+    check("B1-1 one `skip:` row naming photos of two questions is split, each "
+          "keeps its words (GUARD: on 2c1bf34 `confirm` already filed it, K24)",
+          q1["skip_numbers"] == [1] and q1["skip_armed"]
+          and q2["skip_numbers"] == [5] and q2["skip_armed"]
+          and q2["skip_animals_armed_refs"] == [(4, 2)]
+          and not q1["skip_animals"], routed)
+    try:
+        routed = rp.apply_answer(TWO_Q, ["skip: 2 confirm", "skip: 3 confirm"])
+    except SystemExit as e:
+        routed = "refused: %s" % e
+    q1, q2 = (pm2.parse_review(routed) + [{"skip_numbers": None}] * 2)[:2]
+    check("B1-1 one `skip:` row per question, two rows on one page, both "
+          "written (REPRODUCTION, FAILS on 2c1bf34: refused)",
+          q1["skip_numbers"] == [2] and q2["skip_numbers"] == [3]
+          and q1.get("skip_armed") and q2.get("skip_armed"), routed[-200:])
+    try:
+        rp.apply_answer(TWO_Q, ["pick: 1,3 who: pet name: Lotus"])
+        said = None
+    except SystemExit as e:
+        said = str(e)
+    check("B1-1 a pick row naming photos of Q1 and Q2 is refused, nothing "
+          "written (REPRODUCTION: on 2c1bf34 written onto Q1)", said is not None and "Q1 and Q2" in said, "%r" % said)
+    only_q2 = rp.apply_answer(TWO_Q.replace(
+        "> - `pick:` ______   `who:` ______   `name:` ______\n> - `skip:` ______\n\n**Q2",
+        "> - `pick:` 2 `who:` pet `name:` Birk\n> - `skip:` ______\n\n**Q2"),
+        ["pick: 5 who: pet name: Lotus"])
+    check("B1-1 an answer only for Q2 leaves Q1's typed row as it is (REPRODUCTION: on 2c1bf34 Q1 took it)",
+          "`pick:` 2 `who:` pet `name:` Birk" in only_q2
+          and [p["name"] for p in pm2.parse_review(only_q2)[1]["picks"]]
+          == ["Lotus"], only_q2)
+    with tempfile.TemporaryDirectory() as tmpq:
+        mdq = os.path.join(tmpq, "P-B07.md")
+        io.open(mdq, "w", encoding="utf-8").write(TWO_Q)
+        import contextlib as _cl
+        with _cl.redirect_stdout(io.StringIO()):
+            rcq = rp.main(["apply", mdq, "--answer", _write(
+                tmpq, ["page: P-B07", "pick: 4 who: pet name: Lotus",
+                       "pick: 4 who: pet name: Birk"])])
+        q2 = pm2.parse_review(io.open(mdq, encoding="utf-8").read())[1]
+    check("B1-1 a typed Q2 answer through `apply` lands on Q2, two names on a "
+          "two-animal photo (REPRODUCTION)",
+          rcq == 0 and sorted(p["name"] for p in q2["picks"]) == ["Birk", "Lotus"],
+          "%r" % (rcq,))
 
     print("\n%d/%d review_page cases passed"
           % (len(PASS), len(PASS) + len(FAIL)))

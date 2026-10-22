@@ -566,6 +566,130 @@ def blank_answer_row(line):
     return not BLANK_ROW.sub("", t).strip()
 
 
+RE_Q_HEAD = re.compile(r"^\*\*Q(\d+)\b")
+
+
+def _skip_meaning(pm, value):
+    """-> what `confirm` reads off one `skip:` value, through its own parser."""
+    b = pm.parse_review("**Q1 · x\n> - `skip:` %s\n" % value)[0]
+    return {"whole": list(b["skip_numbers"]), "armed": b["skip_armed"],
+            "basis": b["skip_basis"],
+            "crops": [tuple(r) for r in b["skip_animals"]],
+            "not_animal": {tuple(r) for r in b["skip_animals_armed_refs"]},
+            "mine": {tuple(r) for r in b["skip_animals_mine_refs"]}}
+
+
+def _skip_text(pm, m):
+    parts = []
+    if m["whole"]:
+        parts.append(", ".join(str(n) for n in m["whole"])
+                     + (" " + pm.BASIS_NOT_A_SUBJECT
+                        if m["basis"] == pm.BASIS_NOT_A_SUBJECT else "")
+                     + (" confirm" if m["armed"] else ""))
+    for refs, word in ((m["mine"], " confirm"),
+                       (m["not_animal"], " " + pm.BASIS_NOT_A_SUBJECT),
+                       ({r for r in m["crops"]} - m["mine"] - m["not_animal"], "")):
+        ordered = [r for r in m["crops"] if r in refs]
+        if ordered:
+            parts.append(", ".join("%d.%d" % r for r in ordered) + word)
+    return "skip: " + ", ".join(parts)
+
+
+def _same_skip(a, b):
+    if a["whole"] and (a["armed"], a["basis"]) != (b["armed"], b["basis"]):
+        return False
+    return (a["whole"] == b["whole"] and sorted(a["crops"]) == sorted(b["crops"])
+            and a["mine"] == b["mine"] and a["not_animal"] == b["not_animal"])
+
+
+def route_rows(md_text, picks, skips):
+    """B1-1 (E10/E35/E36/OR-4) — each `pick:` and `skip:` row lands on the
+    question whose `frames:` map holds its photo numbers (frame numbers run
+    through the whole page). A number no question holds goes to the page's
+    first question, as before. -> ({q: [pick rows]}, {q: skip row}, first q).
+
+    A pick row naming photos of two questions is refused. A skip row is split
+    per question, and two skip rows for one question are joined, only when
+    `confirm` reads the joined row exactly as it reads the rows apart;
+    otherwise refused with nothing written (U5-11)."""
+    import photo_memory as pm
+    blocks = pm.parse_review(md_text)
+    first = blocks[0]["n"] if blocks else None
+    holder = {}
+    for b in blocks:
+        for n in b["frames"]:
+            holder.setdefault(n, set()).add(b["n"])
+
+    def owner(n):
+        found = holder.get(n) or set()
+        return next(iter(found)) if len(found) == 1 else first
+
+    pick_rows = {}
+    for row in picks:
+        nums = pm.tile_numbers(re.split(r"\b(?:who|name):", row[5:],
+                                        maxsplit=1)[0])
+        qs = sorted({owner(n) for n in nums} or {first}, key=lambda q: q or 0)
+        if len(qs) > 1:
+            raise SystemExit(
+                "the row `%s` names photos from %s — a `pick:` row names "
+                "photos of ONE question. Nothing was written. Put each "
+                "question's photos on its own row." % (
+                    row, " and ".join("Q%s" % q for q in qs)))
+        pick_rows.setdefault(qs[0], []).append(row)
+
+    pieces = {}
+    for row in skips:
+        meaning = _skip_meaning(pm, row[5:])
+        by_q = {}
+        for n in meaning["whole"]:
+            by_q.setdefault(owner(n), {"whole": [], "crops": []})["whole"].append(n)
+        for r in meaning["crops"]:
+            by_q.setdefault(owner(r[0]), {"whole": [], "crops": []})["crops"].append(r)
+        if not by_q:
+            by_q[first] = {"whole": [], "crops": []}
+        for q, part in by_q.items():
+            piece = dict(meaning, whole=part["whole"], crops=part["crops"],
+                         mine={r for r in meaning["mine"] if r in part["crops"]},
+                         not_animal={r for r in meaning["not_animal"]
+                                     if r in part["crops"]})
+            text = row if len(by_q) == 1 else _skip_text(pm, piece)
+            if text is not row and not _same_skip(
+                    piece, _skip_meaning(pm, text[5:])):
+                raise SystemExit(
+                    "the row `%s` holds photos of %s and cannot be split "
+                    "into one row per question without changing what it "
+                    "says — nothing was written. Type one `skip:` row per "
+                    "question." % (row, " and ".join(
+                        "Q%s" % x for x in sorted(by_q, key=lambda x: x or 0))))
+            pieces.setdefault(q, []).append((row, text, piece))
+
+    skip_rows = {}
+    for q, got in pieces.items():
+        if len(got) == 1:
+            skip_rows[q] = got[0][1]
+            continue
+        wholes = [p for _, _, p in got if p["whole"]]
+        joined = {"whole": [n for _, _, p in got for n in p["whole"]],
+                  "armed": wholes[0]["armed"] if wholes else got[0][2]["armed"],
+                  "basis": wholes[0]["basis"] if wholes else got[0][2]["basis"],
+                  "crops": [r for _, _, p in got for r in p["crops"]],
+                  "mine": set().union(*(p["mine"] for _, _, p in got)),
+                  "not_animal": set().union(*(p["not_animal"] for _, _, p in got))}
+        text = _skip_text(pm, joined)
+        if any((p["armed"], p["basis"]) != (joined["armed"], joined["basis"])
+               for p in wholes) or not _same_skip(
+                   joined, _skip_meaning(pm, text[5:])):
+            raise SystemExit(
+                "%d `skip:` rows for Q%s say different things about its "
+                "photos, and one row cannot hold both — nothing was written. "
+                "Put every number of that question on one row, for example:\n"
+                "  %s\nRows sent:\n%s"
+                % (len(got), q, EXAMPLE_SKIP_ROW,
+                   "\n".join("  " + r for r, _, _ in got)))
+        skip_rows[q] = text
+    return pick_rows, skip_rows, first
+
+
 def apply_answer_report(md_text, answer_lines):
     """Splice the owner's rows into the markdown, in the text path's shape.
     -> (new text, [earlier answer rows this answer replaced]).
@@ -598,15 +722,8 @@ def apply_answer_report(md_text, answer_lines):
             if m:
                 rechecks[m.group(1)] = m.group(2).strip()
 
-    if len(skips) > 1:
-        # U5-11 — the page holds ONE `skip:` row, read as one reason for its
-        # whole photos; a second row used to be dropped while "written" was
-        # said. Joining two could arm numbers its `confirm` never named.
-        raise SystemExit(
-            "%d `skip:` rows — a page takes ONE `skip:` row, so the others "
-            "would be lost. Nothing was written. Put every number on one row, "
-            "for example:\n  %s\nRows sent:\n%s"
-            % (len(skips), EXAMPLE_SKIP_ROW, "\n".join("  " + r for r in skips)))
+    pick_rows, skip_rows, first = route_rows(md_text, picks, skips)
+    touched = set(pick_rows) | set(skip_rows) or {first}
 
     def backticked(row):
         for key in ("pick", "who", "name", "skip"):
@@ -615,11 +732,12 @@ def apply_answer_report(md_text, answer_lines):
 
     blank_pick = "`pick:` ______   `who:` ______   `name:` ______"
     out, replaced = [], []
-    used_pick, used_skip, place_n = False, False, None
-    question, pick_question = 0, None
+    place_n, question = None, None
+    pick_done, skip_done = set(), set()
     for ln in md_text.splitlines():
-        if ln.strip().startswith("**Q"):
-            question += 1
+        qhead = RE_Q_HEAD.match(ln.strip())
+        if qhead:
+            question = int(qhead.group(1))
         head = RE_PLACE_HEAD.match(ln.strip())
         if head:
             place_n = int(head.group(1))
@@ -641,34 +759,35 @@ def apply_answer_report(md_text, answer_lines):
         pre = head[:head.index("-") + 1]
         key = re.search(r"(pick|skip|recheck)", head, re.I).group(1).lower()
 
-        if key == "pick":
-            # Every pick row lands at the FIRST pick row, so a page that
-            # returns three groups against a template that rendered two rows
-            # still writes three. The rest of THAT question's pick rows go:
-            # a blank one is a template row nothing filled, and a filled one
-            # is an earlier answer this one replaces. Another question's rows
-            # are its own and are left as they are.
-            if not used_pick:
-                used_pick, pick_question = True, question
+        if key == "pick" and question in touched:
+            # Every pick row of a question lands at that question's FIRST
+            # pick row, so a page that returns three groups against a
+            # template that rendered two rows still writes three. The rest
+            # of THAT question's pick rows go: a blank one is a template row
+            # nothing filled, and a filled one is an earlier answer this one
+            # replaces. A question the answer does not touch is left as it is.
+            mine = pick_rows.get(question) or []
+            if question not in pick_done:
+                pick_done.add(question)
                 if filled:
                     replaced.append(ln.split("<!--", 1)[0].strip())
-                if picks:
-                    for p in picks:
+                if mine:
+                    for p in mine:
                         out.append("%s %s%s" % (pre, backticked(p), tail))
                 else:
                     out.append("%s %s%s" % (pre, blank_pick, tail))
                 continue
-            if question == pick_question:
-                if filled:
-                    replaced.append(ln.split("<!--", 1)[0].strip())
-                    continue
-                if picks:
-                    continue
-        elif key == "skip" and not used_skip:
-            used_skip = True
             if filled:
                 replaced.append(ln.split("<!--", 1)[0].strip())
-            out.append("%s %s%s" % (pre, backticked(skips[0]) if skips
+                continue
+            if mine:
+                continue
+        elif key == "skip" and question in touched and question not in skip_done:
+            skip_done.add(question)
+            if filled:
+                replaced.append(ln.split("<!--", 1)[0].strip())
+            row = skip_rows.get(question)
+            out.append("%s %s%s" % (pre, backticked(row) if row
                                     else "`skip:` ______", tail))
             continue
         elif key == "recheck":

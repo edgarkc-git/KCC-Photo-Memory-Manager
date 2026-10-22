@@ -8,10 +8,6 @@ Nothing here touches your original photos: the product stays copy-only.
 
 ### All platforms (found on macOS)
 
-- **A typed answer on a pet page goes to the page's first question.** When you
-  answer a pet page in its text file, the answer is applied to question 1 even
-  if you meant a later one. Read `confirm`'s dry run before you run it with
-  `--go`; it says which photos each name lands on.
 - **A later photo set's pet pages can ask only about earlier sets.** The page may
   show animals from photo sets you sorted before, and none from this one. Answer
   or skip them; nothing is copied again.

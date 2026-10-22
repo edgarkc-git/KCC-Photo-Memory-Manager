@@ -411,8 +411,12 @@ missing — there is no second list to keep in step.
    then again without `--dry-run`.
    **To change or take back an answer before `confirm --go`**, answer the page
    again and re-run `apply`: the new answer REPLACES every earlier `pick:` row
-   of that question, its `skip:` row and every `recheck:` value, and `apply`
-   (dry run too) prints each earlier row it replaces. Editing the rows back to
+   of each question it answers, that question's `skip:` row and every `recheck:`
+   value, and `apply`
+   (dry run too) prints each earlier row it replaces. Photo numbers run
+   through the whole page, so each typed row lands on the question that shows
+   its photos — Q2's photos on Q2 — and one `skip:` row may name photos of
+   several questions. A `pick:` row names the photos of ONE question. Editing the rows back to
    `______` by hand works as well. Then run the `confirm` dry run again: it must say
    `0 change(s) would be written`, or list only what the owner means now. After
    `--go` the page is no longer the way back — see Correcting a name
