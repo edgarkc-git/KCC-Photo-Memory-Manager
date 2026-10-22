@@ -3216,6 +3216,26 @@ def memory_stops(workdir, pack, index, profile_arg=None):
     return stops, notes
 
 
+def cmd_memory_stops(args):
+    """B1-5/B1-6 — the freeze's own question, alone: would `finish --go` stop
+    before the copy for a batch page or the identify views? Read-only. Exit 0
+    = no stop; EXIT_MEMORY_STOPS = at least one, each said. `finish` asks it
+    before skipping pages and views as done under the freeze key, which a
+    hand-written page or views file in the work dir does not move."""
+    workdir = Path(args.workdir).resolve()
+    loaded = load(workdir, args.profile)
+    if loaded is None:
+        return 0
+    pack, _target, index = loaded
+    stops, _notes = memory_stops(workdir, pack, index, args.profile)
+    for stop in stops:
+        print(f"  ⛔ {stop}")
+    return EXIT_MEMORY_STOPS if stops else 0
+
+
+EXIT_MEMORY_STOPS = 3
+
+
 def cmd_freeze(args):
     t0 = time.time()
     workdir = Path(args.workdir).resolve()
@@ -5541,6 +5561,12 @@ def main(argv=None):
                    help="why, recorded in the index log (default: the check "
                         "passed and the names are locked)")
     z.set_defaults(fn=cmd_freeze)
+    m = sub.add_parser("memory-stops", help="would `finish --go` stop before "
+                       "the copy for a batch page or the identify views? "
+                       "(exit 3 = yes, each said; writes nothing)")
+    m.add_argument("workdir")
+    m.add_argument("--profile")
+    m.set_defaults(fn=cmd_memory_stops)
     y = sub.add_parser("verify", help=f"exit 0 while the freeze holds, "
                                       f"{EXIT_STALE} when it does not (photo_run "
                                       "calls it before copying)")

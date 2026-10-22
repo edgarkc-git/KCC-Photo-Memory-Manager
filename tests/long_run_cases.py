@@ -181,6 +181,29 @@ def finish_skips_the_pages_and_views_done_under_the_same_freeze():
                    f"pages runs={runs(wd, 'pages')} {same.stdout[-300:]!r}"
 
 
+@case
+def a_done_skip_never_hides_a_page_waiting_in_the_work_dir():
+    """B1-5/B1-6 x M12. A batch page written in the work dir after the pages
+    were marked done (`review --next-page` run by hand) moves neither the
+    freeze hash nor the pack, so the freeze key holds. `finish --go` must
+    still stop for it, as the freeze would (`memory-stops`), never copy past
+    it as "done under this freeze". ⛔ FAILS without the memory-stops guard."""
+    import photo_run
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd = frozen_dump(tmp)
+        key = photo_run.freeze_key(wd)
+        for name in ("pages", "identify"):
+            photo_progress.start(wd, name)
+            photo_progress.finish(wd, name, key=key)
+        (wd / "P-B01.md").write_text("<!-- sns-page: P-B01 -->\n", encoding="utf-8")
+        same_key = photo_run.freeze_key(wd) == key
+        got = stage_run("photo_run.py", "finish", wd, "--go")
+        ok = (key and same_key and got.returncode == 3
+              and "skipped (done under this freeze)" not in got.stdout
+              and "still waiting for its answer" in got.stdout)
+        return ok, f"key={key} same={same_key} rc={got.returncode} {got.stdout[-400:]!r}"
+
+
 def jpeg(path, when, lat, lon):
     """A real JPEG with EXIF date and GPS, written by Pillow (no exiftool)."""
     from PIL import Image

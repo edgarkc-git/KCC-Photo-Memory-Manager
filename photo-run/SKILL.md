@@ -81,7 +81,7 @@ On Windows the interpreter is `<repo>\.venv\Scripts\python.exe` wherever these l
 | | |
 |---|---|
 | Conductor | `scripts/photo_run.py` (stdlib; `finish` runs the batch-page stage under the repo `.venv` by itself when the interpreter it was started with has no CLIP, because a place page checks its photos for documents) |
-| The index | `scripts/photo_index.py` — `init`, `recut`, `relabel`, `apply-page`, `identify`, `group`, `dest`, `render`, `check`, `freeze`, `verify`, `unfreeze` |
+| The index | `scripts/photo_index.py` — `init`, `recut`, `relabel`, `apply-page`, `identify`, `group`, `dest`, `render`, `check`, `freeze`, `memory-stops`, `verify`, `unfreeze` |
 | State | the index in the owner pack (`photo-index/<dump>/`); per-dump work files in `<workspace>/Working Files/<dump>/` |
 | Destination root | per collection: `dest_root` in `collection.json` (photo-init) — the only place new folders are created. A merge into an existing folder is declared per folder with `photo_index.py dest` |
 | Source drive | the collection's drive (see `collection.json`) — **read-only; copy-only always (D2)**; `prep` mount-checks and aborts with a hint if the volume isn't connected |

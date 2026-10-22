@@ -1511,7 +1511,9 @@ def pre_plan_checkpoint(args, workdir):
         # M12 — pages and views done under THIS freeze are not asked again: a
         # confirm or a re-lock moves the key, and then they run.
         key = freeze_key(workdir)
-        if done_under(workdir, "pages", key) and done_under(workdir, "identify", key):
+        if (done_under(workdir, "pages", key) and done_under(workdir, "identify", key)
+                and run("photo_index.py", "memory-stops", workdir,
+                        python=page_python()).returncode == 0):
             print("\n===== per-batch pages + agent identification =====\n"
                   "  skipped (done under this freeze) · new work 0")
             return False
