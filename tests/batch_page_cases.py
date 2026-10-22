@@ -1197,6 +1197,41 @@ def a_round_asks_about_this_dumps_animals_before_earlier_dumps():
         f"mine={mine} asked={asked} over={over}"
 
 
+@case
+def a_batch_page_lists_only_this_dumps_drafts_of_that_batch():
+    """⭐ REPRODUCTION (B1-3, E36). ⛔ FAILS on 2c1bf34: `review --batch 1`
+    also listed drafts an earlier dump saw in ITS batch 1."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, _extra = page_dump(tmp, pets=(1,), place_batches=())
+        pack = photo_profile.resolve_pack(explicit=pack_dir / photo_profile.PROFILE_NAME)
+        registry = pm.photo_subjects.load(pack=pack)
+        mine = registry.drafts[0].subject_id
+        earlier_dump_drafts(registry, registry.drafts[0], 2)
+        questions = pm.build_questions(
+            registry, str(wd), pack, pack.profile,
+            photo_profile.review_messages(pack.profile), batch=1)[0]
+        asked = [t["subject_id"] for q in questions for t in q["tiles"]]
+    return asked == [mine], f"mine={mine} asked={asked}"
+
+
+@case
+def a_draft_with_no_unit_on_its_evidence_keeps_its_batch_reading():
+    """GUARD (B1-3). A record written before evidence named its unit is read
+    by its batch numbers, as before."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, _extra = page_dump(tmp, pets=(1,), place_batches=())
+        pack = photo_profile.resolve_pack(explicit=pack_dir / photo_profile.PROFILE_NAME)
+        registry = pm.photo_subjects.load(pack=pack)
+        draft = registry.drafts[0]
+        for e in draft.record.get("evidence") or []:
+            e.pop("unit", None)
+        questions = pm.build_questions(
+            registry, str(wd), pack, pack.profile,
+            photo_profile.review_messages(pack.profile), batch=1)[0]
+        asked = [t["subject_id"] for q in questions for t in q["tiles"]]
+    return asked == [draft.subject_id], f"asked={asked}"
+
+
 # ---------------------------------------------------------------------------
 
 def route_case(route):

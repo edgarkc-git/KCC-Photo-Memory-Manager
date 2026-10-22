@@ -1626,7 +1626,7 @@ def tile_frames(subject, sheet, workdir=None, crops=None, where=None):
 
 
 def seen_in_unit(subject, unit, batch=None):
-    """B1-2 — was this draft observed in work dir `unit` (and in its
+    """B1-2/B1-3 — was this draft observed in work dir `unit` (and in its
     `batch`)? Read off the draft's own evidence, which names the unit of every
     sighting. A record whose evidence names no unit at all predates that field
     and is read by its batch numbers alone, as before."""
@@ -1705,9 +1705,11 @@ def build_questions(registry, workdir, pack, profile, rmsg, last_ask=False,
                           key=lambda s: (not seen_in_unit(s, unit),
                                          -int(s.record.get("files", 0)),
                                          s.subject_id)):
-        if batch is not None and batch not in subject.observed_in:
+        if batch is not None and not seen_in_unit(subject, unit, batch):
             # G6 (R7) — a batch page asks about the drafts OBSERVED in its
             # batch. The others are not this page's to list, even as withheld.
+            # B1-3 (E36) — in THIS unit's batch: batch numbers restart at 1 in
+            # every dump, so an earlier dump's batch 3 is not this page's.
             continue
         if subject.subject_id in settled:
             suppressed.append((subject.subject_id,
