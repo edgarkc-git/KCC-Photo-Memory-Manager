@@ -3164,6 +3164,58 @@ def earlier_copies_elsewhere(workdir, expected, dest_root):
     return renames, []
 
 
+def memory_stops(workdir, pack, index, profile_arg=None):
+    """B1-5/B1-6 (E54, E41) — the stops `finish --go` makes BEFORE the copy,
+    asked here first, so a freeze can no longer pass while one of them is
+    still due: the next batch page (written or waiting) and the agent's
+    identify views. Each is asked in preview: nothing is written. -> (stops,
+    notes); a stop is one sentence, a note is said and never blocks."""
+    import contextlib
+    import io
+    import photo_memory
+    stops, notes = [], []
+    registry = photo_memory.photo_subjects.load(pack=pack)
+    rmsg = photo_profile.review_messages(pack.profile)
+    said = io.StringIO()
+    with contextlib.redirect_stdout(said):
+        rc = photo_memory.next_page(argparse.Namespace(preview=True,
+                                                       profile=profile_arg),
+                                    workdir, pack, registry, rmsg)
+    if rc in (photo_memory.PAGE_WRITTEN_RC, photo_memory.PAGE_WAITING_RC):
+        stops.append("a batch page " + ("is due" if rc == photo_memory.PAGE_WRITTEN_RC
+                                        else "waits for its answer") + ": "
+                     + said.getvalue().strip().splitlines()[-1])
+    said = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(said):
+            rc = cmd_identify(argparse.Namespace(
+                workdir=str(workdir), profile=profile_arg, answers=None, go=False,
+                reason=None, preview=True, new_only=True, reopen=None))
+    except (Refused, SystemExit):
+        # Recognition cannot run on this work dir (no embeddings): `finish`
+        # says so itself at its identify stage; not this check's to repeat.
+        rc = None
+    if rc == EXIT_VIEWS_WANTED:
+        stops.append("the agent's identify views: "
+                     + said.getvalue().strip().splitlines()[-1])
+    # E54 — a page already answered whose batch now holds a question it never
+    # asked (a later confirm split or reopened a draft seen there). `finish`
+    # does not stop for it, so it is said, never a refusal.
+    for page in index.get("pages") or []:
+        batch = page.get("batch")
+        if batch is None:
+            continue
+        asked = photo_memory.build_questions(registry, workdir, pack, pack.profile,
+                                             rmsg, batch=batch)[0]
+        if asked:
+            notes.append(f"{page.get('page_id')} (batch {batch}) now has "
+                         f"{sum(len(q['tiles']) for q in asked)} animal "
+                         "question(s) it did not ask; to ask them before the copy: "
+                         f"`{run_line('photo_memory.py', crops=True)} review "
+                         f"\"{workdir}\" --batch {batch}`")
+    return stops, notes
+
+
 def cmd_freeze(args):
     t0 = time.time()
     workdir = Path(args.workdir).resolve()
@@ -3177,6 +3229,18 @@ def cmd_freeze(args):
             print(f"already frozen — {index['frozen']['hash']} still holds")
             return 0
         lift(index, "index freeze", f"the freeze was stale: {why}")
+    if not getattr(args, "skip_memory", False):
+        stops, notes = memory_stops(workdir, pack, index, args.profile)
+        for note in notes:
+            print(f"  ⚠️ {note}")
+        if stops:
+            raise Refused(
+                "`finish --go` would stop before the copy for "
+                + ("these" if len(stops) > 1 else "this") + " — nothing frozen:\n"
+                + "\n".join(f"  ⛔ {s}" for s in stops)
+                + "\nRun `photo_run.py finish --go` first (it stops at each one), "
+                "then render, check and freeze. To freeze without them, add "
+                "--skip-memory (and run `finish --go --skip-memory`).")
     problems, _warnings = run_check(workdir, pack, index)
     if problems:
         raise Refused(f"the check fails — nothing frozen ({len(problems)} "
@@ -5467,6 +5531,9 @@ def main(argv=None):
                                       "pack id and each copied file's SHA-256")
     z.add_argument("workdir")
     z.add_argument("--profile")
+    z.add_argument("--skip-memory", action="store_true",
+                   help="freeze although a batch page or identify views are "
+                        "still due (B1-5/B1-6), as `finish --skip-memory` copies")
     z.add_argument("--replace-plans", action="store_true",
                    help="move a hand-written plans.json and its plan files "
                         "aside (stamped) instead of refusing")

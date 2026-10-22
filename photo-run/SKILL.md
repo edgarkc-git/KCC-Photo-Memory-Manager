@@ -487,6 +487,12 @@ missing — there is no second list to keep in step.
 
    `--skip-memory` goes past the pages AND the agent's views in one run. The
    folders then carry no pet names, which is a legal outcome, not a failure.
+   The freeze asks the same two stops first: while a batch page or the views
+   are still due it refuses (`would stop before the copy for`), so run
+   `finish --go` before the freeze; `freeze --skip-memory` freezes past them.
+   It also says (never refuses) when a page already answered now has an
+   animal question it never asked, with the `review --batch N` line that asks
+   it.
 
 4. **done** — `photo_run.py status 202401` shows every batch `done` and points
    the owner at `plan/execution-log_PN.md` for any flags. The owner spot-checks
@@ -605,7 +611,7 @@ macOS shell. Write the output to a file instead:
 | `photo_index.py identify` | 13 | views are wanted in `identify-views.md` | view each photo, write verdicts, `--answers ... --go` |
 | `photo_index.py identify --answers --go` | 1 | `Lift it first`: the index is frozen, nothing written | `unfreeze --reason "..."`, `--answers ... --go` again, then `render`, `check`, `freeze` (step 3b) |
 | `photo_index.py check` | 1 | a folder name or a route fails; each problem is listed | fix through the index, then `render` and `check` again |
-| `photo_index.py freeze` | 1 | refused, nothing frozen: the check fails, a target changed, or a folder copied by an earlier run was since split or merged (a folder only RENAMED after its copy freezes, and lists the renames) | fix what it names; a split or merge after the copy: stop and ask the owner with AskUserQuestion (see Re-processing a folder) |
+| `photo_index.py freeze` | 1 | refused, nothing frozen: the check fails, a target changed, a folder copied by an earlier run was since split or merged (a folder only RENAMED after its copy freezes, and lists the renames), or `finish --go` would still stop for a batch page or the identify views (`would stop before the copy for`) | fix what it names; a page or views: run `finish --go` first, then render, check, freeze (`--skip-memory` freezes past them, with `finish --go --skip-memory`); a split or merge after the copy: stop and ask the owner with AskUserQuestion (see Re-processing a folder) |
 | `photo_execute.py` (inside `finish`) | non-zero | a new file would go into a folder still to rename on the drive; nothing written | answer the final check row for it (or rename it by hand), then re-run `finish` |
 | `photo_index.py after-check` | 3 | rows wait in `plan/after-check.md` | put each row to the owner; write `ok` / `skip`; `--answers ... --go` |
 | | 0 | `Nothing left to fix. The dump is done.` | done |

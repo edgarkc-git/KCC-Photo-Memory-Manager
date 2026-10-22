@@ -1314,7 +1314,8 @@ def freeze_gate(args, workdir, when):
           "# only if render says the freeze still holds\n"
           f"     {photo_platform.run_line(PY, tool)} render \"{workdir}\"\n"
           f"     {photo_platform.run_line(PY, tool)} check \"{workdir}\"\n"
-          f"     {photo_platform.run_line(PY, tool)} freeze \"{workdir}\"")
+          f"     {photo_platform.run_line(PY, tool)} freeze \"{workdir}\""
+          + (" --skip-memory" if args.skip_memory else ""))
     if not args.go and not args.skip_memory:
         # A dry run never reaches the pages or the views, so it cannot know
         # whether they are done; freezing before them locks names they add.

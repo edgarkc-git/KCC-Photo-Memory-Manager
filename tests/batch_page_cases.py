@@ -1477,6 +1477,47 @@ def a_crop_marked_twice_ways_is_refused():
             and not idx.get("not_mine")), f"rc={rc} said={said[-300:]!r}"
 
 
+def freeze_decision(wd):
+    """What the freeze asks before anything is frozen (B1-5/B1-6), on this
+    work dir as it stands. -> (stops, notes)."""
+    import photo_index
+    pack, _target, index = photo_index.load(wd, None)
+    return photo_index.memory_stops(wd, pack, index)
+
+
+@case
+def a_freeze_finds_a_batch_page_finish_would_stop_for():
+    """⭐ REPRODUCTION (B1-5, E54). ⛔ FAILS on 2c1bf34: the freeze passed with
+    a batch page still due, and only `finish --go` stopped (exit 3) after it.
+    Now the freeze asks the same question first: a stop, nothing written."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, _pack_dir, _extra = page_dump(tmp, pets=(1,), place_batches=())
+        before = sorted(p.name for p in wd.iterdir())
+        try:
+            stops, _notes = freeze_decision(wd)
+        except AttributeError as exc:
+            stops = [f"no freeze check: {exc}"]
+        after = sorted(p.name for p in wd.iterdir())
+    return (len(stops) == 1 and stops[0].startswith("a batch page is due")
+            and before == after), f"stops={stops}"
+
+
+@case
+def a_freeze_says_an_answered_page_whose_batch_gained_a_question():
+    """GUARD (B1-5, E54's cause). A page already recorded whose batch now has
+    an animal question it never asked is SAID at the freeze, with the line
+    that asks it — never a stop: `finish` does not stop for it."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, _pack_dir, extra = page_dump(tmp, pets=(1,), place_batches=())
+        next_page(wd, extra)
+        record_page(tmp, wd, "P-B01")
+        (wd / "P-B01.md").unlink()
+        stops, notes = freeze_decision(wd)
+    return (stops == [] and len(notes) == 1
+            and "P-B01 (batch 1) now has 1 animal question(s) it did not ask"
+            in notes[0] and "--batch 1" in notes[0]), f"stops={stops} notes={notes}"
+
+
 # ---------------------------------------------------------------------------
 
 def route_case(route):

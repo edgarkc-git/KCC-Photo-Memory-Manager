@@ -673,6 +673,28 @@ def an_agree_is_never_reopened():
 
 
 @case
+def a_freeze_finds_the_identify_views_finish_would_stop_for():
+    """⭐ REPRODUCTION (B1-6, E41). ⛔ FAILS on 2c1bf34: the freeze passed and
+    `finish --go` then stopped for new views, so unfreeze → identify →
+    freeze. Now the freeze refuses while views are due, nothing frozen; once
+    they are answered it freezes."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, pack, _ = id_dump(tmp, [NAMED, PET])
+        ix.run("render", wd)
+        ix.run("check", wd)
+        code, _out, err = ix.run("freeze", wd)
+        held = bool(index_now(tmp).get("frozen"))
+        ix.run("identify", wd)
+        answer(wd, {"PET_3.jpg": "agree"})
+        go(wd)
+        ix.run("render", wd)
+        ix.run("check", wd)
+        fcode, _f, ferr = ix.run("freeze", wd)
+    return (code != 0 and "identify views" in err and not held and fcode == 0), \
+        f"code={code} held={held} err={err[-300:]!r} after={fcode} {ferr[-300:]!r}"
+
+
+@case
 def an_agreed_photo_whose_thumbnail_is_gone_is_refused():
     """GUARD. A name rests on a viewed photo; a thumbnail gone between the views
     and the answer means nothing is there to have looked at."""
@@ -1193,8 +1215,10 @@ def check_fails_an_agent_name_whose_provenance_is_not_a_view():
 def stopped_at_views(tmp, freeze):
     """render, check (and freeze), then `finish --go` stops for the views."""
     wd, pack, _ = id_dump(tmp, [NAMED, PET])
-    codes = [ix.run(cmd, wd)[0] for cmd in ("render", "check")
-             + (("freeze",) if freeze else ())]
+    # B1-6 — freezing BEFORE the views is now refused; `--skip-memory` is the
+    # way to reach the frozen stop these cases are about.
+    codes = [ix.run(*cmd)[0] for cmd in (("render", wd), ("check", wd))
+             + ((("freeze", wd, "--skip-memory"),) if freeze else ())]
     return wd, pack, codes, fin.finish(wd, "--go")
 
 
@@ -1297,7 +1321,8 @@ def a_dry_run_says_go_would_stop_for_the_views_and_writes_nothing():
     written — and says `--go` would stop; `--go` does."""
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         wd, _pack, _ = id_dump(tmp, [NAMED, PET])
-        codes = [ix.run(cmd, wd)[0] for cmd in ("render", "check", "freeze")]
+        codes = [ix.run(*cmd)[0] for cmd in (("render", wd), ("check", wd),
+                                              ("freeze", wd, "--skip-memory"))]
         before = fin.work_dir_state(wd)
         dry = fin.dry_run(wd)
         changed = fin.changed_files(before, fin.work_dir_state(wd))
