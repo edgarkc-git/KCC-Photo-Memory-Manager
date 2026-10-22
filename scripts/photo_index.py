@@ -2259,7 +2259,67 @@ def identify_decided(index):
 
 
 def next_view_number(index):
-    return max((int(r["id"][2:]) for r in index.get("identify") or []), default=0) + 1
+    return max((int(r["id"][2:]) for r in (index.get("identify") or [])
+                + (index.get("identify_reopened") or [])), default=0) + 1
+
+
+REOPENABLE = ("unsure", "no")
+
+
+def reopen_views(args, workdir, pack, target, index):
+    """B1-7 (E11) — the owner's word beats the agent's `unsure` or `no` before
+    the freeze. `--reopen` takes view ids (I-0012) and/or subject ids (every
+    `unsure`/`no` verdict on that subject); the records move to
+    `identify_reopened` (kept, with the reason), so recognition proposes
+    those photos again and the agent records the owner's answer on them. An
+    `agree` or a `not-animal` is never reopened here."""
+    reason = (args.reason or "").strip()
+    if not reason:
+        raise Refused("--reopen needs --reason with the owner's words — nothing "
+                      "changed")
+    wanted = [t for t in re.split(r"[,\s]+", args.reopen or "") if t]
+    records = index.get("identify") or []
+    picked, refused = [], []
+    for token in wanted:
+        hits = [r for r in records
+                if r["id"] == token or r["subject_id"] == token]
+        if not hits:
+            refused.append(f"{token}: no view record names it")
+            continue
+        for r in hits:
+            if r["verdict"] not in REOPENABLE:
+                if r["id"] == token:
+                    refused.append(f"{token}: its verdict is `{r['verdict']}`; "
+                                   "only " + " or ".join(f"`{v}`" for v in REOPENABLE)
+                                   + " is reopened")
+                continue
+            if r not in picked:
+                picked.append(r)
+    for why in refused:
+        print(f"  ⛔ {why} — nothing changed for it")
+    for r in picked:
+        print(f"  {r['id']}: {r['subject_id']} on {Path(r['sample']).name} — "
+              f"`{r['verdict']}` taken back")
+    if not picked:
+        print("nothing to reopen")
+        return 1
+    if not args.go:
+        print(f"DRY RUN — {len(picked)} view(s) would be reopened. Add --go.")
+        return 1 if refused else 0
+    open_for_change(workdir, pack, index, IDENTIFY_CMD)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    index["identify"] = [r for r in records if r not in picked]
+    index.setdefault("identify_reopened", []).extend(
+        dict(r, reopened_at=now, reopened_why=reason) for r in picked)
+    log_entry(index, IDENTIFY_CMD + " --reopen",
+              f"{len(picked)} view(s) reopened: "
+              + ", ".join(r["id"] for r in picked), reason, by="owner")
+    save(target, pack, index)
+    print(f"{len(picked)} view(s) reopened; next: "
+          f"`{run_line('photo_index.py', crops=True)} identify \"{workdir}\"` "
+          "proposes them again — write the owner's answer on each row, then "
+          "`--answers ... --go`")
+    return 1 if refused else 0
 
 
 def home_lookup(workdir, pack, index):
@@ -2416,6 +2476,8 @@ def cmd_identify(args):
     if loaded is None:
         return 0
     pack, target, index = loaded
+    if getattr(args, "reopen", None):
+        return reopen_views(args, workdir, pack, target, index)
     offered, not_offered = proposals_for(workdir, pack, index)
     if not args.answers:
         for p in not_offered:
@@ -5500,6 +5562,10 @@ def main(argv=None):
     t.add_argument("--preview", action="store_true",
                    help="say whether views would be written, and write nothing "
                         "(M1 — what a `finish` dry run reports)")
+    t.add_argument("--reopen",
+                   help="B1-7: take back the agent's unsure/no verdicts on these "
+                        "view ids or subject ids (comma list) on the owner's "
+                        "word, so the photos are proposed again (--reason, --go)")
     t.add_argument("--new-only", action="store_true",
                    help="G7g (the conductor's): propose only rows no views file "
                         "showed yet; say how many were left blank")

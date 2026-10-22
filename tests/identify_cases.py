@@ -624,6 +624,55 @@ def two_animals_get_two_names_and_no_exemplar():
 # ---------------------------------------------------------------------------
 
 @case
+def the_owners_word_reopens_an_agents_unsure_before_the_freeze():
+    """⭐ REPRODUCTION (B1-7, E11). ⛔ FAILS on 2c1bf34: an agent `unsure` was
+    final — identify never proposed the photo again and no command took the
+    verdict back. `--reopen <subject> --reason "<owner>" --go` moves it to
+    `identify_reopened`; identify proposes the photo again; the agent's
+    `agree` (the owner's answer) names it."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, pack, _ = id_dump(tmp, [NAMED, PET])
+        ix.run("identify", wd)
+        answer(wd, {"PET_3.jpg": "unsure"})
+        go(wd)
+        again_code, again, _e = ix.run("identify", wd)
+        offered_before = "PET_3.jpg" in again and "verdict:" in again
+        dry = ix.run("identify", wd, "--reopen", LOTUS, "--reason", "owner: all Lotus")
+        rcode, rout, rerr = ix.run("identify", wd, "--reopen", LOTUS,
+                                   "--reason", "owner: all Lotus", "--go")
+        ix.run("identify", wd)
+        offered_after = any(Path(r["sample"]).name == "PET_3.jpg" for r in rows(wd))
+        answer(wd, {"PET_3.jpg": "agree"})
+        gcode, gout, gerr = go(wd, ("--reason", "the owner said so"))
+        lab = labels(wd, 3)["PET_3.jpg"]
+        idx = index_now(tmp)
+    return (not offered_before and dry[0] == 0 and "would be reopened" in dry[1]
+            and rcode == 0 and offered_after and gcode == 0
+            and lab.get("identified", [{}])[0].get("subject_id") == LOTUS
+            and [r["verdict"] for r in idx.get("identify_reopened") or []] == ["unsure"]
+            and [r["verdict"] for r in idx["identify"]] == ["agree"]), \
+        f"before={offered_before} dry={dry[1][-200:]!r} reopen={rcode} {rout[-200:]!r}" \
+        f"{rerr[-200:]!r} after={offered_after} go={gcode} {gerr[-200:]!r} lab={lab}"
+
+
+@case
+def an_agree_is_never_reopened():
+    """GUARD (B1-7). Only `unsure` and `no` are taken back; an `agree` stays
+    and nothing is written."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, pack, _ = id_dump(tmp, [NAMED, PET])
+        ix.run("identify", wd)
+        answer(wd, {"PET_3.jpg": "agree"})
+        go(wd)
+        before = index_now(tmp)
+        code, out, err = ix.run("identify", wd, "--reopen", "I-0001",
+                                "--reason", "r", "--go")
+        after = index_now(tmp)
+    return (code != 0 and "only `unsure` or `no`" in out and before == after), \
+        f"code={code} {out[-300:]!r}"
+
+
+@case
 def an_agreed_photo_whose_thumbnail_is_gone_is_refused():
     """GUARD. A name rests on a viewed photo; a thumbnail gone between the views
     and the answer means nothing is there to have looked at."""

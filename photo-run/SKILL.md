@@ -349,6 +349,13 @@ missing — there is no second list to keep in step.
    nowhere; `finish` does not ask it again and says on every run how many photos
    were left without a verdict — `photo_index.py identify 202401` shows them
    again. A views file whose verdicts are not applied yet is never rewritten.
+   **When the owner overrules a written `unsure` or `no`** ("they are all
+   Name-A"), before the freeze: `photo_index.py identify 202401 --reopen
+   <subject-id or I-NNNN,...> --reason "<the owner's words>"` (a dry run; add
+   `--go`). The verdicts are taken back (kept in `identify_reopened`), then
+   `photo_index.py identify 202401` proposes those photos again: view each one,
+   write the owner's answer, and apply it with `--answers ... --go`. An
+   `agree` is never reopened.
 
    **c. The folder structure (no stop — your judgment).** Look at
    `Index_pscan.md` and shape the folders with a reason for every change:
