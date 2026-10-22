@@ -4570,7 +4570,7 @@ def cli_line(script, crops=False):
     return photo_index.run_line(script, crops=crops)
 
 
-def stale_page_way_on(path, workdir):
+def stale_page_way_on(path, workdir, pack=None, text=None):
     """M7 — how to get a fresh page for the same questions after a stale one
     was refused. -> one instruction that works.
 
@@ -4580,19 +4580,55 @@ def stale_page_way_on(path, workdir):
     another round's tiles, and a rewritten batch page asked nothing while
     `--next-page` kept calling it unanswered. Moved OUT of the work dir, the
     page is no round and asked nothing — true, since not one row of it was
-    applied — and the next page asks the same questions. ⛔ Out, never a
+    applied — and the next page asks what is still open (B1-8). ⛔ Out, never a
     rename inside: `REVIEW_GLOB` is wider than the name it parses (LL-PHO-94)."""
     move = (f"Move {path.name} OUT of the work dir (never rename it inside: "
             "any page name there still counts), then ")
     review = f"{cli_line('photo_memory.py', crops=True)} review \"{workdir}\""
+    # B1-8 (E53) — say what the fresh page will hold, not "the same
+    # questions": a subject answered since is not asked again, and an open
+    # one still meets the round's own rules.
+    what = stale_page_subjects(pack, text)
     if BATCH_PAGE_IN_NAME.match(path.name):
         return (move + f"re-run `finish --go` (or `{review} --next-page`): "
-                f"it writes {path.name} again "
-                "from the pack as it stands, with the same questions. Nothing "
-                "in the old page was applied, so only the typing is lost.")
-    return (move + f"run `{review}`: it asks the "
-            "same questions again on a fresh page. Nothing in the old page was "
-            "applied, so only the typing is lost.")
+                f"it writes {path.name} again from the pack as it stands. "
+                + what + "Nothing in the old page was applied, so only the "
+                "typing is lost.")
+    return (move + f"run `{review}`: it writes a fresh page from the pack as "
+            "it stands. " + what + "Nothing in the old page was applied, so "
+            "only the typing is lost.")
+
+
+def stale_page_subjects(pack, text):
+    """B1-8 (E53) — of the subjects a stale page names, which a fresh page
+    can still ask (open drafts) and which it will not (answered since). ->
+    one sentence, or "" when there is nothing to read."""
+    if pack is None or not text:
+        return ""
+    ids = page_subject_ids(text)
+    if not ids:
+        return ""
+    registry = photo_subjects.load(pack=pack)
+    open_ids, answered = [], []
+    for sid in ids:
+        subject = registry.get_literal(sid)
+        if subject is not None and subject.is_draft:
+            open_ids.append(sid)
+        else:
+            answered.append(sid)
+    cap = int(registry.defaults.get(
+        "tiles_per_round", photo_subjects.DEFAULT_THRESHOLDS["tiles_per_round"]))
+    out = (f"Of the {len(ids)} subject(s) this page names, {len(open_ids)} "
+           "are still open and may be asked again — at most "
+           f"{cap} per round across every question, and one another page "
+           "already asked comes back only with new photos or at the last "
+           "round of the dump")
+    if answered:
+        out += (f"; {len(answered)} are no longer open drafts — named, "
+                "rejected or joined since, or a pet already remembered ("
+                + ", ".join(answered[:6]) + (" …" if len(answered) > 6 else "")
+                + ") — and get no group question")
+    return out + ". "
 
 
 def page_reuse_refusal(out, text):
@@ -5586,7 +5622,8 @@ def _cmd_confirm(args):
                   "name photographs and subjects as they stood when it was "
                   "written, so a pack that has moved since turns every one of "
                   "them into a guess, and a guess here puts a name on the "
-                  "wrong photograph. " + stale_page_way_on(path, workdir))
+                  "wrong photograph. " + stale_page_way_on(path, workdir,
+                                                           pack, text))
             print("dry run — 0 change(s) would be written, 1 refused. "
                   "Re-run with --go." if not args.go else
                   "wrote 0 change(s); the pack is untouched")

@@ -466,14 +466,15 @@ missing — there is no second list to keep in step.
    nothing: render, check, freeze and the copy go on. Its subjects count as
    asked, and a later `finish --go` may write the next page
    (`memory-review_C<N+1>.md`) with other subjects, up to
-   `memory.sns_rounds_per_dump` pages. ⛔ **Confirm one page before answering
-   the next**: any `confirm --go` changes the pack, and every other open page
-   is then refused whole (`NOTHING in the file was applied — not one row`).
-   To get that page's questions back, MOVE the refused page out of the work
-   dir (never rename it inside), then run `review` (a checkpoint page) or
-   `finish --go` (a batch page): the same questions come back on a new page,
-   even when the round budget is spent. A plain `review` with the refused page
-   still in place asks nothing. A
+   `memory.sns_rounds_per_dump` pages. A `confirm --go` changes the pack; an
+   open page whose OWN subjects it left alone still applies (its confirm says
+   so in a `note:` line). A page whose subjects it changed is refused whole
+   (`NOTHING in the file was applied — not one row`). To get that page back,
+   MOVE it out of the work dir (never rename it inside), then run `review` (a
+   checkpoint page) or `finish --go` (a batch page): the new page asks what is
+   still open, and the refusal counts how many of its subjects that is. A
+   subject answered since is not asked again. A plain `review` with the
+   refused page still in place asks nothing. A
    late confirm moves names like any other: `render --dry-run`, then unfreeze,
    render, check and freeze.
 

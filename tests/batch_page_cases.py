@@ -1325,6 +1325,19 @@ def a_page_whose_own_subject_another_confirm_moved_is_still_stale():
 
 
 @case
+def a_stale_page_refusal_says_what_a_fresh_page_will_ask():
+    """⭐ REPRODUCTION (B1-8, E53). ⛔ FAILS on 2c1bf34: the refusal promised
+    a fresh page with "the same questions"; a subject answered since is
+    never asked again. The refusal now counts what is still open and what is
+    not, and promises nothing else."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        rc, said = stale_after(tmp, touch_record)
+    return (rc == 1 and "same questions" not in said
+            and "0 are still open" in said
+            and "1 are no longer open drafts" in said), f"said={said[-500:]!r}"
+
+
+@case
 def a_page_whose_subject_vectors_moved_is_still_stale():
     """GUARD (B1-4). A vector store file of a subject the page names changed."""
     with tempfile.TemporaryDirectory() as tmp, fixture_env():
