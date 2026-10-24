@@ -398,6 +398,50 @@ def the_owners_own_place_word_is_never_proposed_over():
 
 
 @case
+def an_owner_word_on_a_trip_row_may_name_three_places():
+    """⭐ G63 (owner ruling 20261024) REPRODUCTION. The owner's word on an R5 row is
+    the whole place part of the trip name: three places are taken as the
+    name grammar takes them, and the trip renders with all three. A word the
+    grammar refuses (a coordinate) writes nothing. ⛔ FAILS on 4f1cd10: the
+    word went through make-trip's two --where words and was refused (D3)."""
+    batches = [dict(b, day_type="OVERSEAS", country_word="Ruritania")
+               for b in ix.G3_BATCHES]
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ix.g3_dump(tmp, batches=batches)
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        ix.run("fix-plan", wd)
+        answer(wd, *["word: Lotus Bay+25.03,121.56" if "(R5)" in x else "skip"
+                     for x in rows(wd)])
+        bcode, bout, _b = apply(wd)
+        ix.run("fix-plan", wd)
+        answer(wd, *["word: Lotus Bay+Birk Falls+Old Pier" if "(R5)" in x else "skip"
+                     for x in rows(wd)])
+        acode, aout, aerr = apply(wd)
+        must(ix.run("render", wd), "render")
+        trips = [fo["rendered"] for fo in ix.index_of(tmp)[0]["folders"]
+                 if fo["kind"] == "trip" and fo["status"] != "retired"]
+    return (bcode != 0 and acode == 0
+            and trips == ["20241101-1102_Ruritania_Lotus Bay+Birk Falls+Old Pier"]), \
+        f"bad={bcode} {bout[-200:]!r} apply={acode} {(aout + aerr)[-300:]!r} trips={trips}"
+
+
+@case
+def a_trip_row_says_when_its_place_word_is_a_stay():
+    """G61 on R5: a trip whose place word is a stay says so in its reason,
+    so the owner can give their own word. ⛔ FAILS on 4f1cd10 (no reason)."""
+    batches = [dict(ix.G3_BATCHES[0], day_type="OVERSEAS", country_word="Ruritania",
+                    place="Lotus Inn", place_kinds={"Lotus Inn": "stay"}),
+               dict(ix.G3_BATCHES[1], day_type="OVERSEAS", country_word="Ruritania")]
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ix.g3_dump(tmp, batches=batches)
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        ix.run("fix-plan", wd)
+        r5 = [x for x in rows(wd) if "(R5)" in x]
+    return (len(r5) == 1 and "Lotus Inn is a place to stay" in r5[0]), f"{r5}"
+
+@case
 def an_owner_word_on_an_agent_row_names_the_folder_after_the_grammar():
     """⭐ G63 / C-21 REPRODUCTION. On an agent row the owner's word is the
     whole folder name: one the grammar refuses is refused for that row and

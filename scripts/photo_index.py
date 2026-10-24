@@ -4106,12 +4106,21 @@ def rule_r5(ctx):
         # G62 (L-2) — days inside an existing trip go into it, not a new one.
         if set(ids) & into:
             continue
+        # G61 — a place word of the trip's name that is a stay, an eatery,
+        # a chain, a street or a county/ward says so on the row.
+        kinds = {}
+        for fid in ids:
+            for b in by_id[fid].get("batches") or []:
+                kinds.update((ctx["by_number"].get(b) or {}).get("place_kinds") or {})
+        said = "; ".join(f"{w} is {KIND_WORDS[kinds[w]]}"
+                         for w in cand.get("where") or [] if w in kinds)
         out.append(fix_op("MAKE-TRIP", "R5", by_id[ids[0]],
                           f"{len(ids)} day folders {cand.get('span') or ''}".rstrip(),
                           cand["to"], int(cand.get("photos") or 0),
-                          f"one trip abroad: {', '.join(ids)} become its legs",
+                          f"one trip abroad: {', '.join(ids)} become its legs"
+                          + (f" — {said}: your own word may suit it better" if said else ""),
                           folders=ids, where=list(cand.get("where") or []),
-                          country=cand.get("country")))
+                          country=cand.get("country"), days=list(cand.get("days") or [])))
     return out
 
 
@@ -4366,19 +4375,30 @@ def owner_word(workdir, pack, index, fo, op, word, go):
     grammar, fix_problem). -> what was done, or None for the R1/R3/R6 words
     the caller applies. Raises Refused, nothing written for the row."""
     if op["rule"] == "R5":
-        words = [w.strip() for w in word.split(photo_name.NAME_SEP)]
+        words = [agent_text(w.strip(), "the trip's place word", "where")
+                 for w in word.split(photo_name.NAME_SEP)]
         a = op["apply"]
+        # G63 (owner ruling 20261024) — the whole place part of the trip name, any
+        # number of places the name grammar accepts, checked as the trip's
+        # own name (its days, its country word).
+        days = a.get("days") or []
+        if days:
+            name = photo_name.render(days[0], days[-1], where=words, country=a["country"])
+            hard, soft = photo_profile.name_budget(pack.profile)
+            refusals = photo_name.validate(
+                name, place_known=True, span=(days[0], days[-1]), hard=hard,
+                soft=soft, kind=photo_name.NAME_FOLDER,
+                country=bool(a["country"]))[1]
+            if refusals:
+                raise Refused(f"the trip name `{name}`: {'; '.join(refusals)} — "
+                              "nothing changed")
         if not go:
-            for w in words:
-                agent_text(w, "the trip's place word", "where")
-            if len(words) > 2:
-                raise Refused("a trip takes at most two place words (D3) — nothing changed")
             return f"{', '.join(a['folders'])} would become one trip at {word!r}"
         by_number = {b["batch"]: b for b in json.loads(
             (workdir / "batches.json").read_text(encoding="utf-8")).get("batches", [])}
         return group_make_trip(index, argparse.Namespace(
-            folders=a["folders"], where=words, country=a["country"], what=None),
-            pack, by_number, FIX_PLAN_CMD, "fix plan R5: the owner's word")
+            folders=a["folders"], where=words, country=a["country"], what=None,
+            owner_word=True), pack, by_number, FIX_PLAN_CMD, "fix plan R5: the owner's word")
     if op["rule"] not in ("R2", "agent"):
         return None
     name = word.strip()
@@ -5427,7 +5447,9 @@ def group_make_trip(index, args, pack, by_number, cmd, reason):
     # M7 — `--where` may be given twice (a trip abroad's two places, D3);
     # each word is checked alone and the name joins them with `+`.
     given = args.where if isinstance(args.where, list) else [args.where]
-    if len(given) > 2:
+    # G63 (owner ruling 20261024) — the owner's own trip words are the whole place
+    # part, as many places as the name grammar takes; D3 caps the engine's.
+    if len(given) > 2 and not getattr(args, "owner_word", False):
         raise Refused("a trip takes at most two place words (D3) — nothing changed")
     words = list(dict.fromkeys(agent_text(w, "--where", "where") for w in given))
     where = photo_name.NAME_SEP.join(words)

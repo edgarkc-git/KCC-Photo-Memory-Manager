@@ -261,7 +261,7 @@ def a_make_trip_row_is_shown_when_the_stage_writes_one():
 def every_naming_row_takes_my_word_checked_as_a_name():
     """⭐ G63 / C-21 REPRODUCTION. A trip row, an agent row and a move row:
     the trip and the agent row offer My word, the move none. A trip word is
-    at most two place words, each checked; an agent word is a whole folder
+    any number of place words, each checked; an agent word is a whole folder
     name the grammar accepts; a word on the move is refused. Each refusal
     writes nothing for its row. ⛔ FAILS on 7280c54: `word:` was taken on R1
     and R3 only, so the owner could not reword a trip or an agent row."""
@@ -278,12 +278,14 @@ def every_naming_row_takes_my_word_checked_as_a_name():
     got = {}
     for why, answers in {"trip two": {1: "word:Old Pier+North Bay"},
                          "trip three": {1: "word:Old Pier+North Bay+Sea Park"},
+                         "trip bad part": {1: "word:Old Pier+North_Bay"},
                          "agent name": {2: "word:20250111_Hillside_old boats"},
                          "agent not a name": {2: "word:Hillside walk day"},
                          "move": {3: "word:Lotus"}}.items():
         _new, done, _w, held = fp.apply_reply(text, None, answers)
         got[why] = (bool(done), bool(held))
-    want = {"trip two": (True, False), "trip three": (False, True),
+    want = {"trip two": (True, False), "trip three": (True, False),
+            "trip bad part": (False, True),
             "agent name": (True, False), "agent not a name": (False, True),
             "move": (False, True)}
     return words == ["trip", "name", None] and got == want, f"words={words} got={got}"

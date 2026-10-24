@@ -260,7 +260,7 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     if(r.word && state.pick[r.n] === "word"){
       var lab = el("label", "word wordrow",
                    r.word === "place" ? "Your place word — not the whole folder name (e.g. Old Pier)"
-                   : r.word === "trip" ? "Your place word for the trip — two at most, joined with + (e.g. Old Pier+North Bay)"
+                   : r.word === "trip" ? "Your place words for the trip, joined with + (e.g. Old Pier+North Bay+Sea Park)"
                    : r.word === "name" ? "Your whole folder name, date first (e.g. 20241101_Old Pier_picnic)"
                                        : "Your words for this folder — not the whole folder name");
       var inp = el("input");

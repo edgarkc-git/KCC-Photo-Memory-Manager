@@ -217,9 +217,9 @@ def word_kind(op):
 def check_word(rule, word, kind=None):
     """The owner's words go into a folder name: checked as the fix plan's
     apply will use them (R1/R6 the place word, as `group set-where`, two
-    joined with `+`; R3 the [what]; R5 at most two place words, as `group
-    make-trip --where`; a whole name by the name grammar). -> warnings;
-    raises on a refusal."""
+    joined with `+`; R3 the [what]; R5 any number of place words, each as
+    `--where`; a whole name by the name grammar). -> warnings; raises on a
+    refusal."""
     kind = kind or WORD_KIND.get(rule)
     if kind is None:
         raise SystemExit("a %s row takes `ok` or `skip`, not a word. Nothing "
@@ -227,9 +227,9 @@ def check_word(rule, word, kind=None):
     warnings = []
     try:
         if kind in ("place", "trip"):
+            # G63 — a trip word may hold any number of places; the plan's
+            # apply checks the whole trip name.
             parts = word.split(photo_name.NAME_SEP)
-            if kind == "trip" and len(parts) > 2:
-                raise photo_index.Refused("a trip takes at most two place words (D3)")
             for part in parts:
                 photo_index.agent_text(part, "the word %r" % word, "where", warnings)
         elif kind == "name":

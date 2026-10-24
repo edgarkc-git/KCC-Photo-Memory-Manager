@@ -572,7 +572,7 @@ it on a private web page:
    writes `plan/fix-plan.html`: each row as old → new name, its rule, the
    reason, the photo count and up to three sample photos, with OK / Skip (and
    My word on every row that sets a name: a place word on R1/R6, words for
-   [what] on R3, the trip's place words on R5 (two at most, joined with +),
+   [what] on R3, the trip's place words on R5 (any number, joined with +),
    the whole folder name on an agent or R2 row; a move into an existing
    folder is OK / Skip only) and one Send button. A word is checked like any
    name; a refused word writes nothing for its row. The plan's
