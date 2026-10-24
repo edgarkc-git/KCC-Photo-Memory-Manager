@@ -1034,7 +1034,7 @@ def where_words(fo, labels):
 TRIP_GAP_DAYS = 1
 
 
-def trip_candidates(index, batches, pack):
+def trip_candidates(index, batches, pack, skip=()):
     """M7 / G22 / E28 — the trips abroad this index could make, as PROPOSALS
     (the fix plan's R5 MAKE-TRIP row; applied only through `group make-trip`
     on the owner's ok). -> [{"folders": [F0NN, ...], "to": <trip name>,
@@ -1055,19 +1055,32 @@ def trip_candidates(index, batches, pack):
     The name (Q3, owner ruling 20261018): `YYYYMMDD-MMDD_<country>_<place>[+<place>]`, the
     country word from the batches' map reply (D-F12), the places the legs'
     own, most photos first, at most two; with no country word, places only.
+
+    G69 — one trip is one country: a run ends where `country_word` changes;
+    a batch with no country word joins the run next to it. S-3 — a folder in
+    `skip`, or one already going into an existing folder (dest not `new`),
+    is no leg of a new trip: its days break the run.
     """
     import photo_cluster
     from datetime import date, timedelta
+    taken = {b for fo in live(index)
+             if fo["id"] in skip or fo["dest"]["mode"] != "new"
+             for b in folder_batches(index, fo)}
     abroad = sorted((b for b in batches or () if b.get("day_type") == "OVERSEAS"
-                     and b.get("from") and b.get("to")), key=lambda b: b["from"])
-    runs = []
+                     and b.get("from") and b.get("to")
+                     and b.get("batch") not in taken), key=lambda b: b["from"])
+    runs, words = [], []
     for b in abroad:
         start = date.fromisoformat(b["from"])
+        word = b.get("country_word")
         if runs and start - date.fromisoformat(runs[-1][-1]["to"]) <= \
-                timedelta(days=TRIP_GAP_DAYS + 1):
+                timedelta(days=TRIP_GAP_DAYS + 1) and \
+                not (word and words[-1] and word != words[-1]):
             runs[-1].append(b)
+            words[-1] = words[-1] or word
         else:
             runs.append([b])
+            words.append(word)
     profile = pack.profile if hasattr(pack, "profile") else (pack or {})
     country = photo_cluster.owner_country(profile)
     homes = photo_profile.home_points(profile)
@@ -4112,13 +4125,12 @@ def rule_r5(ctx):
     index = ctx["index"]
     by_id = {fo["id"]: fo for fo in live(index)}
     out = []
+    # G62 (L-2) — days inside an existing trip go into it, never a new one:
+    # those folders are left out and the rest of the run may still be a trip.
     into = ctx.get("into_trip") or set()
-    for cand in find(index, list(ctx["by_number"].values()), ctx["pack"]):
+    for cand in find(index, list(ctx["by_number"].values()), ctx["pack"], skip=into):
         ids = [f for f in cand.get("folders") or [] if f in by_id]
         if len(ids) < 2 or not cand.get("to"):
-            continue
-        # G62 (L-2) — days inside an existing trip go into it, not a new one.
-        if set(ids) & into:
             continue
         # G61 — a place word of the trip's name that is a stay, an eatery,
         # a chain, a street or a county/ward says so on the row.

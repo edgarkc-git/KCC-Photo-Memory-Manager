@@ -321,6 +321,50 @@ def dating_a_home_abroad_through_settings_lets_the_trip_be_proposed():
         f"undated={undated} settings={s.returncode} {s.stdout[-300:]!r}{s.stderr[-300:]!r} dated={dated}"
 
 @case
+def a_run_of_days_in_two_countries_is_two_trips():
+    """⭐ S-3b REPRODUCTION (G69: one trip = one country). Batches 1-2 in
+    Countryland, 3 with no country word, 4-5 in Otherland: two proposals, the
+    word-less batch joining the run beside it. ⛔ FAILS on c3485fe: one
+    five-folder trip named after the commoner country."""
+    import photo_index
+    from index_group_cases import ix
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        _wd, pack, idx, batches = group_index(tmp)
+        mixed = [dict(b, day_type="OVERSEAS",
+                      **({"country_word": "Countryland"} if b["batch"] <= 2 else
+                         {"country_word": "Otherland"} if b["batch"] >= 4 else {}))
+                 for b in batches]
+        got = photo_index.trip_candidates(idx, mixed, pack)
+    return ([(c["folders"], c["country"]) for c in got]
+            == [(["F001", "F002", "F003"], "Countryland"),
+                (["F004", "F005"], "Otherland")]), \
+        f"{[(c['folders'], c['country'], c['to']) for c in got]}"
+
+
+@case
+def a_folder_going_into_an_existing_folder_is_never_a_leg_of_a_new_trip():
+    """⭐ S-3a REPRODUCTION (L-8 across rounds). F001 already merges into an
+    existing folder (an applied R4 row), or is in `skip` (an R4 row this
+    round): the proposal is F002-F005 only. ⛔ FAILS on c3485fe: round 2
+    offered F001 as a leg (and round 1 dropped the whole trip)."""
+    import photo_index
+    from index_group_cases import ix
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        _wd, pack, idx, batches = group_index(tmp)
+        try:
+            skipped = [c["folders"] for c in photo_index.trip_candidates(
+                idx, abroad(batches), pack, skip={"F001"})]
+        except TypeError as exc:
+            skipped = f"no skip ({exc})"
+        f1 = next(fo for fo in idx["folders"] if fo["id"] == "F001")
+        f1["dest"] = {"mode": "merge", "existing_path": str(Path(tmp) / "x"), "refs": []}
+        merged = [c["folders"] for c in photo_index.trip_candidates(
+            idx, abroad(batches), pack)]
+    want = [["F002", "F003", "F004", "F005"]]
+    return skipped == want and merged == want, f"skip={skipped} merged={merged}"
+
+
+@case
 def with_no_country_word_the_trip_takes_its_places_only():
     """GUARD (Q3). No country word on the batches: the proposal is named by
     its places alone, never with an empty slot."""
