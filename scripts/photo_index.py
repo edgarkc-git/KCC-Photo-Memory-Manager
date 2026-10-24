@@ -982,23 +982,35 @@ def backed_subjects(members, cells, keep=()):
 
     Order: `keep` first — an ALREADY-COPIED folder's own earlier [who], so its
     name on the drive never needs a rename for the order alone ("new folders
-    only", owner 20261004) — then every other subject by `who_order()`."""
-    counts, names, kinds = {}, {}, {}
+    only", owner 20261004) — then every other subject by `who_order()`.
+
+    ⛔ SNS-7 — ids confirmed under ONE name (one pick row over two drafts)
+    are one pet: one [who] name, each file counted once, one place under the
+    cap. -> [(key, name, kind, files, member ids)]; memory keeps every id."""
+    counts, names, kinds, ids = {}, {}, {}, {}
     for f in members:
         seen = set()
         for s in (cells.get(f["source"]) or {}).get(photo_plan.WHO_SUBJECTS) or []:
             if not (s["confirmed"]
                     and photo_evidence.is_view_confirmed(s["provenance"])):
                 continue
-            key = s.get("subject_id") or s["name"]
-            if key in seen:
+            pet = (s["name"] or "").casefold()
+            ids.setdefault(pet, {})[s.get("subject_id") or s["name"]] = None
+            if pet in seen:
                 continue
-            seen.add(key)
-            counts[key] = counts.get(key, 0) + 1
-            names[key], kinds[key] = s["name"], s.get("kind")
-    kept = [k for k in dict.fromkeys(keep) if k in counts]
-    order = kept + sorted((k for k in counts if k not in kept), key=who_order)
-    return [(k, names[k], kinds[k], counts[k]) for k in order]
+            seen.add(pet)
+            counts[pet] = counts.get(pet, 0) + 1
+            names.setdefault(pet, s["name"])
+            kinds.setdefault(pet, s.get("kind"))
+    keys = {}
+    for pet, members_of in ids.items():
+        kept_id = next((k for k in dict.fromkeys(keep) if k in members_of), None)
+        keys[pet] = kept_id or min(members_of, key=who_order)
+    by_key = {keys[p]: p for p in counts}
+    kept = [k for k in dict.fromkeys(keep) if k in by_key]
+    order = kept + sorted((k for k in by_key if k not in kept), key=who_order)
+    return [(k, names[by_key[k]], kinds[by_key[k]], counts[by_key[k]],
+             sorted(ids[by_key[k]], key=who_order)) for k in order]
 
 
 def where_words(fo, labels):
@@ -1152,8 +1164,9 @@ def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
         pick = {**pick, "what": photo_name.NAME_SEP.join(kept) or None}
     own = agent_what(fo)
     validation = {"refusals": [], "warnings": [], "copies": len(members),
-                  "who": [{"subject_id": k, "name": n, "files": c}
-                          for k, n, _kind, c in backed],
+                  "who": [{"subject_id": k, "name": n, "files": c,
+                           **({"member_ids": m} if len(m) > 1 else {})}
+                          for k, n, _kind, c, m in backed],
                   "what_pick": pick["what"], "what_why": pick["why"],
                   "what_source": AGENT if own else pick.get("provenance"),
                   "what_animal_files": 0}
@@ -3911,9 +3924,10 @@ def rule_r3(ctx):
             continue
         looks = {}
         for w in val.get("who") or []:
-            subject = registry.get(w.get("subject_id") or "")
-            for look in (subject.looks if subject else []):
-                looks.setdefault(look.casefold(), w["name"])
+            for sid in w.get("member_ids") or [w.get("subject_id") or ""]:
+                subject = registry.get(sid)
+                for look in (subject.looks if subject else []):
+                    looks.setdefault(look.casefold(), w["name"])
         pieces = what.split(photo_name.NAME_SEP)
         # C-18 — a piece that holds a look ("<look> napping") describes the
         # pet as much as the bare look does.

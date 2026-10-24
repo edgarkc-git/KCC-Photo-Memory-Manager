@@ -1627,6 +1627,49 @@ def who_order_is_mint_order_then_names_and_keeps_a_copied_order():
         f"plain={plain} kept={kept}"
 
 
+def one_pet_two_ids_cells():
+    seen = photo_evidence.VIEWED
+    def who(*pets):
+        return {photo_plan.WHO_SUBJECTS: [
+            {"subject_id": sid, "name": n, "kind": "cat", "confirmed": True,
+             "provenance": seen} for sid, n in pets]}
+    cells = {"a": who(("subj-0001", "Lotus")),
+             "b": who(("subj-0002", "lotus"), ("subj-0003", "Birk")),
+             "c": who(("subj-0001", "Lotus"), ("subj-0002", "Lotus"))}
+    return [{"source": x} for x in "abc"], cells
+
+
+@case
+def two_ids_confirmed_under_one_name_are_one_who_name():
+    """⭐ S-1 REPRODUCTION (SNS-7). One pick row over two drafts confirms both
+    ids under one name; the folder named it twice (`Lotus+Lotus`). Now one
+    [who] name, each file counted once, both ids kept in the validation.
+    ⛔ FAILS on b0293f9: three entries, Lotus twice."""
+    members, cells = one_pet_two_ids_cells()
+    got = [(b[0], b[1], b[3], list(b[4]) if len(b) > 4 else None)
+           for b in photo_index.backed_subjects(members, cells)]
+    kept = [b[0] for b in photo_index.backed_subjects(members, cells,
+                                                      keep=["subj-0002"])]
+    return (got == [("subj-0001", "Lotus", 3, ["subj-0001", "subj-0002"]),
+                    ("subj-0003", "Birk", 1, ["subj-0003"])]
+            and kept == ["subj-0002", "subj-0003"]), f"got={got} kept={kept}"
+
+
+@case
+def one_pet_under_two_ids_takes_one_place_under_the_who_cap():
+    """⭐ S-1 REPRODUCTION. With `names_per_folder` 2, Lotus (two ids) and
+    Birk are two names and render as names, never the collective noun.
+    ⛔ FAILS on b0293f9: three names went over the cap."""
+    members, cells = one_pet_two_ids_cells()
+    backed = photo_index.backed_subjects(members, cells)
+    try:
+        who = photo_plan.render_who([b[1] for b in backed], [b[2] for b in backed],
+                                    2, None, None)
+    except (TypeError, KeyError) as exc:
+        who = f"over the cap ({type(exc).__name__})"
+    return who == "Lotus+Birk", f"who={who!r}"
+
+
 @case
 def a_refusal_after_the_plan_files_are_written_puts_them_back():
     """GUARD. A refusal from photo_plan or the export comparison comes after
