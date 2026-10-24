@@ -497,7 +497,33 @@ def parse_date_source(row):
 # the traditional variant can be preferred. This parses INPUT from OSM.
 SIMPLIFIED_CHARS = set("旧国东门马华湾区岛汉兰凤龙圣罗宝尔盐纽约莱坞"
                        "萨辖县镇乡馆园场广厅关济滨泽桥观庙楼阁线车长"
-                       "术图书钟亚欧传达纪乐")
+                       "术图书钟亚欧传达纪乐"
+                       # G60 (C-6, L-3): more Simplified-only forms seen in
+                       # place names; detection only, never a conversion.
+                       "纳镜们个这来时会说对发动机业务设计现电话经农产历"
+                       "鸟鱼风飞见贝页鲁苏庆厦汇沟灵节艺药医码网红绿蓝"
+                       "银铁锦阳阴际陆张归寿岭峡浅温涧湿渔实宫宁宽层屿"
+                       "带库应开从众优伟体侨价养兴冈净凉剧劳势协单卫厂"
+                       "压参双变号员园围图圆块坚坛声处备复头奖妇学宝审"
+                       "宾将尘尽属岗币师帘庐废弃弹当录彻忆态总恋惊战户"
+                       "执扩护报择挂换据摄摆数斋断无显晓暂杀杂权条杨极"
+                       "构枣标栈栋栏树样档桥梦检欢残毕气汤泪洁测浏浓涛"
+                       "润渐渊滚满滩潜灭灯灾炉点炼烟热爱独狮猎献环玛电"
+                       "画畅疗监盖盘矿砖础确礼离种积称稳穷竞笔筑签简粮"
+                       "紧纠纤级纬纯纱纲纵纸纹练组细织终绍经结绕绘给绝"
+                       "统继绩续维绵综缅缆缘缩罚职联聪肃胜脑舰芦苍荐荡"
+                       "荣获萝营萧虑虽虾蛮补袭装规视览觉誉计订认讨让训"
+                       "议记讲许论设访证评识诉词译试诗诚询详语请诸课谈"
+                       "谢负贡财责贤败货质贫购贯贴贵贸费资赏赛赞赵趋跃"
+                       "践踪轨转轮软轻载较辉辽边达迁过运还进远违连迟适"
+                       "选遗邓邮邻郑酱释钓钢钱铜铺链销锁锋错键闪闭问闲"
+                       "间闹闻阅队阵阶陈陕险随隐难雾韩顶项顺须顾顿预领"
+                       "频题颜额饭饮饰馆驰驱驻驾验骑鲜鸡鸣鸭鸿鹅鹤龟吕")
+# G60 (C-11): Japanese forms (shinjitai and kokuji) a Traditional-script
+# reader does not write; a kana-free Japanese name is caught by these.
+JAPANESE_FORMS = set("蔵駅桜沢浜県栄斎竜恵芸鉄発円売読単戦気楽薬図広関"
+                     "権歩渋黒尽辺様帰塩稲滝姫剣険検験総縁囲拠拡営峠込"
+                     "辻畑働枠栃匂雫")
 # i18n-guard:allow-end
 
 
@@ -571,6 +597,26 @@ def is_simplified(value, tags=None):
     return value in hans and value not in hant
 
 
+def has_kana_or_hangul(value):
+    return any("\u3040" <= c <= "\u30ff" or "\uac00" <= c <= "\ud7af"
+               for c in value or "")
+
+
+def in_owner_script(value, language, tags=None):
+    """G60 — False for a place word a Chinese-language owner cannot write:
+    kana or hangul for any Chinese owner, and for a Traditional owner a
+    Simplified name or a Japanese form. Latin (an English name) passes.
+    Other languages are not judged here. Never converts."""
+    lang = (language or "").lower()
+    if not value or lang.split("-")[0] != "zh":
+        return True
+    if has_kana_or_hangul(value):
+        return False
+    if is_traditional(language):
+        return not (is_simplified(value, tags) or set(value) & JAPANESE_FORMS)
+    return True
+
+
 def pick_variant(name, language):
     """One OSM tag can hold several ';'-joined variants. Traditional Chinese
     picks by script (`pick_traditional`); every other language takes the
@@ -590,7 +636,8 @@ def read_tags(tags, language, neutral=None):
     which is what makes the language fallback visible instead of silent.
     ⛔ M2 (E6/E15): a Traditional-script owner never gets a Simplified name —
     a Simplified value is passed over for English, and with no English the
-    place has no name rather than a Simplified one."""
+    place has no name rather than a Simplified one. G60: the same for every
+    word not in a Chinese owner's script (kana, hangul, a Japanese form)."""
     tags = tags or {}
     trad = is_traditional(language)
     neutral_value = neutral if neutral is not None else tags.get("name")
@@ -602,13 +649,13 @@ def read_tags(tags, language, neutral=None):
             return pick_variant(neutral_value, language), "name"
         if tags.get(tag):
             value = pick_variant(tags[tag], language)
-            if trad and is_simplified(value, tags):
+            if not in_owner_script(value, language, tags):
                 continue
             return value, tag
     value = neutral if neutral is not None else tags.get("name")
     if value:
         value = pick_variant(value, language)
-        if not (trad and is_simplified(value, tags)):
+        if in_owner_script(value, language, tags):
             return value, "name"
     return None, None
 
@@ -619,8 +666,8 @@ def is_han_traditional(value, tags=None):
     if not value:
         return False
     han = any("\u4e00" <= c <= "\u9fff" or "\u3400" <= c <= "\u4dbf" for c in value)
-    other = any("\u3040" <= c <= "\u30ff" or "\uac00" <= c <= "\ud7af" for c in value)
-    return han and not other and not is_simplified(value, tags)
+    return (han and not has_kana_or_hangul(value) and not is_simplified(value, tags)
+            and not set(value) & JAPANESE_FORMS)
 
 
 def read_name(data, language):
@@ -1059,9 +1106,9 @@ class Geocoder:
             row, old = self.cache.get(key), None
         if row is not None:
             _count("nominatim", "cache")
-            return None if row.get("country") else (row.get("name") or None)
+            return None if row.get("country") else self.owner_word(row.get("name"))
         if not self.enabled:
-            return (old or {}).get("name") or None
+            return self.owner_word((old or {}).get("name"))
         try:
             data = self.nominatim(reverse_url(pt, 10, self.language, "namedetails",
                                               precise=precise))
@@ -1071,6 +1118,8 @@ class Geocoder:
                 # all — booked as `address` so they read as a fallback too.
                 name = (data.get("address", {}).get("city")
                         or data.get("display_name", "").split(",")[0])
+                if not in_owner_script(name, self.language):
+                    name = None
                 tag = "address" if name else None
             country = is_country_answer(data)
             address = data.get("address") or {}
@@ -1084,7 +1133,12 @@ class Geocoder:
             self.stored()
             return None if country else (name or None)
         except Exception:
-            return (old or {}).get("name") or None
+            return self.owner_word((old or {}).get("name"))
+
+    def owner_word(self, name):
+        """A stored name, if it is in the owner's script (G60): a cache
+        written before G60 may hold one that is not."""
+        return name if name and in_owner_script(name, self.language) else None
 
     def country_word(self, pt):
         """M7 / D-F12 — the country an AWAY point is in, in the owner's
@@ -1173,7 +1227,7 @@ class Geocoder:
             row = {"name": name or "", "name_tag": tag, "cat": cat, "type": typ}
             self.cache[key] = row
             self.stored()
-        name = row.get("name") or None
+        name = self.owner_word(row.get("name"))
         return None if not name or is_address(name) else name
 
     # 📐 The administrative fields Nominatim returns, coarsest-useful first.

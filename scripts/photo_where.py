@@ -48,7 +48,7 @@ from photo_cluster import (is_address, parse_date, parse_gps, in_country,  # noq
                            haversine_km, place_label, no_pack_anchor,
                            owner_country, read_day_files, away_points,
                            near_any_home, overpass_post, read_tags,
-                           read_name, Geocoder, reverse_url,
+                           read_name, in_owner_script, Geocoder, reverse_url,
                            landmark_failed_note)
 
 # i18n-guard:allow-begin — locale detection data, not user-facing output.
@@ -341,6 +341,10 @@ def area_name(center, geocoder, reject_fine=False, precise=False):
     about a stop the peak-and-trail query could not name.
     """
     def usable(name):
+        # G60 — a cached name from before the script check may not be one
+        # the owner can write.
+        if name and not in_owner_script(name, getattr(geocoder, "language", None)):
+            name = None
         # Only ever applied to the local moving-day fallback. Overseas, the
         # same suffixes are ordinary municipality names in their own countries
         # — dropping one there would lose a real city name, which is the very

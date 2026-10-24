@@ -373,8 +373,12 @@ different things, and the second is the one owners do not expect:
    invented here and are never translated here: the product requests the
    owner's language from the map service and uses what comes back.
 
-Where the map service holds a name in that language, that name is used. Where
-it does not, the product falls back to the **local** name — and it says so
+Where the map service holds a name in that language, that name is used. For a
+Chinese-language owner a name in a script they do not write (kana, hangul,
+and for a Traditional owner a Simplified name or a Japanese form) is never
+used and never converted: the English name is taken, else that place is
+dropped and the next place is used. Where it does not, the product falls
+back to the **local** name — and it says so
 rather than swapping scripts silently, so an owner is not left with a folder
 they cannot read and no explanation. With no `language` in the pack the
 request is **English**. Where it says so: the cluster stage names the batches

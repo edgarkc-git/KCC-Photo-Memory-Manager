@@ -1692,6 +1692,66 @@ def case_only_traditional_chinese_gets_the_traditional_filter():
     return None
 
 
+# G60 — invented names (no real place), written as escapes, each with the
+# one property the case needs: Simplified-only characters the detector
+# gained, kana beside Latin, and a kana-free Japanese form with its
+# Traditional twin.
+SIMPLIFIED_SPRING = "\u955c\u7eb3"                    # Simplified-only forms
+SIMPLIFIED_NA = "\u7eb3\u955c"                        # Simplified-only forms
+KANA_BAR = "\u306b\u3053BIRK"                         # kana + Latin
+JAPANESE_ZAO = "\u685c\u7af9"                         # a Japanese form, no kana
+TRADITIONAL_ZAO = "\u6afb\u7af9"                      # the Traditional form
+
+
+@case
+def a_place_word_not_in_a_traditional_owners_script_takes_english_or_nothing():
+    """⭐ G60 REPRODUCTION (C-6, C-9, C-11, L-3). A Traditional-script owner
+    never gets a Simplified name, a kana name or a Japanese form: the
+    owner-language tag, then English, else no name (the next place is used).
+    ⛔ FAILS on 7280c54: Simplified forms the detector did not know, kana in
+    the neutral name, and a kana-free Japanese form all reached the name."""
+    read = photo_cluster.read_tags
+    got = {
+        "spring": read({"name:zh": SIMPLIFIED_SPRING, "name:en": "Lotus Spring"}, "zh-TW"),
+        "na": read({"name": SIMPLIFIED_NA}, "zh-TW"),
+        "bar": read({"name": KANA_BAR}, "zh-TW"),
+        "zao": read({"name": JAPANESE_ZAO}, "zh-TW"),
+        "zao_en": read({"name": JAPANESE_ZAO, "name:en": "Birk Grove"}, "zh-TW"),
+        "zao_hant": read({"name": JAPANESE_ZAO, "name:zh-Hant": TRADITIONAL_ZAO}, "zh-TW"),
+    }
+    want = {"spring": ("Lotus Spring", "name:en"), "na": (None, None),
+            "bar": (None, None), "zao": (None, None), "zao_en": ("Birk Grove", "name:en"),
+            "zao_hant": (TRADITIONAL_ZAO, "name:zh-Hant")}
+    return None if got == want else f"got {got}"
+
+
+@case
+def a_place_word_check_leaves_other_owners_alone():
+    """GUARD (G60). A Simplified owner keeps Simplified names; an English
+    owner's fallback to the neutral name is unchanged (never converted)."""
+    read = photo_cluster.read_tags
+    got = (read({"name": SIMPLIFIED_SPRING}, "zh-CN"),
+           read({"name": KANA_BAR}, "en"),
+           read({"name": TRADITIONAL_ZAO}, "zh-TW"))
+    want = ((SIMPLIFIED_SPRING, "name"), (KANA_BAR, "name"), (TRADITIONAL_ZAO, "name"))
+    return None if got == want else f"got {got}"
+
+
+@case
+def a_landmark_in_another_script_gives_way_to_the_next():
+    """⭐ G60 REPRODUCTION: with the nearer sight named only in kana, the
+    ranking takes the next sight the owner can read. ⛔ FAILS on 7280c54
+    (the kana sight was ranked first)."""
+    pt = (35.0, 139.0)
+    near = {"type": "node", "lat": 35.0, "lon": 139.0,
+            "tags": {"tourism": "attraction", "name": KANA_BAR}}
+    far = {"type": "node", "lat": 35.0005, "lon": 139.0,
+           "tags": {"tourism": "attraction", "name": TRADITIONAL_ZAO}}
+    ranked = photo_cluster.rank_landmarks([near, far], [pt], "zh-TW")
+    names = [r["name"] for r in ranked]
+    return None if names and names[0] == TRADITIONAL_ZAO and KANA_BAR not in names \
+        else f"ranked {names}"
+
 @case
 def a_place_named_in_the_local_language_is_said_out_loud():
     """F7 — the reproduction. `place_name_not_in_owner_language` was appended
