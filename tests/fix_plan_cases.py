@@ -192,6 +192,50 @@ def a_look_of_a_named_pet_stops_the_freeze_and_ok_drops_it():
 
 
 @case
+def a_look_inside_a_longer_what_gets_an_r3_row():
+    """⭐ C-18 / G35 REPRODUCTION. Lotus's look is `sofa` and the folder's
+    [what] is `sofa nap`: the piece holding the look gets an R3 row and `ok`
+    drops it. ⛔ FAILS on 7280c54: R3 matched a whole piece only, so a look
+    inside a longer [what] kept its place next to the named pet."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, pack = ready(tmp)
+        add_look(pack, "subj-0001", "sofa", wd)
+        ix.run("fix-plan", wd)
+        got = [x for x in rows(wd) if "(R3)" in x]
+        answer(wd, *["ok" if "(R3)" in x else "skip" for x in rows(wd)])
+        acode, aout, aerr = apply(wd)
+        must(ix.run("render", wd), "render")
+        n = names(tmp)
+    return (len(got) == 1 and "drops sofa nap: a look of Lotus" in got[0]
+            and acode == 0 and n["F001"] == "20241101_Ford_Lotus"), \
+        f"rows={got} apply={acode} {(aout + aerr)[-300:]!r} names={n}"
+
+
+@case
+def a_confirmed_pet_missing_from_an_agent_name_gets_an_r2_row():
+    """⭐ C-18 / G35 REPRODUCTION (an agent-named folder). An approved agent row named
+    F001 without Lotus, who is confirmed on its viewed photo: Review folders
+    offers an R2 row adding Lotus, and `ok` names the folder with her. ⛔
+    FAILS on 7280c54: R2 looked only at folders merged into an existing one."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        must(ix.run("fix-plan", wd, "--agent", "F001", "--to", "20241101_Ford_morning",
+                    "--reason", "the morning"), "agent")
+        ix.run("fix-plan", wd)
+        answer(wd, *["ok" if "(agent)" in x else "skip" for x in rows(wd)])
+        must(apply(wd), "apply agent")
+        must(ix.run("render", wd), "render")
+        ix.run("fix-plan", wd)
+        got = [x for x in rows(wd) if "(R2)" in x]
+        answer(wd, *["ok" if "(R2)" in x else "skip" for x in rows(wd)])
+        acode, aout, aerr = apply(wd)
+        must(ix.run("render", wd), "render")
+        n = names(tmp)
+    return (len(got) == 1 and "`20241101_Ford_morning` → `20241101_Ford_Lotus_morning`" in got[0]
+            and acode == 0 and n["F001"] == "20241101_Ford_Lotus_morning"), \
+        f"rows={got} apply={acode} {(aout + aerr)[-300:]!r} names={n}"
+
+@case
 def a_skip_is_recorded_and_never_asked_again():
     """GUARD (G21). `skip` changes nothing, is recorded, and the next freeze
     is not stopped by the same row; a row left open is a skip too."""

@@ -3854,6 +3854,44 @@ def rule_r2(ctx):
                            f"{unfinished_copy(ctx['workdir'], path).name} first; "
                            "then Review folders offers the rename.")
         out.append(op)
+    return out + agent_named_missing_pets(ctx)
+
+
+def holds_look(piece, look):
+    """A [what] piece holds a pet's look: as whole words in a spaced script
+    (`white cat` in `white cat nap`, never `cat` in `catamaran`), as a run
+    of characters in a script written without spaces."""
+    text = piece.strip().casefold()
+    if look.isascii():
+        return re.search(r"(?<!\w)" + re.escape(look) + r"(?!\w)", text) is not None
+    return look in text
+
+
+def agent_named_missing_pets(ctx):
+    """C-18 (G35) — a NEW folder named by an approved agent row keeps that
+    name over render's, so a confirmed pet render backs from the folder's
+    own viewed photos (`validation.who`) can be missing from it. Such
+    a folder gets an R2 row adding the pet; a pet the owner took out with
+    `set-who --drop` is never proposed."""
+    import photo_subjects
+    confirmed = {s.subject_id: s.name for s in photo_subjects.load(pack=ctx["pack"]).subjects
+                 if s.name and s.status == photo_subjects.STATUS_CONFIRMED}
+    out = []
+    for fo in live(ctx["index"]):
+        name = fo.get("agent_name")
+        if fo["dest"]["mode"] != "new" or not name or not fo.get("rendered"):
+            continue
+        pets = [w["name"] for w in (fo.get("validation") or {}).get("who") or []
+                if confirmed.get(w.get("subject_id")) == w.get("name")
+                and w.get("name") not in (fo.get("who_drop") or [])]
+        missing = [p for p in pets if p not in name_words(name)]
+        if not missing:
+            continue
+        out.append(fix_op("RENAME", "R2", fo, name,
+                          with_pets(name, set(confirmed.values()) | set(pets), missing),
+                          len(copy_members(ctx["index"], fo["id"])),
+                          f"adds {', '.join(missing)}: confirmed on this folder's photos",
+                          agent=True))
     return out
 
 
@@ -3877,12 +3915,15 @@ def rule_r3(ctx):
             for look in (subject.looks if subject else []):
                 looks.setdefault(look.casefold(), w["name"])
         pieces = what.split(photo_name.NAME_SEP)
-        drop = [x for x in pieces if x.strip().casefold() in looks]
+        # C-18 — a piece that holds a look ("<look> napping") describes the
+        # pet as much as the bare look does.
+        hit = {x: [lk for lk in looks if holds_look(x, lk)] for x in pieces}
+        drop = [x for x in pieces if hit[x]]
         if not drop:
             continue
         rest = photo_name.NAME_SEP.join(x for x in pieces if x not in drop)
         to = name[:-len(what) - 1] + (photo_name.SLOT_SEP + rest if rest else "")
-        pets = sorted({looks[x.strip().casefold()] for x in drop})
+        pets = sorted({looks[lk] for x in drop for lk in hit[x]})
         out.append(fix_op("RENAME", "R3", fo, name, to,
                           len(copy_members(ctx["index"], fo["id"])),
                           f"drops {', '.join(drop)}: a look of {', '.join(pets)}, "
@@ -4398,7 +4439,11 @@ def cmd_fix_plan(args):
                 said = f"[what] {text!r}, the owner's word"
         elif answer == "ok":
             a = op["apply"]
-            if op["rule"] == "R2":
+            if op["rule"] == "R2" and a.get("agent"):
+                if args.go:
+                    fo["agent_name"] = op["to"]
+                said = f"the folder is named `{op['to']}`"
+            elif op["rule"] == "R2":
                 why = BY_HAND if a.get("by_hand") else engine_rename(workdir, op, args.go)
                 if why:
                     said = f"nothing renamed: {why}"
