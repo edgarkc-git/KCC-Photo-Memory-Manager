@@ -586,7 +586,12 @@ it on a private web page:
    owner then names goes in with `group set-where`. A day inside an existing
    trip folder's dates gets an R4 row into the leg that covers it, or, when
    no leg does, into a NEW leg folder `<trip>/MMDD_...` the engine creates —
-   never loose files in the trip folder (G62, S-4).
+   never loose files in the trip folder (G62, S-4). Days abroad in the trip's
+   own country right before or after it, with no day between (or a run of
+   such days starting there), get ONE R4 row that joins them to the trip
+   as new legs, never a new trip (G70); Skip leaves them their own folders.
+   A trip abroad is one country: a run of days in two countries is two
+   R5 trips (G69).
 2. Publish that file as a **private** artifact and send the owner its link
    through your own channel. ⛔ Never share it: it shows the owner's photos.
    ⛔ The page saves the owner's answers by republishing itself on Send, so
@@ -721,6 +726,13 @@ every file and logs it in `plan/after-check-log.json`. A folder changed by hand
 since the copy, or one the engine did not create, is refused:
 `The folder was changed by hand since the copy; nothing was renamed. Ask the agent to re-run the final check.`
 Nothing is ever deleted. Run the final check again until nothing is left.
+
+A trip that took new leg folders and whose name's period no longer covers
+them gets a row widening the period (G70), e.g. `20251120-1122_...` →
+`20251120-1124_...`: `RENAME (trip period)` for a trip the engine made
+(proof over every dump's copies in it, every record follows), or
+`RENAME (owner)` for the owner's own trip. The legs keep their names; on
+skip the trip keeps its old dates.
 
 One more row kind (G41, ADR 0007 amendment): `RENAME (owner)`. When Review
 folders' R4 merged days into the OWNER's folder and its name holds none of the

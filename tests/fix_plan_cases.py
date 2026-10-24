@@ -1466,6 +1466,156 @@ def a_day_in_an_existing_trip_with_no_leg_for_it_gets_a_new_leg_folder():
          f"inside={inside} finish={run.returncode} {run.stdout[-300:]!r}")
 
 
+TRIP_1030_31 = "2024/20241030-1031_Ruritania_Ford"
+TRIP_1030_1102 = "2024/20241030-1102_Ruritania_Ford"
+
+
+def days_after_a_trip(tmp, country="Ruritania"):
+    """The owner's trip `20241030-1031_Ruritania_Ford` (legs 1030, 1031) and
+    G3 abroad in `country`: F001 on 11-01, F002 on 11-02, the two days right
+    after it. -> work dir, fix plan drafted."""
+    for leg, day in (("1030_Ford", "2024:10:30 09:00:00"), ("1031_Ford", "2024:10:31 09:00:00")):
+        owner_folder(tmp, day=day, rel=f"{TRIP_1030_31}/{leg}")
+    batches = [dict(b, day_type="OVERSEAS", country_word=country) for b in ix.G3_BATCHES]
+    wd, _pack = ix.g3_dump(tmp, batches=batches)
+    for cmd in ("init", "render", "check"):
+        must(ix.run(cmd, wd), cmd)
+    ix.run("fix-plan", wd)
+    return wd
+
+
+@case
+def days_right_after_a_trip_join_it_and_its_dates_widen_after_the_copy():
+    """⭐ G70 REPRODUCTION (owner ruling). The two days right after the
+    owner's trip, in its country: ONE R4 row joins them to it (no new trip
+    for them); `ok` copies each into a new leg; the final check offers to
+    widen the trip's period 1030-1031 -> 1030-1102 (`RENAME (owner)`), and
+    `ok` + --go renames it with the before = after proof, the legs inside.
+    In another country nothing joins. ⛔ FAILS on ca7c36a: a new trip
+    F001+F002 was offered beside the owner's."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd = days_after_a_trip(tmp)
+        got = rows(wd)
+        _a, (fcode, ferr), run = to_the_copy(wd, *["ok"] * len(got))
+        after = owner_row(wd) if after_page(wd).is_file() else []
+        root = Path(tmp).resolve() / "sorted"
+        answer_after(wd, *["ok"] * len(after))
+        gcode, gout, gerr = ix.run("after-check", wd, "--answers", after_page(wd), "--go")
+        legs = (sorted(p.name for p in (root / TRIP_1030_1102).iterdir())
+                if (root / TRIP_1030_1102).is_dir() else [])
+        vcode, _v, _ = ix.run("verify", wd, "--copied")
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        other = [x for x in rows(days_after_a_trip(tmp, country="Otherland"))
+                 if "INTO-EXISTING" in x]
+    join = [x for x in got if "INTO-EXISTING (R4)" in x]
+    return (len(join) == 1 and "2 day folder(s) 1101-1102" in join[0]
+            and f"`{TRIP_1030_31}`" in join[0] and "(G70)" in join[0]
+            and not [x for x in got if "MAKE-TRIP" in x] and fcode == 0
+            and run.returncode == 3 and len(after) == 1
+            and f"`{TRIP_1030_31}` → `{TRIP_1030_1102}`" in after[0]
+            and "RENAME (owner)" in after[0] and gcode == 0
+            and legs == ["1030_Ford", "1031_Ford", "1101_Ford_Lotus_sofa nap",
+                         "1102_Harbour_harbour walk"]
+            and not (root / TRIP_1030_31).exists() and vcode in (0, 6) and not other), \
+        (f"rows={got} freeze={fcode} {ferr[-200:]!r} finish={run.returncode} "
+         f"after={after} go={gcode} {gout[-300:]!r}{gerr[-200:]!r} legs={legs} "
+         f"verify={vcode} other={other}")
+
+
+ENGINE_TRIP = "20241101-1102_Ruritania_Ford+Harbour"
+ENGINE_TRIP_WIDE = "20241101-1103_Ruritania_Ford+Harbour"
+
+
+@case
+def a_day_after_an_engine_trip_joins_it_and_both_dumps_follow_the_new_dates():
+    """⭐ G70 REPRODUCTION (the scratch run's shape). dump-a made and copied
+    the trip 1101-1102 (R5 `ok`); dump-b's 11-03 in the same country joins
+    it as a new leg; the final check offers `RENAME (trip period)` to
+    1101-1103, and `ok` + --go renames it with the proof over BOTH dumps'
+    copies, moves both records, and both verify. ⛔ FAILS on ca7c36a: no
+    join row (11-03 stayed its own folder) and no period row."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        batches = [dict(b, day_type="OVERSEAS", country_word="Ruritania")
+                   for b in ix.G3_BATCHES]
+        wa, _pack = ix.g3_dump(tmp, batches=batches)
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wa), cmd)
+        ix.run("fix-plan", wa)
+        _a, _f, run_a = to_the_copy(wa, *["ok"] * len(rows(wa)))
+        base = Path(tmp).resolve() / "raw" / "dump-b"
+        base.mkdir(parents=True)
+        made = []
+        for k, file in enumerate(("IMG_0501.jpg", "IMG_0502.jpg")):
+            (base / file).write_bytes(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00"
+                                      + f"dump-b/{file}".encode() + b"\xff\xd9")
+            made.append(ix.row(file, SourceFile=str(base / file),
+                               when=f"2024:11:03 1{k}:00:00", gps=ix.FAR))
+        wb = ix.make_dump(tmp, rows=made, name="dump-b", batches=[
+            {"batch": 1, "from": "2024-11-03", "to": "2024-11-03", "place": "Harbour",
+             "day_type": "OVERSEAS", "country_word": "Ruritania"}])
+        ix.write_see(wb, 1, [ix.see_label(base, n, what="pier walk")
+                             for n in ("IMG_0501.jpg", "IMG_0502.jpg")])
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wb), cmd)
+        ix.run("fix-plan", wb)
+        got = rows(wb)
+        _a, _f, run_b = to_the_copy(wb, *["ok"] * len(got))
+        after = owner_row(wb) if after_page(wb).is_file() else []
+        answer_after(wb, *["ok"] * len(after))
+        gcode, gout, gerr = ix.run("after-check", wb, "--answers", after_page(wb), "--go")
+        root = Path(tmp).resolve() / "sorted"
+        legs = (sorted(p.name for p in (root / ENGINE_TRIP_WIDE).iterdir())
+                if (root / ENGINE_TRIP_WIDE).is_dir() else [])
+        va, _v, _ = ix.run("verify", wa, "--copied")
+        vb, _w, _ = ix.run("verify", wb, "--copied")
+    return (run_a.returncode == 0 and len(got) == 1 and "INTO-EXISTING (R4)" in got[0]
+            and f"`{ENGINE_TRIP}`" in got[0] and run_b.returncode == 3
+            and len(after) == 1 and "RENAME (trip period)" in after[0]
+            and f"`{ENGINE_TRIP}` → `{ENGINE_TRIP_WIDE}`" in after[0] and gcode == 0
+            and legs == ["1101_Ford_Lotus_sofa nap", "1102_Harbour_harbour walk",
+                         "1103_Harbour_pier walk"]
+            and va in (0, 6) and vb in (0, 6)), \
+        (f"a={run_a.returncode} rows={got} b={run_b.returncode} after={after} "
+         f"go={gcode} {gout[-300:]!r}{gerr[-200:]!r} legs={legs} verify={va},{vb}")
+
+
+@case
+def a_skipped_join_leaves_the_days_their_own_folders_and_offers_no_trip():
+    """GUARD (G70). `skip` on the join row: the days stay their own folders
+    and no new trip of only those days is offered in its place."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd = days_after_a_trip(tmp)
+        first = rows(wd)
+        answer(wd, *["skip"] * len(first))
+        must(apply(wd), "apply")
+        for cmd in ("render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        fcode, fout, ferr = ix.run("freeze", wd)
+        again = rows(wd) if fcode == 3 else []
+        modes = {fo["id"]: fo["dest"]["mode"] for fo in ix.index_of(tmp)[0]["folders"]
+                 if fo["kind"] == "day"}
+    return (len(first) == 1 and fcode == 0 and not again
+            and modes == {"F001": "new", "F002": "new"}), \
+        f"first={first} freeze={fcode} again={again} modes={modes} {(fout + ferr)[-300:]!r}"
+
+
+@case
+def a_trip_changed_by_hand_after_the_copy_keeps_its_dates():
+    """⭐ G70 / ADR 0007 GUARD. The owner put a photo into the trip after the
+    copy: the widening row is refused, nothing is renamed."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd = days_after_a_trip(tmp)
+        to_the_copy(wd, *["ok"] * len(rows(wd)))
+        after = owner_row(wd) if after_page(wd).is_file() else []
+        root = Path(tmp).resolve() / "sorted"
+        (root / TRIP_1030_31 / "1031_Ford" / "HAND.jpg").write_bytes(b"\xff\xd8hand\xff\xd9")
+        answer_after(wd, *["ok"] * len(after))
+        gcode, gout, _ = ix.run("after-check", wd, "--answers", after_page(wd), "--go")
+        kept = (root / TRIP_1030_31).is_dir() and not (root / TRIP_1030_1102).exists()
+    return (len(after) == 1 and gcode == 1 and "nothing was renamed" in gout
+            and kept), f"after={after} go={gcode} kept={kept} {gout[-400:]!r}"
+
+
 # ---------------------------------------------------------------------------
 # R6 — the owner's own place word for the same spot
 # ---------------------------------------------------------------------------

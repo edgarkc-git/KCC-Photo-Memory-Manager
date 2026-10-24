@@ -103,7 +103,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -4204,7 +4204,76 @@ def into_existing_trips(ctx, tree, root, own, mine, taken):
                               "in it (D5)", path=str(root / trip),
                               owner_scan=folder_scan(tree, trip), new_leg=True))
             break
-    ctx["into_trip"] = {op["folder"] for op in out}
+    out += join_trips(ctx, trips, root, tree, taken | {op["folder"] for op in out})
+    ctx["into_trip"] = {f for op in out for f in op["apply"].get("folders") or [op["folder"]]}
+    return out
+
+
+def trip_country(trip):
+    """The country word of a trip folder's name (`<period>_<country>_...`),
+    or None: the second slot when a third follows it."""
+    slots = Path(trip).name.split(photo_name.SLOT_SEP)
+    return slots[1] if len(slots) > 2 else None
+
+
+def join_trips(ctx, trips, root, tree, taken):
+    """G70 (owner ruling) — day folders abroad in the SAME country as an
+    existing trip folder, on the day right before or after it with no day
+    between, or a run of such days starting there, JOIN that trip: one R4
+    row per trip side, each day a new leg folder in it (S-4's shape), never a
+    new trip. The trip's period is widened only after the copy, by the final
+    check's rename row (ADR 0007)."""
+    from datetime import date, timedelta
+    index = ctx["index"]
+    cand = []
+    for fo in live(index):
+        if (fo["kind"] != "day" or fo.get("parent") or fo["dest"]["mode"] != "new"
+                or not fo.get("rendered") or fo["id"] in taken):
+            continue
+        batches = [ctx["by_number"].get(b) or {} for b in fo.get("batches") or []]
+        words = {b.get("country_word") for b in batches} - {None}
+        if not batches or len(words) != 1 or \
+                any(b.get("day_type") != "OVERSEAS" for b in batches):
+            continue
+        days = sorted({f["date"][:10] for f in copy_members(index, fo["id"])
+                       if f.get("date")})
+        if days:
+            cand.append((date.fromisoformat(days[0]), date.fromisoformat(days[-1]),
+                         words.pop(), fo))
+    one = timedelta(days=1)
+    out, used = [], set()
+    for trip, ((first, last), _legs) in sorted(trips.items()):
+        word = trip_country(trip)
+        same = sorted((c for c in cand if c[2] == word and c[3]["id"] not in used),
+                      key=lambda c: c[0])
+        if not word or not same:
+            continue
+        after, edge = [], date.fromisoformat(last)
+        for a, b, _w, fo in same:
+            if a == edge + one:
+                after.append((a, b, fo))
+                edge = b
+        before, edge = [], date.fromisoformat(first)
+        for a, b, _w, fo in reversed(same):
+            if b == edge - one:
+                before.insert(0, (a, b, fo))
+                edge = a
+        for side, where in ((before, "before"), (after, "after")):
+            if not side:
+                continue
+            ids = [fo["id"] for _a, _b, fo in side]
+            used.update(ids)
+            span = f"{side[0][0]:%m%d}" + (f"-{side[-1][1]:%m%d}"
+                                           if side[-1][1] != side[0][0] else "")
+            photos = sum(len(copy_members(index, i)) for i in ids)
+            out.append(fix_op(
+                "INTO-EXISTING", "R4", side[0][2],
+                f"{len(ids)} day folder(s) {span}", trip, photos,
+                f"{', '.join(ids)}: the day(s) right {where} the existing trip "
+                f"{Path(trip).name}, in {word}: they join it as new leg folders "
+                "(G70); the final check offers to widen the trip's dates after "
+                "the copy", path=str(root / trip), owner_scan=folder_scan(tree, trip),
+                folders=ids, **{NEW_LEG: True}))
     return out
 
 
@@ -4480,7 +4549,8 @@ def draft_fix_plan(workdir, pack, index, debug=None):
     # L-8 — never two rows for one folder that cannot both apply: a folder
     # going INTO an existing folder takes that folder's name, so no rename
     # or new trip is offered for it.
-    merged = {op["folder"] for op in ops if op["op"] == "INTO-EXISTING"}
+    merged = {f for op in ops if op["op"] == "INTO-EXISTING"
+              for f in op["apply"].get("folders") or [op["folder"]]}
     for op in ops:
         if (op["op"] not in ("INTO-EXISTING", "DAYS-INTO-EXISTING")
                 and ({op["folder"]} | set(op["apply"].get("folders") or [])) & merged):
@@ -4801,9 +4871,11 @@ def cmd_fix_plan(args):
                             f"folder {a['path']} (D5); the rest stays")
             elif op["rule"] == "R4":
                 if args.go:
-                    fo["dest"] = {"mode": "merge", "existing_path": a["path"], "refs": [],
-                                  "owner_scan": a["owner_scan"],
-                                  **({NEW_LEG: True} if a.get(NEW_LEG) else {})}
+                    for each in (x for x in live(index)
+                                 if x["id"] in (a.get("folders") or [fo["id"]])):
+                        each["dest"] = {"mode": "merge", "existing_path": a["path"],
+                                        "refs": [], "owner_scan": a["owner_scan"],
+                                        **({NEW_LEG: True} if a.get(NEW_LEG) else {})}
                 said = (f"goes into the existing trip {a['path']} as a new leg "
                         "folder (D5)" if a.get(NEW_LEG) else
                         f"merges into the existing folder {a['path']} (D5)")
@@ -4882,10 +4954,62 @@ def after_rows(workdir, index, plans, pack=None):
                      "from": old, "to": new, "photos": photos, "reason": reason})
     if pack is not None:
         rows += [r for r in owner_rows(workdir, index, plans, pack) if not r.get("why")]
+        rows += [r for r in period_rows(workdir, index, plans, pack) if not r.get("why")]
     return rows
 
 
 OWNER_RULE = "owner"
+PERIOD_RULE = "trip period"
+
+
+def period_rows(workdir, index, plans, pack):
+    """G70 — a trip that took new leg folders (S-4, a G70 join) whose name's
+    period no longer covers their days: a row widening it, e.g.
+    `20251120-1122_...` -> `20251120-1124_...`. The legs keep their names.
+    An engine-made trip (any dump of the collection, `collection_copies`) is
+    PERIOD_RULE with the engine folder proof; the owner's own trip is
+    OWNER_RULE with the owner-folder proof (ADR 0007). Never before the copy:
+    until the owner says ok the trip keeps its old dates."""
+    root = plans.get("dest_root") or ""
+    created = collection_copies(workdir, root)[0]
+    verified = photo_execute.verified_anywhere(Path(workdir) / "plan")
+    hard, soft = photo_profile.name_budget(pack.profile)
+    found = {}
+    for fo in live(index):
+        if fo["dest"].get(NEW_LEG):
+            found.setdefault(fo["dest"]["existing_path"], set()).update(
+                f["date"][:10] for f in copy_members(index, fo["id"]) if f.get("date"))
+    rows = []
+    for path, days in sorted(found.items()):
+        path = Path(path)
+        head, sep, rest = path.name.partition(photo_name.SLOT_SEP)
+        m = TRIP_HEAD.match(head)
+        span = span_days(*map(int, m.groups())) if m else None
+        rel = rel_under(path, root)
+        if not span or not days or rel is None or not path.is_dir():
+            continue
+        first, last = min(span[0], min(days)), max(span[1], max(days))
+        if (first, last) == span:
+            continue
+        wide = f"{first[:4]}{first[5:7]}{first[8:10]}-{last[5:7]}{last[8:10]}"
+        new = wide + sep + rest
+        row = {"op": "RENAME",
+               "rule": PERIOD_RULE if photo_execute.real_key(path) in created
+               else OWNER_RULE,
+               "from": rel, "to": (PurePosixPath(rel).parent / new).as_posix(),
+               "photos": sum(1 for v in verified.values()
+                             if under(v.get("dest") or "", path)),
+               "path": str(path), "words": [],
+               "reason": f"the trip took {', '.join(sorted(days))} as new leg folders: "
+                         f"its dates {head} -> {wide} (G70)"}
+        refusals = photo_name.validate(new, hard=hard, soft=soft,
+                                       kind=photo_name.NAME_FOLDER)[1]
+        if COORDINATE_IN_NAME.search(new):
+            row["why"] = "the new name reads as a coordinate (Operational Rule 3)"
+        elif refusals:
+            row["why"] = "; ".join(refusals)
+        rows.append(row)
+    return rows
 
 
 def owner_rows(workdir, index, plans, pack):
@@ -5121,7 +5245,8 @@ def follow_owner_renames(workdir, index):
     except ValueError:
         return
     moves = {e["path_from"]: e["path_to"] for e in entries
-             if e.get("rule") == OWNER_RULE and e.get("path_from") and e.get("path_to")}
+             if e.get("rule") in (OWNER_RULE, PERIOD_RULE)
+             and e.get("path_from") and e.get("path_to")}
     for fo in live(index):
         dest = fo["dest"]
         path, seen = dest.get("existing_path"), set()
@@ -5214,6 +5339,16 @@ def apply_after(args, workdir, index, plans, pack=None):
                       f"looked at it; nothing was renamed ({why})")
                 refused += 1
                 continue
+        elif row["rule"] == PERIOD_RULE:
+            # G70 — the trip holds copies of more than one dump: every dump's
+            # record is the proof, and every one of them follows the rename.
+            made, every, by_dump = collection_copies(workdir, str(root))
+            holders = [wd for wd in by_dump
+                       if any(under(v.get("dest") or "", old)
+                              for v in by_dump[wd].values())]
+            why = next((f"the copy of {wd.name} is not finished" for wd in holders
+                        if not copy_finished(wd)), None) or \
+                own_folder_problem(old, new, made, every)
         else:
             why = own_folder_problem(old, new, created,
                                      photo_execute.verified_anywhere(workdir / "plan"))
@@ -5234,7 +5369,7 @@ def apply_after(args, workdir, index, plans, pack=None):
                   "back, nothing renamed")
             refused += 1
             continue
-        if row["rule"] == OWNER_RULE:
+        if row["rule"] in (OWNER_RULE, PERIOD_RULE):
             for wd in dict.fromkeys([workdir, *collection_dumps(workdir)]):
                 move_record(Path(wd), old, new)
         else:
@@ -5245,7 +5380,7 @@ def apply_after(args, workdir, index, plans, pack=None):
                      "op": r["op"], "rule": r["rule"], "from": r["from"],
                      "to": r["to"], "before": n, "after": sum(after.values()),
                      **({"path_from": str(old), "path_to": str(new)}
-                        if row["rule"] == OWNER_RULE else {})})
+                        if row["rule"] in (OWNER_RULE, PERIOD_RULE) else {})})
         print(f"  renamed `{r['from']}` → `{r['to']}`: size + SHA-256 + name "
               f"of every file, before {n} = after {sum(after.values())}")
     skipped = sum(1 for r in answered if r["answer"] != "ok")
