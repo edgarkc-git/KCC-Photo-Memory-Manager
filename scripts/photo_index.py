@@ -3737,6 +3737,82 @@ def collection_dumps(workdir):
             and any((d / "plan").glob("execute-state_*.json"))]
 
 
+def rel_under(path, base):
+    """-> `path` relative to `base` as posix ("" for base itself), or None."""
+    for p, b in ((Path(path), Path(base)),
+                 (Path(path).resolve(), Path(base).resolve())):
+        try:
+            rel = p.relative_to(b).as_posix()
+            return "" if rel == "." else rel
+        except ValueError:
+            continue
+    return None
+
+
+def collection_copies(workdir, root):
+    """S-4 — every dump's copy record of this collection, read against the
+    dest root `root` it is used with now. -> (created {real_key: (path, dump)},
+    verified {SourceFile: record}, {dump: its records}). A dump whose plans.json named another dest
+    root (the drive mounted under another name, or moved) has its records
+    re-rooted by their path relative to that root; its created folder counts
+    only when one of its copies is found inside at the new place with the
+    same size and SHA-256 — a folder of the same name on another drive is
+    not the engine's."""
+    created, verified, by_dump = {}, {}, {}
+    for wd in dict.fromkeys([Path(workdir), *collection_dumps(workdir)]):
+        recs = by_dump[wd] = photo_execute.verified_anywhere(wd / "plan")
+        made = photo_execute.created_anywhere(wd / "plan")
+        try:
+            then = json.loads((wd / "plans.json").read_text(
+                encoding="utf-8")).get("dest_root")
+        except (OSError, ValueError):
+            then = None
+        if not then or not root or path_key(then) == path_key(str(root)):
+            verified.update(recs)
+            created.update({k: (d, wd) for k, d in made.items()})
+            continue
+        moved = {}
+        for src, v in recs.items():
+            rel = rel_under(v.get("dest") or "", then)
+            moved[src] = {**v, "dest": f"{root}/{rel}"} if rel else v
+        verified.update(moved)
+        by_dump[wd] = moved
+        for d in made.values():
+            rel = rel_under(d, then)
+            if rel is None:
+                continue
+            new = f"{root}/{rel}" if rel else str(root)
+            if Path(new).is_dir() and holds_a_copy(new, moved.values()):
+                created[photo_execute.real_key(new)] = (new, wd)
+    return created, verified, by_dump
+
+
+def dest_root_now(workdir):
+    """The dest root this dump copies to: its plans.json, else the
+    collection's (collection.json)."""
+    for p in (Path(workdir) / "plans.json", Path(workdir).parent / "collection.json"):
+        try:
+            root = json.loads(p.read_text(encoding="utf-8")).get("dest_root")
+        except (OSError, ValueError):
+            root = None
+        if root:
+            return root
+    return None
+
+
+def holds_a_copy(folder, records):
+    """Is one of these copy records inside `folder`, same size and SHA-256?"""
+    for v in records:
+        dest = Path(v.get("dest") or "")
+        if not under(str(dest), folder) or not dest.is_file():
+            continue
+        if v.get("size") is not None and dest.stat().st_size != v.get("size"):
+            continue
+        if photo_desttree.sha256_file(dest) == v.get("sha256"):
+            return True
+    return False
+
+
 def unfinished_copy(workdir, path):
     """-> the first dump of this collection holding copies inside `path`
     whose copy or verify is unfinished, else None."""
@@ -3873,10 +3949,7 @@ def rule_r2(ctx):
     known = {s.name for s in photo_subjects.load(pack=ctx["pack"]).subjects
              if s.name and s.status == photo_subjects.STATUS_CONFIRMED}
     out = []
-    created = {}
-    for wd in collection_dumps(ctx["workdir"]):
-        created.update({k: (v, wd) for k, v in
-                        photo_execute.created_anywhere(wd / "plan").items()})
+    created = collection_copies(ctx["workdir"], ctx["dest_root"])[0]
     for fo in live(ctx["index"]):
         dest = fo["dest"]
         if dest["mode"] == "new" or not dest.get("existing_path"):
@@ -4549,15 +4622,10 @@ def engine_rename(workdir, op, go):
     not."""
     old = Path(op["apply"]["path"])
     new = old.parent / op["to"]
-    dumps = collection_dumps(workdir)
-    created, verified = {}, {}
-    holders = []
-    for wd in dumps:
-        created.update(photo_execute.created_anywhere(wd / "plan"))
-        recs = photo_execute.verified_anywhere(wd / "plan")
-        verified.update(recs)
-        if any(under(v.get("dest") or "", old) for v in recs.values()):
-            holders.append(wd)
+    created, verified, by_dump = collection_copies(workdir, dest_root_now(workdir))
+    holders = [wd for wd in collection_dumps(workdir)
+               if any(under(v.get("dest") or "", old)
+                      for v in by_dump.get(wd, {}).values())]
     for wd in holders:
         if not copy_finished(wd):
             return f"{BY_HAND} — the copy of {wd.name} is not finished"
@@ -4836,9 +4904,9 @@ def owner_rows(workdir, index, plans, pack):
     root = Path(plans.get("dest_root") or "")
     labels = id_labels(pack)
     homes = {row[5] for row in photo_profile.labelled_home_points(pack.profile) if row[5]}
-    created = {}
-    for wd in dict.fromkeys([Path(workdir), *collection_dumps(workdir)]):
-        created.update(photo_execute.created_anywhere(Path(wd) / "plan"))
+    # S-4 — an engine folder of an earlier dump stays the engine's when the
+    # drive is mounted under another name now.
+    created = collection_copies(workdir, plans.get("dest_root"))[0]
     verified = photo_execute.verified_anywhere(Path(workdir) / "plan")
     hard, soft = photo_profile.name_budget(pack.profile)
     found = {}
@@ -4875,7 +4943,7 @@ def owner_rows(workdir, index, plans, pack):
         if words:
             place = photo_name.NAME_SEP.join(words)
             new += photo_name.SLOT_SEP + place
-            adds = f", whose name has no place: adds {place}"
+            adds = f", whose name has none of those days' places: adds {place}"
         if missing:
             new = with_pets(new, known | set(entry["pets"]), missing)
             adds += f"{'; ' if adds else ': '}adds {', '.join(missing)}"

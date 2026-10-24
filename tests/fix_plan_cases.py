@@ -25,6 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tests"))
+import photo_execute  # noqa: E402
 import photo_exiftool  # noqa: E402
 import photo_index  # noqa: E402
 import photo_profile  # noqa: E402
@@ -1129,6 +1130,49 @@ def r2_renames_a_folder_an_earlier_dump_copied_and_moves_both_records():
         (f"code={code} rows={got} dry={dcode} {dry_same} apply={acode} "
          f"{aout[-400:]!r}{aerr[-300:]!r} moved={moved} verify_a={va} "
          f"after_a={ca} {cout[-300:]!r} finish_b={run_b.returncode} landed={landed}")
+
+
+@case
+def an_engine_folder_stays_the_engines_when_the_drive_is_mounted_elsewhere():
+    """⭐ S-4 (ii) REPRODUCTION. dump-a copied and CREATED its folder, then
+    the drive came back under another root (plans.json still names the old
+    one). dump-b merges into that folder: the fix plan offers the engine R2
+    rename (no "by hand"), and the final check has no `RENAME (owner)` row
+    for it. A folder of the same name on another root, holding none of
+    dump-a's copies, is not the engine's. ⛔ FAILS on a06ac55: "the engine
+    did not create this folder: rename it by hand", and an owner row."""
+    import shutil
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wa, _pack = fin.ready(tmp)
+        first = fin.finish(wa)
+        moved = Path(tmp).resolve() / "moved"
+        shutil.move(str(Path(tmp).resolve() / "sorted"), str(moved))
+        wb = second_dump(tmp)
+        coll = wb.parent / "collection.json"
+        coll.write_text(json.dumps({**json.loads(coll.read_text()), "dest_root": str(moved)}))
+        must(ix.run("dest", wb, "F001", "merge", moved / LOTUS_DAY, "--ref", wa,
+                    "--reason", "the same day"), "dest")
+        for cmd in ("render", "check"):
+            must(ix.run(cmd, wb), cmd)
+        fcode, fout, _ = ix.run("freeze", wb)
+        got = rows(wb) if fcode == 3 else []
+        _a, _f, run = to_the_copy(wb, *["skip"] * len(got)) if got else (None, None, fin.finish(wb))
+        pack, _t, idx = photo_index.load(wb, None)
+        for fo in idx["folders"]:
+            if fo["id"] == "F001":
+                fo["dest"]["owner_scan"] = {}    # as an R4 `ok` records it
+        plans = json.loads((wb / "plans.json").read_text())
+        owner = photo_index.owner_rows(wb, idx, plans, pack)
+        other = Path(tmp).resolve() / "other"
+        (other / LOTUS_DAY).mkdir(parents=True)
+        (other / LOTUS_DAY / "IMG_0101.jpg").write_bytes(b"\xff\xd8not the copy\xff\xd9")
+        theirs = getattr(photo_index, "collection_copies", None)
+        stranger = (photo_execute.real_key(other / LOTUS_DAY) in theirs(wb, str(other))[0]
+                    if theirs else None)
+    return (first.returncode == 0 and len(got) == 1 and "(R2) · F001" in got[0]
+            and "by hand" not in got[0] and run.returncode == 0 and owner == []
+            and stranger is False), \
+        f"freeze={fcode} rows={got} {fout[-300:]!r} finish={run.returncode} owner={owner} stranger={stranger}"
 
 
 @case
