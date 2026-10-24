@@ -1324,6 +1324,21 @@ def a_folder_named_after_a_stay_or_an_eatery_gets_an_r1_row():
         f"r1={r1} refused={refused[-200:]!r} apply={acode} {(aout + aerr)[-300:]!r} names={names}"
 
 @case
+def a_folder_named_after_a_minor_marker_gets_an_r1_street_row():
+    """GUARD (S-2). The kind cluster now gives a plain memorial stone
+    (`street`) reaches Review folders as an R1 row with the kind reason."""
+    batches = [dict(ix.G3_BATCHES[0], place="Lotus Stone",
+                    place_kinds={"Lotus Stone": "street"}), ix.G3_BATCHES[1]]
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ix.g3_dump(tmp, batches=batches)
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        ix.run("fix-plan", wd)
+        r1 = [x for x in rows(wd) if "(R1)" in x and "Lotus Stone" in x]
+    return (len(r1) == 1 and "a street or street marker" in r1[0]), f"r1={r1}"
+
+
+@case
 def days_inside_an_existing_trip_go_into_it_and_no_second_row_is_offered():
     """⭐ G62 / L-2 + L-8 REPRODUCTION. Two days abroad fall inside an
     existing trip folder (`20241030-1105_...`, a leg per day) in the sorted

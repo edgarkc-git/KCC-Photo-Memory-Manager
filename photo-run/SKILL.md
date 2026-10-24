@@ -577,8 +577,9 @@ it on a private web page:
    folder is OK / Skip only) and one Send button. A word is checked like any
    name; a refused word writes nothing for its row. The plan's
    An R1 row also flags a folder still named after a place to stay, a
-   restaurant or cafe, a chain shop, a street or street marker, or a county
-   or ward (G61): `ok` drops that word when another place word is left;
+   restaurant or cafe, a chain shop, a street or street marker (a minor
+   historic object such as a memorial stone or a milestone with no
+   wikidata/wikipedia tag counts as one), or a county or ward (G61): `ok` drops that word when another place word is left;
    when it is the only one, only My word (or Skip) applies. The
    `## Refused (never applied)` list (a failed map lookup among them) is
    shown as information; it asks nothing and stops nothing — a place the

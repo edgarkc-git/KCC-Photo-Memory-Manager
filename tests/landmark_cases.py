@@ -1105,6 +1105,27 @@ def the_batch_says_which_place_words_are_not_a_sight():
                                                              {"Birk Inn": "stay"})
             and kinds["2025-05-01"] is None and kinds["2025-05-05"] is None), f"{kinds}"
 
+STONE = element("Lotus Stone", {"historic": "memorial"}, 0.0)
+NOTED = element("Birk Memorial", {"historic": "memorial", "wikidata": "Q1"}, 0.0)
+
+
+@case
+def a_minor_historic_object_names_the_stop_and_is_flagged_a_street():
+    """⭐ S-2 REPRODUCTION (G61 option A). A memorial stone with no
+    wikidata/wikipedia tag still names the stop, and no wider search replaces
+    it — but its kind is `street`, so the folder gets an R1 row. A notable
+    memorial stays a sight. ⛔ FAILS on b0293f9: the stone was a `sight`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        g = wide_geocoder(tmp, [STONE, INN], [FALLS])
+        got = g.landmarks([PT_A])
+        n = wide_geocoder(tmp, [NOTED], [FALLS])
+        noted = n.landmarks([PT_A])
+    return (got == ["Lotus Stone"] and g.place_kinds == {"Lotus Stone": "street"}
+            and noted == ["Birk Memorial"]
+            and n.place_kinds == {"Birk Memorial": "sight"}), \
+        f"got={got} {g.place_kinds} noted={noted} {n.place_kinds}"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")

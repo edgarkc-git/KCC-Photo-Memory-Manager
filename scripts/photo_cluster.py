@@ -803,6 +803,10 @@ STAY_TAGS = {
 # owner words.
 CHAIN_TAGS = ("brand", "brand:wikidata")
 STREET_MARKERS = ("milestone", "boundary_stone", "marker")
+# A small roadside object that `historic=*` makes a sight: one with no
+# wikidata/wikipedia tag still names the stop, and the folder gets a row.
+MINOR_HISTORIC = ("memorial", "milestone", "boundary_stone", "marker",
+                  "wayside_cross", "wayside_shrine")
 ADMIN_AREA_TYPES = ("county", "state_district", "city_district", "district",
                     "borough", "suburb", "quarter")
 FLAG_KINDS = ("stay", "eatery", "chain", "street", "admin")
@@ -817,6 +821,8 @@ def place_kind(tags):
     if tags.get("tourism") in STAY_TAGS["tourism"]:
         return "stay"
     if is_street(tags) or tags.get("historic") in STREET_MARKERS:
+        return "street"
+    if tags.get("historic") in MINOR_HISTORIC and not is_notable(tags):
         return "street"
     return "sight"
 
@@ -1238,12 +1244,18 @@ class Geocoder:
                 self.landmark_failed_last.append(photo_where.stop_center(stop))
             elements.extend(got or [])
         ranked = rank_landmarks(elements, pts, self.language)
-        kinds = {}
+        kinds, minor = {}, set()
         for el in elements:
-            name = read_tags(el.get("tags") or {}, self.language)[0]
+            tags = el.get("tags") or {}
+            name = read_tags(tags, self.language)[0]
             if name:
-                kinds.setdefault(name, place_kind(el.get("tags") or {}))
-        if not any(r["rank"] == 0 and kinds.get(r["name"]) == "sight" for r in ranked):
+                kinds.setdefault(name, place_kind(tags))
+                if tags.get("historic") in MINOR_HISTORIC:
+                    minor.add(name)
+        # A minor historic object is still a sight here: it flags its folder,
+        # never widens the search past it.
+        if not any(r["rank"] == 0 and (kinds.get(r["name"]) == "sight"
+                                       or r["name"] in minor) for r in ranked):
             # G61 — no sight near: a sight a little further off names the
             # stop before a stay, an eatery or a street does.
             wide = self.wide_sights(pts, guard_homes)
