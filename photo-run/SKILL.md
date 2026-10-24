@@ -620,7 +620,7 @@ macOS shell. Write the output to a file instead:
 | `photo_memory.py review --next-page` | 11 | a page was written | answer it |
 | | 12 | a page still waits for its confirm and apply-page | finish that page first |
 | | 0 | no page is due | go on |
-| `photo_memory.py review` (a pet page, or `--next-page`) | 1 | `was not written`: a photo holds an animal the identity index found, but no crop of it could be made with this python (F22; a HEIC needs pillow-heif). The page is never shown with the whole photo instead | run the same step with the repo `.venv` python; `finish` does that by itself when the `.venv` exists |
+| `photo_memory.py review` (a pet page, or `--next-page`) | 1 | `was not written`: a photo ON DISK holds an animal the identity index found, but no crop of it could be made (F22). The page is never shown with the whole photo instead. A memory photo whose file is GONE is not this: it is skipped and listed at the end of the page (G59) | when the message says a HEIC needs pillow-heif, run the same step with the repo `.venv` python (`finish` does that by itself); otherwise read the stage's own message for the cause |
 | `photo_index.py identify` | 13 | views are wanted in `identify-views.md` | view each photo, write verdicts, `--answers ... --go` |
 | `photo_index.py identify --answers --go` | 1 | `Lift it first`: the index is frozen, nothing written | `unfreeze --reason "..."`, `--answers ... --go` again, then `render`, `check`, `freeze` (step 3b) |
 | `photo_index.py check` | 1 | a folder name or a route fails; each problem is listed | fix through the index, then `render` and `check` again |

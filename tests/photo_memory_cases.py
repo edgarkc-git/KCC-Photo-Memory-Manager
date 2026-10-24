@@ -6262,7 +6262,26 @@ def case_a_frame_whose_crop_cannot_be_made_is_refused(tmp):
     page = workdir / "memory-review_C1.md"
     assert not page.exists(), "the page was written with the whole photo"
     assert stopped and "was not written" in stopped \
-        and Path(paths[0]).name in stopped and ".venv" in stopped, stopped
+        and Path(paths[0]).name in stopped and "crop failed" in stopped, stopped
+
+
+def case_a_memory_photo_whose_file_is_gone_is_skipped_and_listed(tmp):
+    """⭐ G59 / C-24 REPRODUCTION. The identity index found an animal in a
+    memory photo whose file is gone (an older dump's): the page is still
+    written, that photo is off it and listed at its end, and nothing blames
+    the python. ⛔ FAILS on 7280c54: the whole page was refused ("no crop of
+    it could be made ... This python most likely cannot open the photo")."""
+    pack_dir, workdir, _ids = two_lookalike_drafts(tmp)
+    paths = draft_look_paths(pack_dir)
+    write_detection_index(workdir, {paths[0]: [(0, 1, "1.0,1.0,9.0,9.0")]})
+    Path(paths[0]).unlink()
+    stopped = review_with_thumbnails(pack_dir, workdir, make=False)
+    page = workdir / "memory-review_C1.md"
+    assert stopped is None, stopped
+    text = page.read_text()
+    header = photo_profile.REVIEW_VOCAB["en"]["review_skipped_gone_header"].format(n=1)
+    assert header in text and f"- {Path(paths[0]).name}" in text, text[-600:]
+    assert "python" not in text.split(header)[1], text[-600:]
 
 
 def case_a_frame_whose_crop_is_made_still_renders(tmp):
@@ -8429,6 +8448,8 @@ def case_k3_the_identity_line_quotes_every_path(tmp):
 CASES = [
     ("F22 — a frame whose crop cannot be made is refused (REPRODUCTION)",
      case_a_frame_whose_crop_cannot_be_made_is_refused),
+    ("G59 — a memory photo whose file is gone is skipped and listed (REPRODUCTION)",
+     case_a_memory_photo_whose_file_is_gone_is_skipped_and_listed),
     ("F22 — a frame whose crop is made still renders",
      case_a_frame_whose_crop_is_made_still_renders),
     ("F22 — a frame the index does not cover renders whole (decision)",

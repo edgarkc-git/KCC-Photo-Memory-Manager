@@ -1546,16 +1546,67 @@ def uncropped_frames(questions, represented):
             and not f.get("crops")]
 
 
+def gone_path(frame):
+    return Path(frame.get("path") or frame["image"])
+
+
+def drop_gone_frames(questions, represented):
+    """G59 / C-24 — a frame whose crop is needed (F22) but whose file is gone
+    (an older dump's file moved or deleted since) can never be cropped: it is
+    taken off the page instead of refusing the whole page, and a tile or a
+    re-presented record left with no frame goes too. A frame shown from its
+    thumbnail alone is kept. -> [frame] dropped. Changes `questions` and
+    `represented` in place."""
+    gone = []
+
+    def keep(frames):
+        out = []
+        for f in frames:
+            lost = ((f.get("det_count") or 0) >= 1 and not f.get("crops")
+                    and not gone_path(f).exists())
+            (gone if lost else out).append(f)
+        return out
+
+    for q in questions:
+        for t in q["tiles"]:
+            t["frames"] = keep(t["frames"])
+        q["tiles"] = [t for t in q["tiles"] if t["frames"]]
+    questions[:] = [q for q in questions if q["tiles"]]
+    for kind in ("remembered", "rejected"):
+        records = represented.get(kind) or []
+        for record in records:
+            if record.get("frames"):
+                record["frames"] = keep(record["frames"])
+        represented[kind] = [r for r in records if r.get("frames") is None
+                             or r.get("frames")]
+    return gone
+
+
+def gone_section(rmsg, gone):
+    names = sorted({gone_path(f).name for f in gone})
+    return ["", rmsg["review_skipped_gone_header"].format(n=len(names)), ""] + [
+        f"- {n}" for n in names]
+
+
 def uncropped_refusal(out, frames):
-    names = sorted({Path(f.get("path") or f["image"]).name for f in frames})
+    names = sorted({gone_path(f).name for f in frames})
+    heic = [n for n in names if Path(n).suffix.lower() in (".heic", ".heif")]
+    try:
+        import pillow_heif  # noqa: F401
+        no_heif = False
+    except ImportError:
+        no_heif = True
+    why = (f"This python has no pillow-heif and {len(heic)} of them are HEIC: run "
+           f"this step again with the repo .venv, "
+           f"`{photo_platform.quoted(photo_platform.venv_python())}`."
+           if heic and no_heif else
+           "Each file is on disk; its crop failed (read the stage's message "
+           "above for the cause).")
     return (f"⛔ {out.name} was not written: {len(names)} photo(s) hold an "
             "animal the identity index found, but no crop of it could be made "
             f"here: {', '.join(names)}.\n"
             "Showing the whole photo instead would hide WHICH animal the "
-            "question is about. This python most likely cannot open the photo "
-            "(a HEIC photo needs pillow-heif). Run this step again with the "
-            f"repo .venv, `{photo_platform.quoted(photo_platform.venv_python())}`; `photo_run.py "
-            "finish` uses it by itself when it exists.")
+            f"question is about. {why}")
 
 
 def tile_frames(subject, sheet, workdir=None, crops=None, where=None):
@@ -4758,6 +4809,7 @@ def cmd_review(args):
     else:
         out = workdir / f"memory-review_C{checkpoint}.md"
     batch_page = BATCH_PAGE_IN_NAME.match(out.name)
+    gone = drop_gone_frames(questions, represented)
     uncropped = uncropped_frames(questions, represented)
     if uncropped:
         sys.exit(uncropped_refusal(out, uncropped))
@@ -4766,6 +4818,11 @@ def cmd_review(args):
                          round_state, round_deferred,
                          page=batch_page.group(1) if batch_page else None,
                          places=places)
+    if gone:
+        text = text.rstrip("\n") + "\n" + "\n".join(
+            gone_section(photo_profile.review_messages(pack.profile), gone)) + "\n"
+        print(f"{len({gone_path(f).name for f in gone})} memory photo(s) "
+              "skipped: the file is gone — listed at the end of the page")
     if batch is None and out.exists():
         refusal = page_reuse_refusal(out, text)
         if refusal:

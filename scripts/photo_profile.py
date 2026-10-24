@@ -1618,6 +1618,10 @@ REVIEW_VOCAB = {
         "review_frame_where_none": "no location — this file carries no GPS",
         "review_frame_where_unknown": "location not checked — this photo's "
                                       "scan is not in its work dir",
+        # G59 / C-24 — memory photos left off the page: the file is gone.
+        "review_skipped_gone_header": "## Skipped: {n} remembered photo(s) "
+                                      "whose file is gone (moved or deleted "
+                                      "since an earlier dump)",
         # U2-12 — the GROUP-level counterpart of review_frame_shared. That
         # one says a single photograph holds two animals; this one says two
         # photographs the page is asking about as ONE subject do not look
