@@ -38,6 +38,7 @@ import photo_index_cases as ix  # noqa: E402
 
 PY = sys.executable
 KILLED = 137
+STOPPED = 130  # G58: the exit code of a run ended by a stop signal
 CASES = []
 
 
@@ -438,6 +439,115 @@ def a_see_pass_stopped_between_batches_says_the_next_batch():
               and end.get("state") == "done"
               and photo_run.next_command(wd).endswith(f'finish "{wd}" --go'))
         return ok, f"mid={mid} next={nxt!r} end={end.get('state')}"
+
+
+def stopped_copy(sig, to):
+    """Start `finish --go` the C-23 way (its own session, SIGINT IGNORED as a
+    script's `cmd &` leaves it), let P1 copy one slow file, send `sig` to the
+    conductor (`pid`), its whole group (`group`: Ctrl-C, a closed window) or
+    the copy stage only (`child`), then run finish again. -> facts."""
+    import signal
+    import time
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd = frozen_dump(tmp)
+        log = Path(tmp) / "finish-1.log"
+        cmd = [PY, str(SCRIPTS / "photo_run.py"), "finish", str(wd), "--go", "--skip-memory"]
+        with open(log, "w") as out:
+            proc = subprocess.Popen(
+                cmd, stdout=out, stderr=subprocess.STDOUT, start_new_session=True,
+                preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN),
+                env=env(PYTHONPATH=ROOT / "tests" / "kill", PHOTO_TEST_SLOW_COPY=1.0))
+            t_end = time.time() + 120
+            while time.time() < t_end and proc.poll() is None and not [
+                    p for p in dest_files(tmp) if p.suffix == ".jpg"]:
+                time.sleep(0.05)
+            if to == "pid":
+                os.kill(proc.pid, getattr(signal, sig))
+            elif to == "group":
+                os.killpg(proc.pid, getattr(signal, sig))
+            else:
+                kids = subprocess.run(["pgrep", "-P", str(proc.pid)],
+                                      capture_output=True, text=True).stdout.split()
+                for k in kids:
+                    os.kill(int(k), getattr(signal, sig))
+            rc1 = proc.wait(timeout=120)
+        out1 = log.read_text()
+        before = dest_files(tmp)
+        copy1, verify1 = (photo_progress.stage(wd, "copy"), photo_progress.stage(wd, "verify"))
+        status = stage_run("photo_run.py", "status", wd).stdout
+        resume = status.split("resume with:\n", 1)[-1].strip()
+        r2 = finish(wd)
+        after = dest_files(tmp)
+        want = {sha(s) for s in plan_sources(wd)}
+        return {
+            "rc": (rc1, r2.returncode),
+            "copied_before": len([p for p in before if p.suffix == ".jpg"]),
+            "p2_started": "===== P2" in out1,
+            "stopped_said": "STOPPED (" in out1,
+            "resume_said": bool(resume) and f"resume with:\n    {resume}" in out1,
+            "copy_state": copy1.get("state"), "verify_ran": bool(verify1),
+            "parts": [p.name for p in before if p.name.endswith(".part")],
+            "untouched": all(after.get(p) == v for p, v in before.items()),
+            "every_sha": bool(want) and want <= state_shas(wd),
+            "no_part_left": not [p for p in after if p.name.endswith(".part")],
+            "out": out1[-600:]}
+
+
+def stop_ok(f):
+    ok = (f["rc"] == (STOPPED, 0) and 1 <= f["copied_before"] < 3
+          and not f["p2_started"] and f["stopped_said"] and f["resume_said"]
+          and f["copy_state"] == "running" and not f["verify_ran"]
+          and not f["parts"] and f["untouched"] and f["every_sha"]
+          and f["no_part_left"])
+    return ok, "" if ok else {k: v for k, v in f.items()}
+
+
+@case
+def a_sigint_to_a_background_started_run_ends_the_whole_run():
+    """⭐ G58 / C-23, the measured shape: `finish --go` started with SIGINT
+    ignored (a script's `cmd &`), `kill -INT <pid>` mid-plan. The run ends
+    with 130 after the file in hand, P2 never starts, verify never runs, copy
+    stays running, the resume command is printed; the re-run copies only what
+    is missing. ⛔ FAILS on 7280c54: the SIGINT is ignored, every plan runs."""
+    return stop_ok(stopped_copy("SIGINT", "pid"))
+
+
+@case
+def a_ctrl_c_to_the_run_group_ends_the_whole_run():
+    """⭐ G58: Ctrl-C (SIGINT to the whole group) in the same shape."""
+    return stop_ok(stopped_copy("SIGINT", "group"))
+
+
+@case
+def a_sigterm_to_the_run_ends_the_whole_run():
+    """⭐ G58: `kill <pid>` (SIGTERM) to the conductor only. ⛔ FAILS on
+    7280c54: the conductor dies at once and the orphaned copy goes on."""
+    return stop_ok(stopped_copy("SIGTERM", "pid"))
+
+
+@case
+def a_closed_window_sighup_ends_the_whole_run():
+    """⭐ G58: the window closed (SIGHUP to the whole group)."""
+    return stop_ok(stopped_copy("SIGHUP", "group"))
+
+
+@case
+def a_stop_of_the_copy_stage_alone_starts_no_next_plan():
+    """⭐ G58 / C-23 cause 2: SIGTERM to photo_execute only (`pkill -P`). ⛔
+    FAILS on 7280c54: the plan's non-zero rc is only flagged and the next
+    plan starts."""
+    return stop_ok(stopped_copy("SIGTERM", "child"))
+
+
+@case
+def a_kill_9_mid_plan_resumes_with_nothing_copied_twice():
+    """⭐ G58: `kill -9` of the whole group mid-plan (nothing can be caught).
+    The re-run finishes with 0, every source SHA is in the state, no file on
+    the drive before the re-run was written again, no `.part` is left."""
+    f = stopped_copy("SIGKILL", "group")
+    ok = (f["rc"] == (-9, 0) and f["copied_before"] >= 1 and f["untouched"]
+          and f["every_sha"] and f["no_part_left"])
+    return ok, "" if ok else {k: v for k, v in f.items()}
 
 
 def main():

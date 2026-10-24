@@ -63,6 +63,10 @@ exit 4 — nothing copied — when the index, the exported plan files or the pac
 changed since the freeze. They do not re-render a frozen plan, and `finish`
 ends by comparing the copy's SHA-256 with the frozen ones.
 
+G58: a stop (SIGINT, SIGTERM, SIGHUP) to `prep`/`cluster`/`plan`/`finish` or
+to the stage it runs ends the WHOLE run with exit 130 after the file in hand:
+no next stage or plan, the stage stays `running`, the resume command printed.
+
 Safety: writing to the drive requires --go at every level (mirrors
 photo_execute.py, whose default is dry-run). Without --go nothing is copied.
 Copy-only throughout — no source file is ever moved, modified, or deleted.
@@ -550,8 +554,27 @@ def run(script, *scr_args, python=None):
     stream its output. Returns the CompletedProcess (callers decide how to
     treat rc)."""
     cmd = [python or sys.executable, str(HERE / script), *[str(a) for a in scr_args]]
+    stop_if_asked()
     print(f"$ {script} {' '.join(str(a) for a in scr_args)}", flush=True)
-    return subprocess.run(cmd)
+    rc = photo_progress.run_child(cmd)
+    stop_if_asked()
+    return subprocess.CompletedProcess(cmd, rc)
+
+
+def stop_if_asked():
+    """G58 — after a stop signal no next stage or plan starts: the run ends
+    here with STOP_RC and the one resume command. The stage that was running
+    stays `running` in the progress file (never marked done)."""
+    sig = photo_progress.stopped()
+    if sig is None:
+        return
+    wd = photo_progress._stop["workdir"]
+    print(f"\nSTOPPED ({sig}, exit {photo_progress.STOP_RC}): the whole run ends "
+          "here — no next stage or plan starts. Every file copied so far is "
+          "verified; a re-run copies only what is missing.", flush=True)
+    if wd is not None:
+        print(f"resume with:\n    {next_command(wd)}", flush=True)
+    sys.exit(photo_progress.STOP_RC)
 
 
 def resolve_workdir(arg, args):
@@ -561,10 +584,12 @@ def resolve_workdir(arg, args):
     an existing dump keeps working with no profile at all."""
     p = Path(arg)
     if (p / "batches.json").exists() or (p / "manifest.csv").exists():
-        return p.resolve()
-    root = args.workdir_root or default_workdir_root(load_profile_cached(args))
-    cand = Path(root) / p.name
-    return cand.resolve()
+        wd = p.resolve()
+    else:
+        root = args.workdir_root or default_workdir_root(load_profile_cached(args))
+        wd = (Path(root) / p.name).resolve()
+    photo_progress._stop["workdir"] = wd
+    return wd
 
 
 _pack_cache = {}
@@ -1084,6 +1109,7 @@ def cmd_prep(args):
                  + photo_platform.source_missing_hint())
     workdir_root = args.workdir_root or default_workdir_root(load_profile_cached(args))
     workdir = Path(workdir_root) / Path(args.source).name
+    photo_progress._stop["workdir"] = workdir
     if (workdir / "batches.json").exists() and not args.force:
         # M12 — a second prep re-scanned and REWROTE manifest.csv under a
         # clustered dump, then stopped at cluster (measured). Said before any
@@ -2049,6 +2075,8 @@ def main():
     # workdir_root is resolved lazily (see resolve_workdir/cmd_prep) — a
     # `status`/`plan`/`finish` on an already-scanned dump never needs it, so
     # it must not demand a profile that isn't actually required.
+    if args.func in (cmd_prep, cmd_cluster, cmd_plan, cmd_finish):
+        photo_progress.catch_stop()
     args.func(args)
 
 

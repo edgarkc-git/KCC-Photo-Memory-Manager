@@ -383,6 +383,9 @@ def main():
         print("DRY-RUN ONLY — no file was written. Re-run with --go to copy.")
         return
 
+    # G58 — a stop is taken between two files: the file being copied is
+    # finished and verified (or never renamed into place), the state is saved.
+    photo_progress.catch_stop(workdir)
     t0 = time.time()
     flags = []
     counts = {"copied": 0, "already_present": 0, "flagged": 0}
@@ -404,6 +407,14 @@ def main():
     save_state(state_path, state)
     photo_progress.tick(workdir, "copy", 0, len(pending), plan=label)
     for i, r in enumerate(pending, 1):
+        if photo_progress.stopped():
+            save_state(state_path, state)
+            photo_progress.tick(workdir, "copy", i - 1, len(pending), plan=label,
+                                stopped=photo_progress.stopped())
+            print(f"{label}: STOPPED ({photo_progress.stopped()}) after "
+                  f"{i - 1}/{len(pending)} file(s) — each one verified; the "
+                  "rest are copied by a re-run.", flush=True)
+            sys.exit(photo_progress.STOP_RC)
         status, sha = copy_one(Path(r["SourceFile"]), Path(r["destination"]),
                                r["FileName"], flags, msg)
         counts[status] += 1

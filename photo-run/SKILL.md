@@ -540,6 +540,15 @@ the picture pass, and follow it whenever a session ends mid-run.
   K · twins T`. A file renamed into place before the kill is found by its
   SHA-256 and never copied again. A done stage is skipped only under the SAME
   freeze. After a confirm or a re-lock it runs again, as it must.
+- **A forced stop ends the whole run.** Ctrl-C, closing the window, or a
+  `kill` of `prep`, `cluster`, `plan` or `finish` (or of the stage it is
+  running) stops the RUN, not only the stage: the file being copied is
+  finished and verified first, the copy state and the progress file are
+  saved, no next plan or stage starts, and nothing after the copy (copy
+  check, final check) runs. It prints `STOPPED (<signal>, exit 130)` and
+  `resume with:` plus the same command `status` prints. A `kill -9` cannot be
+  caught: the re-run finds every file already on the drive by its SHA-256 and
+  replaces a left-over `.part`, so no file is copied twice.
 - **`prep` runs once.** A second `prep` on a dump that is already clustered
   stops before it writes anything and prints the next command. `--force`
   scans and clusters again.
@@ -604,6 +613,7 @@ macOS shell. Write the output to a file instead:
 | | 3 | a question was just put: a batch page, `identify-views.md`, or (after the copy) `plan/after-check.md` | answer it (step 3a / 3b, or the final check below), then re-run |
 | | 4 | the dump has an index and its freeze is missing or no longer holds | `render`, `check`, `freeze`, then re-run |
 | | 5 | a naming stage did not finish (a batch page, the pre-plan round, or identify); nothing was copied, and the stop prints the line to run it again | run that line, fix what it says (for a place page: the repo `.venv`), then re-run |
+| | 130 | stopped by Ctrl-C, a closed window or a `kill`; every file copied so far is verified, no next plan started | run the printed `resume with:` command when the owner wants to go on |
 | `photo_memory.py review --next-page` | 11 | a page was written | answer it |
 | | 12 | a page still waits for its confirm and apply-page | finish that page first |
 | | 0 | no page is due | go on |

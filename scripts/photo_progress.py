@@ -45,6 +45,65 @@ FAULT_ENV = "PHOTO_TEST_FAULT"
 FAULT_RC = 137
 _fault_calls = {}
 
+# G58 — a forced stop (Ctrl-C, the window closed, kill) ends the whole run.
+STOP_RC = 130
+STOP_SIGNALS = ("SIGINT", "SIGTERM", "SIGHUP")
+_stop = {"signal": None, "child": None, "workdir": None}
+
+
+def _on_stop(signum, _frame):
+    import signal
+    _stop["signal"] = signal.Signals(signum).name
+    child = _stop["child"]
+    if child is not None:
+        # A `kill <pid>` reaches the conductor only; the stage it runs must
+        # hear it too, or it goes on to its own end (C-23, measured).
+        try:
+            child.send_signal(signum)
+        except (OSError, ValueError):
+            pass
+
+
+def catch_stop(workdir=None):
+    """Turn every stop signal into a flag the stage checks between files or
+    stages. ⛔ Set explicitly, never left to Python's default: a run started
+    in the background by a script inherits SIGINT ignored, and Python then
+    never raises KeyboardInterrupt (C-23, measured)."""
+    import signal
+    if workdir is not None:
+        _stop["workdir"] = workdir
+    for name in STOP_SIGNALS:
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            signal.signal(sig, _on_stop)
+
+
+def stopped():
+    """-> the stop signal's name (SIGINT, ...) once one arrived, else None."""
+    return _stop["signal"]
+
+
+def run_child(cmd, **kw):
+    """subprocess.run for a stage under catch_stop(): a stop that reaches only
+    this process is passed on to the stage, and a stage that ended on a stop
+    of its own (STOP_RC, or killed by a stop signal) stops this run too — a
+    `kill` of the stage alone used to start the next plan (C-23). -> rc."""
+    import signal
+    import subprocess
+    with subprocess.Popen(cmd, **kw) as child:
+        _stop["child"] = child
+        try:
+            rc = child.wait()
+        finally:
+            _stop["child"] = None
+    if _stop["signal"] is None:
+        by = {getattr(signal, n, None): n for n in STOP_SIGNALS}
+        if rc == STOP_RC:
+            _stop["signal"] = "the stage's own stop"
+        elif rc < 0 and -rc in by:
+            _stop["signal"] = by[-rc]
+    return rc
+
 
 def fault(point):
     want = os.environ.get(FAULT_ENV)
