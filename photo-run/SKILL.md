@@ -583,7 +583,10 @@ it on a private web page:
    when it is the only one, only My word (or Skip) applies. The
    `## Refused (never applied)` list (a failed map lookup among them) is
    shown as information; it asks nothing and stops nothing — a place the
-   owner then names goes in with `group set-where`.
+   owner then names goes in with `group set-where`. A day inside an existing
+   trip folder's dates gets an R4 row into the leg that covers it, or, when
+   no leg does, into a NEW leg folder `<trip>/MMDD_...` the engine creates —
+   never loose files in the trip folder (G62, S-4).
 2. Publish that file as a **private** artifact and send the owner its link
    through your own channel. ⛔ Never share it: it shows the owner's photos.
    ⛔ The page saves the owner's answers by republishing itself on Send, so

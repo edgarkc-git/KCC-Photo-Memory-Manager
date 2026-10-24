@@ -1376,6 +1376,52 @@ def days_inside_an_existing_trip_go_into_it_and_no_second_row_is_offered():
             and not [x for x in got if "(agent) · F001" in x] and listed
             and acode == 0), f"rows={got} listed={listed} apply={acode} {(aout + aerr)[-300:]!r}"
 
+TRIP_1030 = "2024/20241030-1105_Ruritania_Ford"
+
+
+def trip_with_one_leg(tmp):
+    """G3 abroad (F001 on 11-01, F002 on 11-02) and an existing trip on the
+    drive whose only leg is 1101_Ford: 11-02 has no leg there."""
+    owner_folder(tmp, day="2024:11:01 09:00:00", rel=f"{TRIP_1030}/1101_Ford")
+    batches = [dict(b, day_type="OVERSEAS", country_word="Ruritania")
+               for b in ix.G3_BATCHES]
+    wd, _pack = ix.g3_dump(tmp, batches=batches)
+    for cmd in ("init", "render", "check"):
+        must(ix.run(cmd, wd), cmd)
+    ix.run("fix-plan", wd)
+    return wd
+
+
+@case
+def a_day_in_an_existing_trip_with_no_leg_for_it_gets_a_new_leg_folder():
+    """⭐ S-4 REPRODUCTION. 11-02 falls inside the existing trip but no leg
+    covers it: the R4 row offers a NEW leg `<trip>/1102_...`, and after `ok`
+    the copies land in that leg — none loose in the trip folder — and the
+    freeze's name check has nothing to say about the trip's period. ⛔ FAILS
+    on c3485fe: the row pointed at the trip folder itself and the 11-02
+    photos were copied loose into it."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd = trip_with_one_leg(tmp)
+        got = [x for x in rows(wd) if "INTO-EXISTING (R4)" in x]
+        _aout, (fcode, ferr), run = to_the_copy(wd, *["ok"] * len(rows(wd)))
+        trip = Path(tmp).resolve() / "sorted" / TRIP_1030
+        loose = sorted(p.name for p in trip.iterdir() if p.is_file())
+        legs = sorted(p.name for p in trip.iterdir() if p.is_dir())
+        new = trip / "1102_Harbour_harbour walk"
+        inside = sorted(p.name for p in new.iterdir()) if new.is_dir() else []
+        plans = json.loads((wd / "plans.json").read_text())["plans"]
+    f2 = [x for x in got if "F002" in x]
+    return (len(f2) == 1 and f"{TRIP_1030.split('/')[1]}/1102_Harbour_harbour walk`" in f2[0]
+            and "a new leg folder" in f2[0] and fcode == 0 and not loose
+            and legs == ["1101_Ford", "1102_Harbour_harbour walk"] and inside
+            and run.returncode in (0, 3)
+            and "NAME CHECK FAILED" not in run.stdout + run.stderr + ferr
+            and any((p.get("legs") or [{}])[0].get("name") == "1102_Harbour_harbour walk"
+                    for p in plans)), \
+        (f"rows={got} freeze={fcode} {ferr[-200:]!r} loose={loose} legs={legs} "
+         f"inside={inside} finish={run.returncode} {run.stdout[-300:]!r}")
+
+
 # ---------------------------------------------------------------------------
 # R6 — the owner's own place word for the same spot
 # ---------------------------------------------------------------------------

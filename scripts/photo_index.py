@@ -555,7 +555,7 @@ def export_units(index, by_number):
         units.append({
             "top": top, "batches": batches,
             "legs": ([(leg, *leg_range(leg, owned, by_number)) for leg in under]
-                     if top["kind"] in PARENTS else []),
+                     if top["kind"] in PARENTS or top["dest"].get(NEW_LEG) else []),
             "overrides": [(sorted(ds), by_id[fid]) for fid, ds in over.items() if ds]})
     return units
 
@@ -564,10 +564,16 @@ def unit_paths(units, root, real, years=False):
     """folder id -> its destination: `root/[YYYY/]<top>[/<leg>]`, by rendered
     name (`real`) or by id (render's placeholder); a merge or fill_shell top
     keeps the owner's existing folder. `years` (M7, the pack's
-    `year_folders`) puts a new top under the year its period starts."""
+    `year_folders`) puts a new top under the year its period starts. A day
+    that is a NEW LEG of an existing trip (S-4) is `<trip>/<its leg name>`;
+    its plan merges into the trip, the path's parent."""
     paths = {}
     for u in units:
         top = u["top"]
+        if top["dest"].get(NEW_LEG):
+            base = top["dest"]["existing_path"] if real else f"{root}/{top['id']}"
+            paths[top["id"]] = f"{base}/{top['rendered'] if real else top['id']}"
+            continue
         if real and top["dest"]["mode"] != "new":
             paths[top["id"]] = top["dest"]["existing_path"]
         elif real:
@@ -578,6 +584,12 @@ def unit_paths(units, root, real, years=False):
         for leg, _a, _b in u["legs"]:
             paths[leg["id"]] = f"{paths[top['id']]}/{leg['rendered'] if real else leg['id']}"
     return paths
+
+
+# S-4 — `dest[NEW_LEG]`: a day folder that goes into an existing trip as a
+# new leg folder of its own (no leg there covers its days). The dest stays a
+# `merge` into the trip; the leg is named and created by the engine.
+NEW_LEG = "new_leg"
 
 
 def year_of(name):
@@ -613,7 +625,9 @@ def unit_plan(u, n, paths, words=None):
     only) adds the place words D-I13 compares."""
     top = u["top"]
     plan = {"plan": n, "batches": u["batches"],
-            "dest": {"mode": top["dest"]["mode"], "path": paths[top["id"]]}}
+            "dest": {"mode": top["dest"]["mode"],
+                     "path": (paths[top["id"]].rsplit("/", 1)[0]
+                              if top["dest"].get(NEW_LEG) else paths[top["id"]])}}
     if top["dest"].get("refs"):
         plan["refs"] = top["dest"]["refs"]
     if words:
@@ -1192,7 +1206,14 @@ def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
             if photo_plan.rests_on_a_look(c)
             and (c.get("what") or "").strip() == pick["what"]
             and c.get(photo_plan.WHO_SUBJECTS))
-    if fo["dest"]["mode"] != "new":
+    if fo["dest"].get(NEW_LEG):
+        name = fo.get("agent_name") or photo_name.render(
+            start, end, where=where, who=[who] if who else [],
+            what=own or pick["what"], kind=photo_name.NAME_LEG)
+        _ok, ref, warn = photo_name.validate(name, hard=hard, soft=soft,
+                                             kind=photo_name.NAME_LEG)
+        validation["refusals"], validation["warnings"] = ref, warn
+    elif fo["dest"]["mode"] != "new":
         name = Path(fo["dest"]["existing_path"]).name
         _ok, ref, warn = photo_name.validate(name, hard=hard, soft=soft)
         validation["warnings"] = [f"the owner's own folder name, kept (D6): {w}"
@@ -2842,7 +2863,8 @@ def run_check(workdir, pack, index):
             problems.append(f"{fo['id']}: a coordinate in the name `{name}` "
                             "(Operational Rule 3)")
         grouped = fo["kind"] != "bucket"
-        kept = fo["kind"] == "day" and fo["dest"]["mode"] != "new"
+        kept = (fo["kind"] == "day" and fo["dest"]["mode"] != "new"
+                and not fo["dest"].get(NEW_LEG))
         own = {labels.get(r["ref"]) for r in fo["where"]} if grouped else set()
         for piece in (p for slot in name.split(photo_name.SLOT_SEP)[1:]
                       for p in slot.split(photo_name.NAME_SEP)):
@@ -2888,7 +2910,8 @@ def run_check(workdir, pack, index):
         visual = photo_plan.visual_columns(workdir, batches, pack.profile, pack)
         # E48 — an existing folder's name keeps its pets (`unbacked_names()`).
         for u in photo_plan.unbacked_names(
-                {"dest": {"path": path, "mode": fo["dest"]["mode"]}}, rows, visual,
+                {"dest": {"path": path, "mode": "new" if fo["dest"].get(NEW_LEG)
+                          else fo["dest"]["mode"]}}, rows, visual,
                 names):
             problems.append(f"{fo['id']} `{name}`: {', '.join(u['names'])} — no "
                             "file copied into this folder shows a CONFIRMED "
@@ -3084,7 +3107,8 @@ def new_folder_name_problems(workdir, index, plans, by_number, expected, profile
             # is_dir() False and must never turn a folder already copied into
             # a "new" one, so the disk can only ADD an exemption.
             key = path_key(path)
-            on_drive = ((plan["dest"]["mode"] != "new"
+            legs = {f"{top}/{leg['name']}" for leg in plan.get("legs") or []}
+            on_drive = ((plan["dest"]["mode"] != "new" and path not in legs
                          and (path == top or path.startswith(top + "/")))
                         or any(d == key or d.startswith(key + "/") for d in landed)
                         or Path(path).is_dir())
@@ -4090,15 +4114,32 @@ def into_existing_trips(ctx, tree, root, own, mine, taken):
             if not (first <= mine_days[0] and mine_days[-1] <= last):
                 continue
             target = next((leg for leg, (a, b) in sorted(legs.items())
-                           if a <= mine_days[0] and mine_days[-1] <= b), trip)
-            out.append(fix_op("INTO-EXISTING", "R4", fo, fo["rendered"], target,
+                           if a <= mine_days[0] and mine_days[-1] <= b), None)
+            if target:
+                out.append(fix_op("INTO-EXISTING", "R4", fo, fo["rendered"], target,
+                                  len(members), f"{', '.join(mine_days)} fall inside "
+                                  f"the existing trip {Path(trip).name}: into "
+                                  f"{target} (D5)", path=str(root / target),
+                                  owner_scan=folder_scan(tree, target)))
+                break
+            # S-4 — no leg covers the days: a NEW leg folder inside the trip,
+            # never loose files in the trip folder itself.
+            leg = f"{trip}/{as_leg_name(fo['rendered'])}"
+            out.append(fix_op("INTO-EXISTING", "R4", fo, fo["rendered"], leg,
                               len(members), f"{', '.join(mine_days)} fall inside the "
-                              f"existing trip {Path(trip).name}: into {target} (D5)",
-                              path=str(root / target),
-                              owner_scan=folder_scan(tree, target)))
+                              f"existing trip {Path(trip).name}: a new leg folder "
+                              "in it (D5)", path=str(root / trip),
+                              owner_scan=folder_scan(tree, trip), new_leg=True))
             break
     ctx["into_trip"] = {op["folder"] for op in out}
     return out
+
+
+def as_leg_name(name):
+    """`YYYYMMDD[-MMDD]_...` -> `MMDD[-MMDD]_...`: a day folder's name as a
+    leg of a trip (the year is the trip's)."""
+    head, sep, rest = name.partition(photo_name.SLOT_SEP)
+    return (head[4:] if len(head) >= 8 and head[:8].isdigit() else head) + sep + rest
 
 
 def folder_scan(tree, folder):
@@ -4693,8 +4734,11 @@ def cmd_fix_plan(args):
             elif op["rule"] == "R4":
                 if args.go:
                     fo["dest"] = {"mode": "merge", "existing_path": a["path"], "refs": [],
-                                  "owner_scan": a["owner_scan"]}
-                said = f"merges into the existing folder {a['path']} (D5)"
+                                  "owner_scan": a["owner_scan"],
+                                  **({NEW_LEG: True} if a.get(NEW_LEG) else {})}
+                said = (f"goes into the existing trip {a['path']} as a new leg "
+                        "folder (D5)" if a.get(NEW_LEG) else
+                        f"merges into the existing folder {a['path']} (D5)")
             elif op["rule"] == "agent":
                 if args.go:
                     fo["agent_name"] = a["agent_name"]
@@ -4800,7 +4844,8 @@ def owner_rows(workdir, index, plans, pack):
     found = {}
     for fo in live(index):
         dest = fo["dest"]
-        if dest["mode"] != "merge" or "owner_scan" not in dest:
+        # S-4 — a new leg carries its own place; the trip's name is not asked.
+        if dest["mode"] != "merge" or "owner_scan" not in dest or dest.get(NEW_LEG):
             continue
         path = Path(dest["existing_path"])
         words, _unknown = where_words(
