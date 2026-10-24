@@ -1466,6 +1466,28 @@ def a_day_in_an_existing_trip_with_no_leg_for_it_gets_a_new_leg_folder():
          f"inside={inside} finish={run.returncode} {run.stdout[-300:]!r}")
 
 
+@case
+def the_freezes_own_name_check_judges_the_new_leg_not_the_trip():
+    """⭐ S-4 follow-up REPRODUCTION (the scratch run's dumpB-13-freeze.log).
+    11-02 goes into an existing trip as a new leg, 11-01 into its existing
+    leg 1101_Ford: the freeze's own photo_plan name check judges the legs and
+    says nothing about the trip's period. ⛔ FAILS on 2805f9d: "NAME CHECK
+    FAILED" for the trip's period (P2) and for `1101_Ford` read as a folder
+    (P1)."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd = trip_with_one_leg(tmp)
+        answer(wd, *["ok"] * len(rows(wd)))
+        must(apply(wd), "apply")
+        for cmd in ("render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        fcode, fout, ferr = ix.run("freeze", wd)
+        plans = json.loads((wd / "plans.json").read_text())["plans"]
+    leg = [p for p in plans if p["dest"]["mode"] == "merge" and p.get("legs")]
+    said = [l for l in (fout + ferr).splitlines() if "NAME CHECK FAILED" in l]
+    return (fcode == 0 and len(plans) == 2 and len(leg) == 1 and not said), \
+        f"freeze={fcode} legs={[(p['dest']['path'][-40:], p.get('legs')) for p in plans]} said={said}"
+
+
 TRIP_1030_31 = "2024/20241030-1031_Ruritania_Ford"
 TRIP_1030_1102 = "2024/20241030-1102_Ruritania_Ford"
 

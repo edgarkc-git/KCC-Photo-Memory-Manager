@@ -1418,6 +1418,14 @@ def folder_name_checks(plan, batches, hard=None, soft=None, rows=None):
         # regex read `202600` as MONTHLY, whose legacy pattern then warned
         # about the engine's own new yearly bucket as a pre-D14 name.
         kind = photo_name.kind_of(head.split("_")[0])
+        if (plan.get("dest") or {}).get("mode") == "merge" and \
+                re.fullmatch(r"\d{4}(-\d{4})?", head.split("_")[0]) and \
+                re.fullmatch(r"\d{8}-\d{4}", Path(path).parent.name.split("_")[0]):
+            # G62 — a merge into an existing trip's LEG: judged as a leg.
+            _ok, ref, warn = photo_name.validate(head, hard=hard, soft=soft,
+                                                 kind=photo_name.NAME_LEG)
+            out.append((path, head, ref, warn))
+            return
         # ⚠️ The span is only meaningful for a folder that names one batch
         # run; a monthly bucket deliberately spans whatever landed in it.
         _ok, ref, warn = photo_name.validate(
@@ -1427,7 +1435,11 @@ def folder_name_checks(plan, batches, hard=None, soft=None, rows=None):
         out.append((path, head, ref, warn))
 
     dest = (plan.get("dest") or {}).get("path")
-    if dest:
+    # S-4 / G70 — a MERGE with legs copies only into new leg folders of an
+    # existing trip: the trip's name (and period) is not this plan's, its
+    # legs are. The final check widens the trip's period after the copy.
+    into_trip = (plan.get("dest") or {}).get("mode") == "merge" and plan.get("legs")
+    if dest and not into_trip:
         folder(dest, place_known)
     for leg in plan.get("legs") or []:
         name = leg.get("name") or ""
