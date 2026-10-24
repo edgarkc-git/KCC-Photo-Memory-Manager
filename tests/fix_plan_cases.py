@@ -1178,6 +1178,40 @@ def a_trip_abroad_with_no_file_to_copy_gets_no_make_trip_row():
         r5 = [x for x in rows(wd) if "(R5)" in x] if (wd / "plan").exists() else []
     return ("(R5)" not in out and r5 == []), f"r5={r5} out={out[-300:]!r}"
 
+@case
+def a_folder_named_after_a_stay_or_an_eatery_gets_an_r1_row():
+    """⭐ G61 REPRODUCTION (C-18). Batch 1's only place word is an inn, batch
+    2's an eatery beside a sight (cluster's `place_kinds`): each folder gets
+    an R1 row. `ok` drops the eatery and keeps the sight; the inn's row takes
+    the owner's word (`ok` alone is refused). ⛔ FAILS on 7280c54: no row, the
+    names went to the owner as they were."""
+    batches = [dict(ix.G3_BATCHES[0], place="Lotus Inn", place_kinds={"Lotus Inn": "stay"}),
+               dict(ix.G3_BATCHES[1], place="Birk Cafe+Harbour",
+                    place_kinds={"Birk Cafe": "eatery"})]
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ix.g3_dump(tmp, batches=batches)
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        ix.run("fix-plan", wd)
+        r1 = [x for x in rows(wd) if "(R1)" in x]
+        answer(wd, *["ok" for _ in rows(wd)])
+        _c, refused, _e = apply(wd, go=False)
+        ix.run("fix-plan", wd)
+        answer(wd, *["word: Old Quarter" if "Lotus Inn" in x else
+                     "ok" if "(R1)" in x else "skip" for x in rows(wd)])
+        acode, aout, aerr = apply(wd)
+        must(ix.run("render", wd), "render")
+        names = sorted(fo["rendered"] for fo in ix.index_of(tmp)[0]["folders"]
+                       if fo["kind"] == "day" and fo.get("rendered"))
+    inn = [x for x in r1 if "Lotus Inn" in x]
+    cafe = [x for x in r1 if "Birk Cafe" in x]
+    return (len(inn) == 1 and "a place to stay" in inn[0]
+            and len(cafe) == 1 and "a restaurant or cafe" in cafe[0]
+            and "takes your own place word" in refused and acode == 0
+            and any(n.startswith("20241101_Old Quarter") for n in names)
+            and any(n.startswith("20241102_Harbour") for n in names)), \
+        f"r1={r1} refused={refused[-200:]!r} apply={acode} {(aout + aerr)[-300:]!r} names={names}"
+
 # ---------------------------------------------------------------------------
 # R6 — the owner's own place word for the same spot
 # ---------------------------------------------------------------------------

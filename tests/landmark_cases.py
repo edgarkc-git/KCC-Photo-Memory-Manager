@@ -187,6 +187,13 @@ def build_fixture():
             cache["landmarks:" + ",".join(f"{v:.{pc.PRECISE_DP}f}" for v in box)] = [
                 el for el in ELEMENTS[day]
                 if any(pc.feature_km((p[0], p[1]), el) <= radius for p in stop)]
+    # G61 — the days with no sight within LANDMARK_RADIUS_M ask the wider
+    # sight box; nothing answers there, so the stay / zoom 18 / town still
+    # names them.
+    for day in ("2025-05-03", "2025-05-04", "2025-05-05"):
+        for stop in photo_where.segment(timed(day, DAYS[day])):
+            box = pc.points_bbox(stop, pc.LANDMARK_WIDE_SIGHT_M)
+            cache["sights:" + ",".join(f"{v:.{pc.PRECISE_DP}f}" for v in box)] = []
     cache[g.key_for(day_center(DAYS["2025-05-04"]), 18, precise=True)] = {
         "name": "Seaview Point", "name_tag": "name", "cat": "tourism",
         "type": "viewpoint"}
@@ -1022,6 +1029,81 @@ def an_overpass_landmark_is_named_in_the_owners_language_too():
     zh = pc.pick_landmarks(pc.rank_landmarks([el], pts, "zh-TW"), 3)
     return en == ["Lotus Hill"] and zh == ["Lotus Hill"], f"{en} {zh}"
 
+
+# ---------------------------------------------------------------------------
+# G61 — with no sight near, a sight a little further off names the stop
+# ---------------------------------------------------------------------------
+
+def wide_geocoder(tmp, near, wide, enabled=False):
+    """A Geocoder whose cache holds `near` for the stop's 300 m box and `wide`
+    for its sight box (None = not cached), at point A."""
+    g = pc.Geocoder(Path(tmp) / "c.json", enabled=enabled, language=LANGUAGE)
+    def key(prefix, margin):
+        box = pc.points_bbox([A], margin)
+        return prefix + ",".join(f"{v:.{pc.PRECISE_DP}f}" for v in box)
+    g.cache[key("landmarks:", pc.LANDMARK_RADIUS_M)] = near
+    if wide is not None:
+        g.cache[key("sights:", getattr(pc, "LANDMARK_WIDE_SIGHT_M", 3000))] = wide
+    return g
+
+
+def element(name, tags, dlat):
+    return {"type": "node", "lat": A[0] + dlat, "lon": A[1],
+            "tags": {"name": name, **tags}}
+
+
+from datetime import datetime as _dt  # noqa: E402
+PT_A = (A[0], A[1], _dt(2025, 5, 1, 10))
+INN = element("Lotus Inn", {"tourism": "hotel"}, 0.0)
+CAFE = element("Birk Cafe", {"amenity": "cafe"}, 0.0)
+FALLS = element("Lotus Falls", {"natural": "waterfall"}, 0.015)     # ~1.7 km
+
+
+@case
+def with_no_sight_near_a_sight_further_off_beats_a_stay():
+    """⭐ G61 REPRODUCTION (C-5, C-7, C-8, C-10, C-12). Only an inn and a cafe
+    within 300 m, a waterfall 1.7 km off: the stop is named after the
+    waterfall. ⛔ FAILS on 7280c54: the inn named the stop (no wider search)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        g = wide_geocoder(tmp, [INN, CAFE], [FALLS])
+        got = g.landmarks([PT_A])
+        none = wide_geocoder(tmp, [INN], []).landmarks([PT_A])
+    return (got == ["Lotus Falls"] and none == ["Lotus Inn"]), f"got={got} none={none}"
+
+
+@case
+def the_wider_sight_search_is_never_made_near_a_home():
+    """GUARD (G61, G28). A home 4 km from the photos: the wider box would
+    hold it, so no sight request is sent and the stay names the stop."""
+    sent = []
+    real = pc.overpass_post
+    pc.overpass_post = lambda q, **k: sent.append(q) or []
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            g = wide_geocoder(tmp, [INN], None, enabled=True)
+            home = (A[0] + 0.036, A[1], None, None)               # ~4 km
+            got = g.landmarks([PT_A], [home])
+            far = wide_geocoder(tmp, [INN], None, enabled=True)
+            far.landmarks([PT_A], [(A[0] + 0.2, A[1], None, None)])   # ~22 km
+    finally:
+        pc.overpass_post = real
+    return (got == ["Lotus Inn"] and len(sent) == 1), f"got={got} sent={len(sent)}"
+
+
+@case
+def the_batch_says_which_place_words_are_not_a_sight():
+    """⭐ G61: batches.json carries `place_kinds` for a place word that is a
+    stay or an eatery (the restaurant day), and none for a sight or a town —
+    what Review folders reads for its R1 row. ⛔ FAILS on 7280c54 (no
+    `place_kinds`: nothing could say the folder is named after an eatery)."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd = dump(tmp, cache=json.loads(FIXTURE.read_text()))
+        proc = cluster(wd, Path(tmp) / "net.log")
+        kinds = {b["from"]: b.get("place_kinds")
+                 for b in json.loads((wd / "batches.json").read_text())["batches"]}
+    return (proc.returncode == 0 and kinds["2025-05-03"] in ({"Birk Inn": "eatery"},
+                                                             {"Birk Inn": "stay"})
+            and kinds["2025-05-01"] is None and kinds["2025-05-05"] is None), f"{kinds}"
 
 def main():
     ap = argparse.ArgumentParser()

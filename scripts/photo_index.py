@@ -3763,6 +3763,50 @@ def rule_r1(ctx):
             op["why"] = (f"the landmark lookup failed for batch {batch.get('batch')}: "
                          "type the place with `group set-where`")
         out.append(op)
+    return out + kind_rows(ctx, {op["folder"] for op in out})
+
+
+# G61 — what a flagged place word names (batches.json `place_kinds`).
+KIND_WORDS = {"stay": "a place to stay", "eatery": "a restaurant or cafe",
+              "chain": "a chain shop", "street": "a street or street marker",
+              "admin": "an administrative area (county or ward)"}
+
+
+def kind_rows(ctx, offered):
+    """G61 — a folder whose [where] is still a stay, an eatery, a chain, a
+    street marker or an administrative area gets an R1 row: `ok` drops that
+    word when another place word is left; when it is the only one, the row
+    takes the owner's word (`ok` alone is refused). Never over the owner's
+    own word, and a place the pack names is kept, never flagged; one R1 row
+    per folder."""
+    index, labels = ctx["index"], id_labels(ctx["pack"])
+    out = []
+    for fo in live(index):
+        if (fo["kind"] not in HOLDERS or fo.get("where_set") or not fo.get("rendered")
+                or fo["dest"]["mode"] != "new" or fo["id"] in offered):
+            continue
+        kinds = {}
+        for b in fo["batches"]:
+            kinds.update((ctx["by_number"].get(b) or {}).get("place_kinds") or {})
+        words = {r["ref"]: where_words({"where": [r]}, labels)[0] for r in fo["where"]}
+        flagged = {w: kinds[w] for ref, ws in words.items() if ref not in labels
+                   for w in ws if w in kinds}
+        if not flagged:
+            continue
+        keep = [r for r in fo["where"] if not set(words[r["ref"]]) & set(flagged)]
+        have = where_words(fo, labels)[0]
+        slots = fo["rendered"].split(photo_name.SLOT_SEP)
+        kept = [w for r in keep for w in words[r["ref"]]]
+        if keep and len(slots) > 1 and slots[1] == photo_name.NAME_SEP.join(have):
+            slots[1] = photo_name.NAME_SEP.join(kept)
+        said = "; ".join(f"{w} is {KIND_WORDS[k]}" for w, k in flagged.items())
+        op = fix_op("RENAME", "R1", fo, fo["rendered"],
+                    photo_name.SLOT_SEP.join(slots) if keep else fo["rendered"],
+                    len(copy_members(index, fo["id"])),
+                    said + ("" if keep else ": type your own place word"),
+                    refs=[dict(r) for r in keep], places={}, word_only=not keep,
+                    drops=sorted(flagged))
+        out.append(op)
     return out
 
 
@@ -4148,7 +4192,7 @@ def draft_fix_plan(workdir, pack, index, debug=None):
     ctx = {"workdir": workdir, "pack": pack, "index": index, "by_number": by_number,
            "dest_root": photo_plan.resolve_dest_root(workdir, None, pack.profile)}
     ops = [op for rule in FIX_RULES for op in rule(ctx)
-           if op["from"] != op["to"]]
+           if op["from"] != op["to"] or op["apply"].get("word_only")]
     # ADR 0001 — the owner's word beats the lookup: R6 over R1, per folder.
     owned = {op["folder"] for op in ops if op["rule"] == "R6"}
     ops = [op for op in ops if not (op["rule"] == "R1" and op["folder"] in owned)]
@@ -4369,12 +4413,19 @@ def cmd_fix_plan(args):
                         None, FIX_PLAN_CMD, "fix plan R6: the owner's own word")
                 else:
                     said = f"[where] {a['word']!r}, the owner's own word"
+            elif op["rule"] == "R1" and a.get("word_only"):
+                print(f"  ⛔ row {r['n']}: this row takes your own place word "
+                      "(`word: <text>`) or `skip` — nothing written for it")
+                refused_n += 1
+                continue
             elif op["rule"] == "R1":
                 if args.go:
                     fo["where"] = [dict(r) for r in a["refs"]]
                     for ref, entry in a["places"].items():
                         index["places"].setdefault(ref, entry)
-                said = f"[where] is the landmark ({op['reason']})"
+                said = (f"[where] drops {', '.join(a['drops'])} ({op['reason']})"
+                        if a.get("drops") else
+                        f"[where] is the landmark ({op['reason']})")
             elif op["rule"] == "R3":
                 if args.go:
                     fo["drop_what"] = sorted(set(fo.get("drop_what") or []) | set(a["drop_what"]))

@@ -572,6 +572,10 @@ it on a private web page:
    writes `plan/fix-plan.html`: each row as old → new name, its rule, the
    reason, the photo count and up to three sample photos, with OK / Skip (and
    My word on an R1 or R3 row) and one Send button. The plan's
+   An R1 row also flags a folder still named after a place to stay, a
+   restaurant or cafe, a chain shop, a street or street marker, or a county
+   or ward (G61): `ok` drops that word when another place word is left;
+   when it is the only one, only My word (or Skip) applies. The
    `## Refused (never applied)` list (a failed map lookup among them) is
    shown as information; it asks nothing and stops nothing — a place the
    owner then names goes in with `group set-where`.

@@ -767,6 +767,10 @@ LANDMARK_SIGHT_REACH_M = 150
 # 📐 `{n}` — F4: a node this near counts as containing the photo, as an
 # outline at distance 0 does.
 LANDMARK_NODE_AT_M = 25
+# 📐 `{n}` — G61: with no sight within LANDMARK_RADIUS_M, the sight search
+# widens to this before a stay, eatery or street names the stop. Never
+# where a home is within this plus PLACE_SUPPRESS_KM of the photos (G28).
+LANDMARK_WIDE_SIGHT_M = 3000
 # 📐 `{n}` — D3: the share of the day's photos a second landmark needs.
 LANDMARK_SECOND_SHARE = 1 / 3
 MAX_LANDMARKS = 2
@@ -794,6 +798,29 @@ STAY_TAGS = {
 }
 
 
+# G61 — what a place word names, for a Review folders row when a folder is
+# still named after one that is not a sight. OSM/Nominatim values, never
+# owner words.
+CHAIN_TAGS = ("brand", "brand:wikidata")
+STREET_MARKERS = ("milestone", "boundary_stone", "marker")
+ADMIN_AREA_TYPES = ("county", "state_district", "city_district", "district",
+                    "borough", "suburb", "quarter")
+FLAG_KINDS = ("stay", "eatery", "chain", "street", "admin")
+
+
+def place_kind(tags):
+    """-> sight | stay | eatery | chain | street for a landmark's tags."""
+    if any(tags.get(t) for t in CHAIN_TAGS):
+        return "chain"
+    if tags.get("amenity") in STAY_TAGS["amenity"]:
+        return "eatery"
+    if tags.get("tourism") in STAY_TAGS["tourism"]:
+        return "stay"
+    if is_street(tags) or tags.get("historic") in STREET_MARKERS:
+        return "street"
+    return "sight"
+
+
 def landmark_rank(tags):
     """-> 0 for a sight, 1 for a hotel or restaurant, None for neither."""
     for rank, table in ((0, SIGHT_TAGS), (1, STAY_TAGS)):
@@ -814,16 +841,16 @@ def is_street(tags):
     return STREET[0] in tags
 
 
-def landmark_query(bbox):
+def landmark_query(bbox, sights_only=False):
     s, w, n, e = bbox
     box = f"({s},{w},{n},{e})"
     parts = []
-    for table in (SIGHT_TAGS, STAY_TAGS):
+    for table in ((SIGHT_TAGS,) if sights_only else (SIGHT_TAGS, STAY_TAGS)):
         for key, values in table.items():
             match = (f'["{key}"]' if values == "*"
                      else f'["{key}"~"^({"|".join(values)})$"]')
             parts.append(f'nwr{match}["name"]{box};')
-    for tag in NOTABLE_TAGS:
+    for tag in () if sights_only else NOTABLE_TAGS:
         parts.append(f'nwr["{STREET[0]}"="{STREET[1]}"]["name"]["{tag}"]{box};')
     return ("[out:json][timeout:60];\n(\n  " + "\n  ".join(parts)
             + "\n);\nout body bb;")
@@ -1017,6 +1044,9 @@ class Geocoder:
         # F2 — the stop boxes whose Overpass request failed in THIS run. Not
         # cached, so a re-run asks again; never asked twice in one run.
         self.landmark_failed = set()
+        # G61 — name -> what it names (place_kind, or `admin`), for the
+        # batch's `place_kinds`.
+        self.place_kinds = {}
         # U5-9 — the centres of the stops whose lookup failed in the LAST
         # `landmarks()` call, so the caller can name each by its town.
         self.landmark_failed_last = []
@@ -1106,9 +1136,9 @@ class Geocoder:
             row, old = self.cache.get(key), None
         if row is not None:
             _count("nominatim", "cache")
-            return None if row.get("country") else self.owner_word(row.get("name"))
+            return None if row.get("country") else self.kept_town(row)
         if not self.enabled:
-            return self.owner_word((old or {}).get("name"))
+            return self.kept_town(old or {})
         try:
             data = self.nominatim(reverse_url(pt, 10, self.language, "namedetails",
                                               precise=precise))
@@ -1126,14 +1156,23 @@ class Geocoder:
             self.cache[key] = {"name": name, "name_tag": tag,
                                "display": data.get("display_name", ""),
                                "cat": data.get("category", ""), "type": data.get("type", ""),
+                               "addresstype": data.get("addresstype", ""),
                                # M7 — the reply's own country, for a trip
                                # abroad's folder (D-F12); no extra request.
                                "country_name": address.get("country") or "",
                                **({"country": True} if country else {})}
             self.stored()
-            return None if country else (name or None)
+            return None if country else self.kept_town(self.cache[key])
         except Exception:
-            return self.owner_word((old or {}).get("name"))
+            return self.kept_town(old or {})
+
+    def kept_town(self, row):
+        """A zoom-10 row's name if the owner can read it (G60), its kind
+        noted when it is a county or a ward (G61)."""
+        name = self.owner_word(row.get("name"))
+        if name and row.get("addresstype") in ADMIN_AREA_TYPES:
+            self.place_kinds[name] = "admin"
+        return name
 
     def owner_word(self, name):
         """A stored name, if it is in the owner's script (G60): a cache
@@ -1189,6 +1228,7 @@ class Geocoder:
                            | {"tags": {t: v for t, v in (el.get("tags") or {}).items()
                                        if t == "name" or t.startswith("name:")
                                        or t in NOTABLE_TAGS or t == STREET[0]
+                                       or t in CHAIN_TAGS
                                        or landmark_rank({t: v}) is not None}}
                            for el in got if landmark_rank(el.get("tags") or {}) is not None
                            and any(feature_km((p[0], p[1]), el) <= radius for p in stop)]
@@ -1197,14 +1237,82 @@ class Geocoder:
             if key in self.landmark_failed:
                 self.landmark_failed_last.append(photo_where.stop_center(stop))
             elements.extend(got or [])
-        names = pick_landmarks(rank_landmarks(elements, pts, self.language), len(pts))
+        ranked = rank_landmarks(elements, pts, self.language)
+        kinds = {}
+        for el in elements:
+            name = read_tags(el.get("tags") or {}, self.language)[0]
+            if name:
+                kinds.setdefault(name, place_kind(el.get("tags") or {}))
+        if not any(r["rank"] == 0 and kinds.get(r["name"]) == "sight" for r in ranked):
+            # G61 — no sight near: a sight a little further off names the
+            # stop before a stay, an eatery or a street does.
+            wide = self.wide_sights(pts, guard_homes)
+            if wide:
+                self.place_kinds.update({w: "sight" for w in wide})
+                return wide
+        names = pick_landmarks(ranked, len(pts))
         if names:
+            self.place_kinds.update({n: kinds.get(n, "sight") for n in names})
             return names
         center = (median(p[0] for p in pts), median(p[1] for p in pts))
         if near_any_home(center, guard_homes):
             return []
         name = self.zoom18(center)
         return [name] if name else []
+
+    def wide_sights(self, pts, guard_homes=()):
+        """G61 -> at most two sight names within LANDMARK_WIDE_SIGHT_M of the
+        photos (each photo votes for its nearest sight, a notable one first),
+        or []. ⛔ Never asked when any home is within LANDMARK_WIDE_SIGHT_M +
+        PLACE_SUPPRESS_KM of a photo: the wider box would hold the home."""
+        import photo_where
+        reach = LANDMARK_WIDE_SIGHT_M / 1000
+        if any(near_any_home(p, guard_homes, km=reach + PLACE_SUPPRESS_KM)
+               for p in pts):
+            return []
+        elements = []
+        for stop in photo_where.segment(pts):
+            bbox = points_bbox(stop, LANDMARK_WIDE_SIGHT_M)
+            key = "sights:" + ",".join(f"{v:.{PRECISE_DP}f}" for v in bbox)
+            got = self.cache.get(key)
+            if got is not None:
+                _count("overpass", "cache")
+            if got is None and self.enabled and key not in self.landmark_failed:
+                got = overpass_post(landmark_query(bbox, sights_only=True),
+                                    backoffs=(1.1, 15))
+                if got is None:
+                    self.landmark_failed.add(key)
+                else:
+                    got = [{k: el[k] for k in ("type", "lat", "lon", "bounds", "center")
+                            if k in el}
+                           | {"tags": {t: v for t, v in (el.get("tags") or {}).items()
+                                       if t == "name" or t.startswith("name:")
+                                       or t in NOTABLE_TAGS
+                                       or landmark_rank({t: v}) is not None}}
+                           for el in got if landmark_rank(el.get("tags") or {}) == 0
+                           and place_kind(el.get("tags") or {}) == "sight"
+                           and any(feature_km((p[0], p[1]), el) <= reach for p in stop)]
+                    self.cache[key] = got
+                    self.stored()
+            elements.extend(got or [])
+        cands = []
+        for el in elements:
+            name, _tag = read_tags(el.get("tags") or {}, self.language)
+            if name and not is_address(name):
+                cands.append((name, el, not is_notable(el.get("tags") or {})))
+        best = {}
+        for p in pts:
+            near = [(plain, feature_km((p[0], p[1]), el), name)
+                    for name, el, plain in cands]
+            near = [c for c in near if c[1] <= reach]
+            if not near:
+                continue
+            _plain, d, name = min(near)
+            row = best.setdefault(name, {"name": name, "rank": 0, "photos": 0, "km": d})
+            row["photos"] += 1
+            row["km"] = min(row["km"], d)
+        ranked = sorted(best.values(), key=lambda r: (-r["photos"], r["km"]))
+        return pick_landmarks(ranked, len(pts))
 
     def zoom18(self, pt):
         """Nominatim zoom 18 at an AWAY point: a name only when the answer is
@@ -1228,7 +1336,10 @@ class Geocoder:
             self.cache[key] = row
             self.stored()
         name = self.owner_word(row.get("name"))
-        return None if not name or is_address(name) else name
+        if not name or is_address(name):
+            return None
+        self.place_kinds[name] = place_kind({row.get("cat") or "": row.get("type") or ""})
+        return name
 
     # 📐 The administrative fields Nominatim returns, coarsest-useful first.
     # ⛔ `road`, `neighbourhood`, `suburb` and `display_name` are DELIBERATELY
@@ -1254,7 +1365,10 @@ class Geocoder:
         key = self.key_for(pt, "10adm")
         if key in self.cache:
             _count("nominatim", "cache")
-            return self.cache[key].get("name") or None
+            row = self.cache[key]
+            if row.get("name") and row.get("field") in ("county", "state"):
+                self.place_kinds[row["name"]] = "admin"
+            return row.get("name") or None
         if not self.enabled:
             return None
         # ⛔ The coordinate is COARSENED before it leaves the machine, and
@@ -1268,9 +1382,12 @@ class Geocoder:
         try:
             data = self.nominatim(reverse_url(pt, 10, self.language, "addressdetails"))
             address = data.get("address", {}) or {}
-            name = next((address[f] for f in self.ADMIN_FIELDS if address.get(f)), None)
-            self.cache[key] = {"name": name, "name_tag": "admin"}
+            field = next((f for f in self.ADMIN_FIELDS if address.get(f)), None)
+            name = address[field] if field else None
+            self.cache[key] = {"name": name, "name_tag": "admin", "field": field}
             self.stored()
+            if name and field in ("county", "state"):
+                self.place_kinds[name] = "admin"
             return name or None
         except Exception:
             return None
@@ -1723,6 +1840,10 @@ def main():
                 "status": "pending", "flags": flags, "day_type": typ,
                 **({"landmark_failed_stops": failed} if failed else {}),
                 **({"country_word": country_word} if country_word else {}),
+                # G61 — the place words that are not a sight or a town.
+                **({"place_kinds": kinds_of} if (kinds_of := {
+                    w: geocoder.place_kinds[w] for w in (place or "").split("+")
+                    if geocoder.place_kinds.get(w) in FLAG_KINDS}) else {}),
             })
     geocoder.save()
 
