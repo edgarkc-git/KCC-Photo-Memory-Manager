@@ -4332,9 +4332,11 @@ def draft_fix_plan(workdir, pack, index, debug=None):
     # going INTO an existing folder takes that folder's name, so no rename
     # or new trip is offered for it.
     merged = {op["folder"] for op in ops if op["op"] == "INTO-EXISTING"}
-    ops = [op for op in ops if op["op"] == "INTO-EXISTING"
-           or op["op"] == "DAYS-INTO-EXISTING"
-           or not ({op["folder"]} | set(op["apply"].get("folders") or [])) & merged]
+    for op in ops:
+        if (op["op"] not in ("INTO-EXISTING", "DAYS-INTO-EXISTING")
+                and ({op["folder"]} | set(op["apply"].get("folders") or [])) & merged):
+            op["why"] = ("goes into an existing folder in another row, so this "
+                         "row cannot apply beside it")
     previews = preview_samples(workdir)
     for op in ops:
         # M9's thumbnails: up to 3 previews the work dir already holds for

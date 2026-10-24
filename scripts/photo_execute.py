@@ -411,9 +411,12 @@ def main():
             save_state(state_path, state)
             photo_progress.tick(workdir, "copy", i - 1, len(pending), plan=label,
                                 stopped=photo_progress.stopped())
-            print(f"{label}: STOPPED ({photo_progress.stopped()}) after "
-                  f"{i - 1}/{len(pending)} file(s) — each one verified; the "
-                  "rest are copied by a re-run.", flush=True)
+            try:
+                print(f"{label}: STOPPED ({photo_progress.stopped()}) after "
+                      f"{i - 1}/{len(pending)} file(s) — each one verified; the "
+                      "rest are copied by a re-run.", flush=True)
+            except OSError:
+                pass  # a closed window; the state above is saved
             sys.exit(photo_progress.STOP_RC)
         status, sha = copy_one(Path(r["SourceFile"]), Path(r["destination"]),
                                r["FileName"], flags, msg)

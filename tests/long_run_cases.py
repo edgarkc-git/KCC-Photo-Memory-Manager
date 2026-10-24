@@ -441,6 +441,13 @@ def a_see_pass_stopped_between_batches_says_the_next_batch():
         return ok, f"mid={mid} next={nxt!r} end={end.get('state')}"
 
 
+# The stop cases start the run in its own session with SIGINT ignored and
+# signal its group: POSIX process control. On Windows they are SKIPPED and
+# say so (never a silent pass); G58 there rests on SIGINT/SIGTERM handlers.
+POSIX_ONLY = ("POSIX only (process groups, SIGHUP, SIGKILL, preexec_fn) — "
+              "not run on Windows")
+
+
 def stopped_copy(sig, to):
     """Start `finish --go` the C-23 way (its own session, SIGINT IGNORED as a
     script's `cmd &` leaves it), let P1 copy one slow file, send `sig` to the
@@ -509,12 +516,16 @@ def a_sigint_to_a_background_started_run_ends_the_whole_run():
     with 130 after the file in hand, P2 never starts, verify never runs, copy
     stays running, the resume command is printed; the re-run copies only what
     is missing. ⛔ FAILS on 7280c54: the SIGINT is ignored, every plan runs."""
+    if os.name == "nt":
+        return None, POSIX_ONLY
     return stop_ok(stopped_copy("SIGINT", "pid"))
 
 
 @case
 def a_ctrl_c_to_the_run_group_ends_the_whole_run():
     """⭐ G58: Ctrl-C (SIGINT to the whole group) in the same shape."""
+    if os.name == "nt":
+        return None, POSIX_ONLY
     return stop_ok(stopped_copy("SIGINT", "group"))
 
 
@@ -522,12 +533,16 @@ def a_ctrl_c_to_the_run_group_ends_the_whole_run():
 def a_sigterm_to_the_run_ends_the_whole_run():
     """⭐ G58: `kill <pid>` (SIGTERM) to the conductor only. ⛔ FAILS on
     7280c54: the conductor dies at once and the orphaned copy goes on."""
+    if os.name == "nt":
+        return None, POSIX_ONLY
     return stop_ok(stopped_copy("SIGTERM", "pid"))
 
 
 @case
 def a_closed_window_sighup_ends_the_whole_run():
     """⭐ G58: the window closed (SIGHUP to the whole group)."""
+    if os.name == "nt":
+        return None, POSIX_ONLY
     return stop_ok(stopped_copy("SIGHUP", "group"))
 
 
@@ -536,6 +551,8 @@ def a_stop_of_the_copy_stage_alone_starts_no_next_plan():
     """⭐ G58 / C-23 cause 2: SIGTERM to photo_execute only (`pkill -P`). ⛔
     FAILS on 7280c54: the plan's non-zero rc is only flagged and the next
     plan starts."""
+    if os.name == "nt":
+        return None, POSIX_ONLY
     return stop_ok(stopped_copy("SIGTERM", "child"))
 
 
@@ -544,6 +561,8 @@ def a_kill_9_mid_plan_resumes_with_nothing_copied_twice():
     """⭐ G58: `kill -9` of the whole group mid-plan (nothing can be caught).
     The re-run finishes with 0, every source SHA is in the state, no file on
     the drive before the re-run was written again, no `.part` is left."""
+    if os.name == "nt":
+        return None, POSIX_ONLY
     f = stopped_copy("SIGKILL", "group")
     ok = (f["rc"] == (-9, 0) and f["copied_before"] >= 1 and f["untouched"]
           and f["every_sha"] and f["no_part_left"])
@@ -554,19 +573,24 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
-    failures = []
+    failures, skipped = [], []
     width = max(len(f.__name__) for f in CASES)
     for fn in CASES:
         try:
             ok, detail = fn()
         except Exception as exc:                                # noqa: BLE001
             ok, detail = False, f"{type(exc).__name__}: {exc}"
+        if ok is None:
+            skipped.append(fn.__name__)
+            print(f"  skip  {fn.__name__.replace('_', ' ').ljust(width)}   {detail}")
+            continue
         if not ok:
             failures.append(fn.__name__)
         if args.verbose or not ok:
             print(f"  {'ok  ' if ok else 'FAIL'}  {fn.__name__.replace('_', ' ').ljust(width)}"
                   + (f"   {detail}" if not ok else ""))
-    print(f"\n{len(CASES) - len(failures)}/{len(CASES)} long-run cases passed"
+    print(f"\n{len(CASES) - len(failures) - len(skipped)}/{len(CASES)} long-run cases passed"
+          + (f", {len(skipped)} SKIPPED" if skipped else "")
           + ("" if not failures else f" — FAILED: {', '.join(failures)}"))
     sys.exit(1 if failures else 0)
 

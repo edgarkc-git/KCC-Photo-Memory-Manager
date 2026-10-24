@@ -569,11 +569,14 @@ def stop_if_asked():
     if sig is None:
         return
     wd = photo_progress._stop["workdir"]
-    print(f"\nSTOPPED ({sig}, exit {photo_progress.STOP_RC}): the whole run ends "
-          "here — no next stage or plan starts. Every file copied so far is "
-          "verified; a re-run copies only what is missing.", flush=True)
-    if wd is not None:
-        print(f"resume with:\n    {next_command(wd)}", flush=True)
+    try:
+        print(f"\nSTOPPED ({sig}, exit {photo_progress.STOP_RC}): the whole run ends "
+              "here — no next stage or plan starts. Every file copied so far is "
+              "verified; a re-run copies only what is missing.", flush=True)
+        if wd is not None:
+            print(f"resume with:\n    {next_command(wd)}", flush=True)
+    except OSError:
+        pass  # a closed window: nothing to print to; the state is on disk
     sys.exit(photo_progress.STOP_RC)
 
 

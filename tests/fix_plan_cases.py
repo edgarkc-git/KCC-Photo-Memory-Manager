@@ -1285,7 +1285,8 @@ def days_inside_an_existing_trip_go_into_it_and_no_second_row_is_offered():
     existing trip folder (`20241030-1105_...`, a leg per day) in the sorted
     tree: each day folder gets an INTO-EXISTING row into its leg, no
     MAKE-TRIP row is offered, and the agent row naming F001 (which cannot
-    apply once F001 goes into the trip) is not offered beside it; `ok` on
+    apply once F001 goes into the trip) is listed as refused, not offered
+    beside it; `ok` on
     every row applies. ⛔ FAILS on 7280c54: R5 offered a new trip for days
     the owner's trip already holds, and both rows for F001 were offered."""
     batches = [dict(b, day_type="OVERSEAS", country_word="Ruritania")
@@ -1305,6 +1306,7 @@ def days_inside_an_existing_trip_go_into_it_and_no_second_row_is_offered():
                     "--reason", "the morning"), "agent")
         ix.run("fix-plan", wd)
         got = rows(wd)
+        listed = "cannot apply beside it" in page(wd).read_text()
         answer(wd, *["ok" for _ in got])
         acode, aout, aerr = apply(wd)
     into = [x for x in got if "INTO-EXISTING (R4)" in x]
@@ -1312,8 +1314,8 @@ def days_inside_an_existing_trip_go_into_it_and_no_second_row_is_offered():
             and any("F001" in x and "20241030-1105_Ruritania_Ford/1101_Ford`" in x for x in into)
             and any("F002" in x and "20241030-1105_Ruritania_Ford/1102_Harbour`" in x for x in into)
             and not [x for x in got if "MAKE-TRIP" in x]
-            and not [x for x in got if "(agent) · F001" in x]
-            and acode == 0), f"rows={got} apply={acode} {(aout + aerr)[-300:]!r}"
+            and not [x for x in got if "(agent) · F001" in x] and listed
+            and acode == 0), f"rows={got} listed={listed} apply={acode} {(aout + aerr)[-300:]!r}"
 
 # ---------------------------------------------------------------------------
 # R6 — the owner's own place word for the same spot
