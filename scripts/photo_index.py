@@ -3991,6 +3991,86 @@ def rule_r4(ctx):
                               f"{target} (D5); the rest of {fo['rendered']} stays",
                               path=str(root / target), days=moved,
                               owner_scan=folder_scan(tree, target)))
+    return out + into_existing_trips(ctx, tree, root, own, mine,
+                                     {op["folder"] for op in out})
+
+
+TRIP_HEAD = re.compile(r"^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})$")
+LEG_HEAD = re.compile(r"^(\d{2})(\d{2})(?:-(\d{2})(\d{2}))?$")
+
+
+def span_days(year, m1, d1, m2, d2):
+    """-> (first, last) ISO days of a `MMDD-MMDD` span starting in `year`
+    (a span past New Year ends the next year), or None."""
+    from datetime import date
+    try:
+        first = date(year, m1, d1)
+        last = date(year, m2, d2)
+        if last < first:
+            last = date(year + 1, m2, d2)
+    except ValueError:
+        return None
+    return first.isoformat(), last.isoformat()
+
+
+def existing_trips(tree, root, own, mine):
+    """-> {trip folder: ((first, last), {leg folder: (first, last)})} for the
+    trip folders in the dest scan (`YYYYMMDD-MMDD_...`, legs `MMDD[-MMDD]_...`
+    inside), never one this dump created."""
+    out = {}
+    for t in tree:
+        if not t["folder"] or path_key(t["path"]) in own:
+            continue
+        parts = Path(t["folder"]).parts
+        for i, part in enumerate(parts):
+            m = TRIP_HEAD.match(part.split(photo_name.SLOT_SEP)[0])
+            if not m:
+                continue
+            trip = "/".join(parts[:i + 1])
+            y, m1, d1, m2, d2 = map(int, m.groups())
+            span = span_days(y, m1, d1, m2, d2)
+            if span is None or photo_execute.real_key(root / trip) in mine:
+                break
+            legs = out.setdefault(trip, (span, {}))[1]
+            if i + 1 < len(parts):
+                lm = LEG_HEAD.match(parts[i + 1].split(photo_name.SLOT_SEP)[0])
+                if lm:
+                    a, b, c, d = (int(g) if g else None for g in lm.groups())
+                    year = int(span[0][:4]) if (a, b) >= (m1, d1) else int(span[1][:4])
+                    leg = span_days(year, a, b, c or a, d or b)
+                    if leg:
+                        legs["/".join(parts[:i + 2])] = leg
+            break
+    return out
+
+
+def into_existing_trips(ctx, tree, root, own, mine, taken):
+    """G62 (L-2) — a day folder whose days all fall inside an existing trip
+    folder's dates goes INTO that trip (into the leg that covers them, else
+    the trip folder), never into a new trip. Trips abroad included: the
+    existing trip is the one the owner made for them."""
+    trips = existing_trips(tree, root, own, mine)
+    out = []
+    for fo in live(ctx["index"]):
+        if (fo["kind"] != "day" or fo.get("parent") or fo["dest"]["mode"] != "new"
+                or not fo.get("rendered") or fo["id"] in taken):
+            continue
+        members = copy_members(ctx["index"], fo["id"])
+        mine_days = sorted({f["date"][:10] for f in members if f.get("date")})
+        if not mine_days:
+            continue
+        for trip, ((first, last), legs) in sorted(trips.items()):
+            if not (first <= mine_days[0] and mine_days[-1] <= last):
+                continue
+            target = next((leg for leg, (a, b) in sorted(legs.items())
+                           if a <= mine_days[0] and mine_days[-1] <= b), trip)
+            out.append(fix_op("INTO-EXISTING", "R4", fo, fo["rendered"], target,
+                              len(members), f"{', '.join(mine_days)} fall inside the "
+                              f"existing trip {Path(trip).name}: into {target} (D5)",
+                              path=str(root / target),
+                              owner_scan=folder_scan(tree, target)))
+            break
+    ctx["into_trip"] = {op["folder"] for op in out}
     return out
 
 
@@ -4018,9 +4098,13 @@ def rule_r5(ctx):
     index = ctx["index"]
     by_id = {fo["id"]: fo for fo in live(index)}
     out = []
+    into = ctx.get("into_trip") or set()
     for cand in find(index, list(ctx["by_number"].values()), ctx["pack"]):
         ids = [f for f in cand.get("folders") or [] if f in by_id]
         if len(ids) < 2 or not cand.get("to"):
+            continue
+        # G62 (L-2) — days inside an existing trip go into it, not a new one.
+        if set(ids) & into:
             continue
         out.append(fix_op("MAKE-TRIP", "R5", by_id[ids[0]],
                           f"{len(ids)} day folders {cand.get('span') or ''}".rstrip(),
@@ -4244,6 +4328,13 @@ def draft_fix_plan(workdir, pack, index, debug=None):
                    agent_name=a["to"])
             for a in (index.get("fix_plan") or {}).get("agent") or []
             for fo in live(index) if fo["id"] == a["folder"]]
+    # L-8 — never two rows for one folder that cannot both apply: a folder
+    # going INTO an existing folder takes that folder's name, so no rename
+    # or new trip is offered for it.
+    merged = {op["folder"] for op in ops if op["op"] == "INTO-EXISTING"}
+    ops = [op for op in ops if op["op"] == "INTO-EXISTING"
+           or op["op"] == "DAYS-INTO-EXISTING"
+           or not ({op["folder"]} | set(op["apply"].get("folders") or [])) & merged]
     previews = preview_samples(workdir)
     for op in ops:
         # M9's thumbnails: up to 3 previews the work dir already holds for

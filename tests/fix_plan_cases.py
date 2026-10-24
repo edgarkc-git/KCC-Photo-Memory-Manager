@@ -1256,6 +1256,42 @@ def a_folder_named_after_a_stay_or_an_eatery_gets_an_r1_row():
             and any(n.startswith("20241102_Harbour") for n in names)), \
         f"r1={r1} refused={refused[-200:]!r} apply={acode} {(aout + aerr)[-300:]!r} names={names}"
 
+@case
+def days_inside_an_existing_trip_go_into_it_and_no_second_row_is_offered():
+    """⭐ G62 / L-2 + L-8 REPRODUCTION. Two days abroad fall inside an
+    existing trip folder (`20241030-1105_...`, a leg per day) in the sorted
+    tree: each day folder gets an INTO-EXISTING row into its leg, no
+    MAKE-TRIP row is offered, and the agent row naming F001 (which cannot
+    apply once F001 goes into the trip) is not offered beside it; `ok` on
+    every row applies. ⛔ FAILS on 7280c54: R5 offered a new trip for days
+    the owner's trip already holds, and both rows for F001 were offered."""
+    batches = [dict(b, day_type="OVERSEAS", country_word="Ruritania")
+               for b in ix.G3_BATCHES]
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ix.g3_dump(tmp, batches=batches)
+        trip = Path(tmp) / "sorted" / "2024" / "20241030-1105_Ruritania_Ford"
+        for leg, name in (("1101_Ford", "OLD_A.jpg"), ("1102_Harbour", "OLD_B.jpg")):
+            (trip / leg).mkdir(parents=True)
+            note = name.encode()
+            (trip / leg / name).write_bytes(
+                b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+                + b"\xff\xfe" + (len(note) + 2).to_bytes(2, "big") + note + b"\xff\xd9")
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        must(ix.run("fix-plan", wd, "--agent", "F001", "--to", "20241101_Ford_morning",
+                    "--reason", "the morning"), "agent")
+        ix.run("fix-plan", wd)
+        got = rows(wd)
+        answer(wd, *["ok" for _ in got])
+        acode, aout, aerr = apply(wd)
+    into = [x for x in got if "INTO-EXISTING (R4)" in x]
+    return (len(into) == 2
+            and any("F001" in x and "20241030-1105_Ruritania_Ford/1101_Ford`" in x for x in into)
+            and any("F002" in x and "20241030-1105_Ruritania_Ford/1102_Harbour`" in x for x in into)
+            and not [x for x in got if "MAKE-TRIP" in x]
+            and not [x for x in got if "(agent) · F001" in x]
+            and acode == 0), f"rows={got} apply={acode} {(aout + aerr)[-300:]!r}"
+
 # ---------------------------------------------------------------------------
 # R6 — the owner's own place word for the same spot
 # ---------------------------------------------------------------------------
