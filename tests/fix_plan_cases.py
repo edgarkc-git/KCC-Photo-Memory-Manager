@@ -1158,6 +1158,26 @@ def a_trip_abroad_becomes_a_make_trip_row_and_ok_makes_that_trip():
             and "(R5)" not in home_out), f"{got}"
 
 
+@case
+def a_trip_abroad_with_no_file_to_copy_gets_no_make_trip_row():
+    """⭐ L-9 / G57 REPRODUCTION. The same two days abroad, every photo a
+    twin already in the sorted tree: no MAKE-TRIP row. ⛔ FAILS on 7280c54:
+    R5 offered a trip of "0 photo(s)", and once made it could never be named."""
+    import shutil
+    batches = [dict(b, day_type="OVERSEAS", country_word="Ruritania")
+               for b in ix.G3_BATCHES]
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ix.g3_dump(tmp, batches=batches)
+        old = Path(tmp) / "sorted" / "20241101_earlier"
+        old.mkdir(parents=True)
+        for src in (Path(tmp).resolve() / "raw" / "dump-a").iterdir():
+            shutil.copyfile(src, old / src.name)
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        _c, out, _e = ix.run("fix-plan", wd)
+        r5 = [x for x in rows(wd) if "(R5)" in x] if (wd / "plan").exists() else []
+    return ("(R5)" not in out and r5 == []), f"r5={r5} out={out[-300:]!r}"
+
 # ---------------------------------------------------------------------------
 # R6 — the owner's own place word for the same spot
 # ---------------------------------------------------------------------------

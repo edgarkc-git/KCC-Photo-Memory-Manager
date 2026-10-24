@@ -1222,6 +1222,100 @@ def a_group_dry_run_writes_nothing():
             and real[0] == 0 and out.split("DRY RUN")[0].strip()
             in real[1]), f"code={code} out={out[-300:]!r} err={err[-300:]!r}"
 
+# ---------------------------------------------------------------------------
+# M16 — an empty trip (L-9, G57) and undoing a trip (G56)
+# ---------------------------------------------------------------------------
+
+def trip_twins(tmp):
+    """Every trip photo is already in the sorted tree (an earlier copy)."""
+    import shutil
+    old = Path(tmp) / "sorted" / "20241025_earlier"
+    old.mkdir(parents=True, exist_ok=True)
+    for name, when, gps, _x in SPECS:
+        if gps == TRIP:
+            shutil.copyfile(Path(tmp).resolve() / "raw" / "dump-a" / name, old / name)
+
+
+@case
+def a_trip_whose_legs_hold_no_file_to_copy_goes_back_to_day_folders():
+    """⭐ L-9 / G57 REPRODUCTION. Every trip photo is a twin already in the
+    tree: render takes the trip back to its day folders (logged) and `check`
+    passes. ⛔ FAILS on 7280c54: the parent had no rendered name ("no leg of
+    this trip has a file to copy") and check failed with no way out."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        must(trip(wd), "make-trip")
+        trip_twins(tmp)
+        rcode, rout, rerr = run("render", wd, "--no-vision")
+        ccode, cout, cerr = run("check", wd)
+        f, idx = folders(tmp), index(tmp)
+    parent = next(fid for fid, fo in f.items() if fo["kind"] == "trip")
+    logged = [e for e in idx["log"] if "a day folder again" in e.get("change", "")
+              and e.get("by") == "engine"]
+    return (rcode == 0 and ccode == 0 and f[parent]["status"] == "retired"
+            and all(f[d]["kind"] == "day" and f[d]["parent"] is None for d in TRIP_DAYS)
+            and len(logged) == len(TRIP_DAYS)
+            and "no leg of this trip has a file to copy" in rout), \
+        f"render={rcode} {(rout + rerr)[-300:]!r} check={ccode} {(cout + cerr)[-300:]!r}"
+
+
+@case
+def unmake_trip_is_a_dry_run_then_takes_the_trip_back():
+    """⭐ G56. `group unmake-trip` without --go writes nothing; with --go each
+    leg is a day folder again, the trip is retired, each step logged, and the
+    days render their own day names. It works on a trip that never got a name
+    (the stuck L-9 shape: made, refused at render). ⛔ FAILS on 7280c54 (no
+    unmake-trip: a made trip could not be taken back)."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        render(wd)
+        days_before = {d: names(tmp)[d] for d in TRIP_DAYS}
+        must(trip(wd), "make-trip")
+        _i, _v, target = ix.index_of(tmp)
+        parent = next(fid for fid, fo in folders(tmp).items() if fo["kind"] == "trip")
+        idx = index(tmp)
+        for fo in idx["folders"]:
+            if fo["id"] == parent:
+                fo["rendered"] = None
+                fo["validation"] = {"refusals": ["no leg of this trip has a file to copy"]}
+        (target / "index.json").write_text(json.dumps(idx))
+        before = (target / "index.json").read_bytes()
+        dcode, dout, _de = run("group", "unmake-trip", wd, parent, "--reason", "undo")
+        same = (target / "index.json").read_bytes() == before
+        gcode, gout, gerr = run("group", "unmake-trip", wd, parent, "--reason", "undo",
+                                "--go")
+        render(wd)
+        f, idx = folders(tmp), index(tmp)
+        days_after = {d: names(tmp)[d] for d in TRIP_DAYS}
+    logged = [e for e in idx["log"] if e.get("cmd") == "index group unmake-trip"]
+    return (dcode == 0 and "DRY RUN" in dout and same and gcode == 0
+            and f[parent]["status"] == "retired"
+            and all(f[d]["kind"] == "day" and f[d]["parent"] is None for d in TRIP_DAYS)
+            and days_after == days_before and len(logged) >= len(TRIP_DAYS)), \
+        f"dry={dcode} same={same} go={gcode} {(gout + gerr)[-300:]!r} {days_before} {days_after}"
+
+
+@case
+def unmake_trip_is_refused_after_the_freeze_and_for_a_day_folder():
+    """⭐ G56: after the freeze (names locked) and for a folder that is not a
+    trip, unmake-trip refuses and writes nothing."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        must(trip(wd), "make-trip")
+        parent = next(fid for fid, fo in folders(tmp).items() if fo["kind"] == "trip")
+        dcode, _do, derr = run("group", "unmake-trip", wd, "F006", "--reason", "r", "--go")
+        render(wd)
+        must(run("check", wd), "check")
+        must(run("freeze", wd), "freeze")
+        _i, _v, target = ix.index_of(tmp)
+        before = (target / "index.json").read_bytes()
+        fcode, _fo, ferr = run("group", "unmake-trip", wd, parent, "--reason", "r", "--go")
+        same = (target / "index.json").read_bytes() == before
+    return (dcode != 0 and "takes a trip" in derr and fcode != 0
+            and "frozen" in ferr and same), \
+        f"day={dcode} {derr[-200:]!r} frozen={fcode} {ferr[-200:]!r} same={same}"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")

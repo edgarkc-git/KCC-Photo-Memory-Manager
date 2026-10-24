@@ -1063,10 +1063,13 @@ def trip_candidates(index, batches, pack):
     labels = (id_labels(pack) if hasattr(pack, "profile") else
               {row[5]: row[4] for row in photo_profile.labelled_home_points(profile)
                if row[5]})
-    present = {}
+    present, to_copy = {}, {}
     for f in index["files"]:
         if f["status"] == "present" and f["folder"]:
             present[f["folder"]] = present.get(f["folder"], 0) + 1
+            # A route not yet settled (before the first render) may copy.
+            if f.get("route") in (ROUTE_COPY, None):
+                to_copy[f["folder"]] = to_copy.get(f["folder"], 0) + 1
     out = []
     for run in runs:
         first, last = run[0]["from"], max(b["to"] for b in run)
@@ -1081,6 +1084,9 @@ def trip_candidates(index, batches, pack):
                                                      for d in owned[fo["id"]])]
         if len(holders_in) < 2 or any(fo["kind"] != "day" or fo.get("parent")
                                       for fo in holders_in):
+            continue
+        # G57 / L-9 — no trip for days with no file to copy.
+        if not sum(to_copy.get(fo["id"], 0) for fo in holders_in):
             continue
         holders_in.sort(key=lambda fo: min(owned[fo["id"]]))
         weight = {}
@@ -1414,6 +1420,18 @@ def cmd_render(args):
         raise Refused(f"{len(stray)} file(s) in the manifest are not in this index "
                       "— the dump changed since init. Run `photo_index.py init` "
                       "again. Nothing rendered.")
+    # G57 / L-9 — a trip whose legs hold no file to copy (each photo a twin
+    # already in the tree) has no period to name: it goes back to its day
+    # folders, logged, instead of a refusal no later command could clear.
+    for p in [p for p in parents(index) if p["kind"] == "trip"]:
+        legs = {leg["id"] for leg in legs_of(index, p["id"])}
+        if not any(f["folder"] in legs and f["route"] == ROUTE_COPY
+                   for f in files.values()):
+            ids = unmake_trip(index, p["id"], by_number, "index render",
+                              "no leg of this trip has a file to copy (G57)",
+                              by="engine")
+            print(f"{p['id']}: no leg of this trip has a file to copy — taken back "
+                  f"to its day folder(s) {', '.join(ids)}")
 
     # ⛔ Two counts, never one (Lead 20260922). A folder-only move is not a
     # route change, and a total that counts both as "route(s) changed" states
@@ -5195,6 +5213,44 @@ def group_make_trip(index, args, pack, by_number, cmd, reason):
     return f"{pid}: a trip at {where!r} with legs {', '.join(ids)}"
 
 
+def unmake_trip(index, pid, by_number, cmd, reason, by="agent"):
+    """The trip `pid` back to its day folders: each leg is a day folder again
+    (its days, files and own place kept), the parent is retired, each step
+    logged. -> the former legs' ids."""
+    owned = claims(index)
+    ids = [leg["id"] for leg in legs_of(index, pid)]
+    for leg in legs_of(index, pid):
+        leg.update(kind="day", parent=None)
+        log_entry(index, cmd, f"{leg['id']} → a day folder again (was a leg of {pid})",
+                  reason, by=by)
+    settle_structure(index, owned, [pid] + ids, by_number, cmd, reason)
+    return ids
+
+
+def group_unmake_trip(index, args, pack, by_number, cmd, reason):
+    """G56 — `group unmake-trip <dump> F0NN`: a trip back to its day folders,
+    before the freeze only (a freeze has locked its names; a copied leg is on
+    the drive under the trip)."""
+    fo = next((x for x in live(index) if x["id"] == args.folder), None)
+    if fo is None:
+        raise Refused(f"{args.folder} is not a live folder of this index — nothing changed")
+    if fo["kind"] != "trip":
+        raise Refused(f"{args.folder} is a {fo['kind']} folder; unmake-trip takes a "
+                      "trip — nothing changed")
+    if index.get("frozen"):
+        raise Refused("the index is frozen: a trip is undone before the freeze only — "
+                      "nothing changed. Lift it first, with a reason:\n"
+                      f"  {run_line('photo_index.py')} unfreeze \"<work dir>\" "
+                      "--reason \"...\"")
+    legs = {leg["id"] for leg in legs_of(index, fo["id"])}
+    copied = set(photo_execute.verified_anywhere(Path(args.workdir) / "plan"))
+    if any(f["folder"] in legs and f["source"] in copied for f in index["files"]):
+        raise Refused(f"{fo['id']}: a leg of this trip is already copied to the drive "
+                      "under the trip — nothing changed")
+    ids = unmake_trip(index, fo["id"], by_number, cmd, reason)
+    return (f"{fo['id']}: the trip is undone; {', '.join(ids)} are day folders again")
+
+
 def group_make_fsl_month(index, args, pack, by_number, cmd, reason):
     ref = args.place.strip()
     if not FSL_REF.match(ref):
@@ -5473,7 +5529,7 @@ def group_set_who(index, args, pack, by_number, cmd, reason):
 GROUP_ACTIONS = {"make-trip": group_make_trip, "make-fsl-month": group_make_fsl_month,
                  "move": group_move, "split": group_split, "merge": group_merge,
                  "set-what": group_set_what, "set-where": group_set_where,
-                 "set-who": group_set_who}
+                 "set-who": group_set_who, "unmake-trip": group_unmake_trip}
 
 
 def cmd_group(args):
@@ -5490,12 +5546,15 @@ def cmd_group(args):
     by_number = {b["batch"]: b for b in json.loads(
         (workdir / "batches.json").read_text(encoding="utf-8")).get("batches", [])}
     said = GROUP_ACTIONS[args.action](index, args, pack, by_number, cmd, reason)
-    if getattr(args, "dry_run", False):
+    # G56 — unmake-trip is a dry run unless --go.
+    if getattr(args, "dry_run", False) or (args.action == "unmake-trip"
+                                           and not args.go):
         # F-s (Card 6): the same change, decided on the loaded index and not
         # saved — so the preview is the write's own answer.
         print(said)
-        print("DRY RUN — nothing written. Run it again without --dry-run to "
-              "record it, then `render --dry-run` shows the folder names.")
+        print("DRY RUN — nothing written. Run it again "
+              + ("with --go" if args.action == "unmake-trip" else "without --dry-run")
+              + " to record it, then `render --dry-run` shows the folder names.")
         return 0
     save(target, pack, index)
     print(said)
@@ -5709,6 +5768,10 @@ def main(argv=None):
     p.add_argument("folder")
     p.add_argument("--drop")
     p.add_argument("--clear", action="store_true")
+    p = action("unmake-trip", "a trip back to its day folders, before the "
+                              "freeze (G56); a dry run unless --go")
+    p.add_argument("folder", help="the trip folder, e.g. F012")
+    p.add_argument("--go", action="store_true", help="record it")
     p = action("set-where", "the owner's own [where] for a day folder or leg, "
                             "or --clear (back to the looked-up place)")
     p.add_argument("folder")

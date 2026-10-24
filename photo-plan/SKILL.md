@@ -42,7 +42,7 @@ the shared `scripts/` folder, and manifests produced by `photo-scan`.
 | instead of | run |
 |---|---|
 | scanning a merge target and listing `refs` in `plans.json` | `photo_index.py dest <dump> F003 merge "<existing folder>" --ref "<its work dir>" --reason "..."` (the reference still needs its own `photo_scan.py` manifest) |
-| writing `plans.json`, legs and overrides | `photo_index.py group make-trip` / `make-fsl-month` / `move` / `split` / `merge` / `set-what` / `set-where` |
+| writing `plans.json`, legs and overrides | `photo_index.py group make-trip` / `unmake-trip` / `make-fsl-month` / `move` / `split` / `merge` / `set-what` / `set-where` |
 | running `photo_dedupe.py` | `photo_index.py render` (it dedupes a folder with a `dest` reference) |
 | running `photo_plan.py --plan N` and `--no-date` | `photo_index.py freeze` |
 | presenting `plan_PN.md` and `--status approved` | `photo_index.py check`; `finish` approves each batch as it copies |

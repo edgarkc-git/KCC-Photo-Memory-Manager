@@ -361,6 +361,7 @@ missing — there is no second list to keep in step.
    `Index_pscan.md` and shape the folders with a reason for every change:
    ```
    python3 scripts/photo_index.py group make-trip 202401 F008 F009 --where "<place>" --reason "..."
+   python3 scripts/photo_index.py group unmake-trip 202401 F012 --reason "..."   # the trip back to its day folders, before the freeze; a dry run until --go
    python3 scripts/photo_index.py group make-fsl-month 202401 fsl-0003 2024-12 --reason "..."
    python3 scripts/photo_index.py group move 202401 F021 --to F023 --dates 2024-12-11 --reason "..."
    python3 scripts/photo_index.py group split 202401 F011 --at 2024-10-30 --reason "..."
@@ -374,6 +375,8 @@ missing — there is no second list to keep in step.
    and writes nothing — show it to the owner when they asked for the change,
    ask with AskUserQuestion (`Do it` / `Leave it`), and on `Do it` run it
    without the flag and `render --dry-run` for the names.
+   A trip whose legs hold no file to copy (every photo already in the tree)
+   is taken back to its day folders by `render` itself, and said.
    Day trips and evenings back home stay one day folder. In-transit shots
    follow the destination. An existing hand-named folder wins over a new one
    (merge-don't-duplicate); `dest ... new` undoes a merge.
