@@ -4352,6 +4352,51 @@ def draft_fix_plan(workdir, pack, index, debug=None):
     return offered, refused
 
 
+# G63 (C-21) — every row that sets a name takes the owner's own word: R1/R6
+# the place word, R3 the [what], R5 the trip's place word(s), an agent row
+# or an R2 rename the whole folder name.
+WORD_RULES = ("R1", "R3", "R6", "R5", "R2", "agent")
+
+
+def owner_word(workdir, pack, index, fo, op, word, go):
+    """G63 — the owner's word on an R5, R2 or agent row, validated like any
+    name (an R5 word as `group make-trip --where`, a whole name by the name
+    grammar, fix_problem). -> what was done, or None for the R1/R3/R6 words
+    the caller applies. Raises Refused, nothing written for the row."""
+    if op["rule"] == "R5":
+        words = [w.strip() for w in word.split(photo_name.NAME_SEP)]
+        a = op["apply"]
+        if not go:
+            for w in words:
+                agent_text(w, "the trip's place word", "where")
+            if len(words) > 2:
+                raise Refused("a trip takes at most two place words (D3) — nothing changed")
+            return f"{', '.join(a['folders'])} would become one trip at {word!r}"
+        by_number = {b["batch"]: b for b in json.loads(
+            (workdir / "batches.json").read_text(encoding="utf-8")).get("batches", [])}
+        return group_make_trip(index, argparse.Namespace(
+            folders=a["folders"], where=words, country=a["country"], what=None),
+            pack, by_number, FIX_PLAN_CMD, "fix plan R5: the owner's word")
+    if op["rule"] not in ("R2", "agent"):
+        return None
+    name = word.strip()
+    why = fix_problem({**op, "to": name}, {"pack": pack, "index": index})
+    if why:
+        raise Refused(f"`{name}` is not a folder name this engine can use: {why} "
+                      "— nothing changed")
+    a = op["apply"]
+    if op["rule"] == "agent" or a.get("agent"):
+        if go:
+            fo["agent_name"] = name
+        return f"the folder is named `{name}`, the owner's word"
+    why = BY_HAND if a.get("by_hand") else engine_rename(workdir, {**op, "to": name}, go)
+    if why:
+        return f"nothing renamed: {why}"
+    if go:
+        fo["dest"]["existing_path"] = str(Path(a["path"]).parent / name)
+    return f"renamed `{op['from']}` → `{name}`, the owner's word"
+
+
 def fix_waiting(index, ops):
     answered = (index.get("fix_plan") or {}).get("answers") or {}
     return [op for op in ops if op["key"] not in answered]
@@ -4510,12 +4555,20 @@ def cmd_fix_plan(args):
         fo = next(x for x in index["folders"] if x["id"] == op["folder"])
         said = None
         if answer == "word":
-            if op["rule"] not in ("R1", "R3", "R6"):
+            if op["rule"] not in WORD_RULES or op["op"] not in ("RENAME", "MAKE-TRIP"):
                 print(f"  ⛔ row {r['n']}: {op['rule']} takes `ok` or `skip`, not a "
                       "word — nothing written for it")
                 refused_n += 1
                 continue
-            if op["rule"] in ("R1", "R6"):
+            try:
+                said = owner_word(workdir, pack, index, fo, op, r["word"], args.go)
+            except Refused as exc:
+                print(f"  ⛔ row {r['n']}: {exc}")
+                refused_n += 1
+                continue
+            if said is not None:
+                pass
+            elif op["rule"] in ("R1", "R6"):
                 # The owner's own place word: set-where's own path (ADR 0001).
                 if args.go:
                     said = group_set_where(index, argparse.Namespace(

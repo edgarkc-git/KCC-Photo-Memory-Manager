@@ -571,7 +571,11 @@ it on a private web page:
 1. `<repo>/.venv/bin/python3 <repo>/scripts/photo_fixplan_page.py render "<work dir>/plan/fix-plan.md"`
    writes `plan/fix-plan.html`: each row as old → new name, its rule, the
    reason, the photo count and up to three sample photos, with OK / Skip (and
-   My word on an R1 or R3 row) and one Send button. The plan's
+   My word on every row that sets a name: a place word on R1/R6, words for
+   [what] on R3, the trip's place words on R5 (two at most, joined with +),
+   the whole folder name on an agent or R2 row; a move into an existing
+   folder is OK / Skip only) and one Send button. A word is checked like any
+   name; a refused word writes nothing for its row. The plan's
    An R1 row also flags a folder still named after a place to stay, a
    restaurant or cafe, a chain shop, a street or street marker, or a county
    or ward (G61): `ok` drops that word when another place word is left;

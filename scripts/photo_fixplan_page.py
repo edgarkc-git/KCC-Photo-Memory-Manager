@@ -19,8 +19,10 @@ relative to the work dir):
 
 `## Refused (never applied)` lists what the engine will not do (a failed
 map lookup among them); the page shows it as information, never as a row.
-An answer is `ok`, `skip` or `word: <text>` (R1: the place word; R3: the
-words that replace the look-word). ⛔ A row left open is a skip (G21).
+An answer is `ok`, `skip` or `word: <text>` on every row that sets a name
+(G63): R1/R6 the place word, R3 the words that replace the look-word, R5 the
+trip's place word(s), an agent or R2 row the whole folder name. ⛔ A row
+left open is a skip (G21).
 
   photo_fixplan_page.py render <plan/fix-plan.md> [--workdir W] [-o page.html]
                                [--out-of-date "<why>"]
@@ -58,9 +60,11 @@ REFUSED_HEAD = "## Refused (never applied)"
 LATER_HEAD = photo_index.AFTER_COPY_HEAD
 RE_REPLY = re.compile(r"^\s*-?\s*(\d+)\s*[:.]\s*(ok|skip|word:\s*.+)\s*$", re.I)
 MAX_SAMPLES = 3
-# The rules whose row takes the owner's own words (the fix plan's apply:
-# R1 = the place word, through set-where; R3 = the [what]).
-WORD_KIND = {"R1": "place", "R3": "what"}
+# G63 — the rules whose row takes the owner's own words, and what the word
+# is (the fix plan's apply: R1/R6 the place word, through set-where; R3 the
+# [what]; R5 the trip's place word(s); an agent or R2 row the whole name).
+WORD_KIND = {"R1": "place", "R6": "place", "R3": "what", "R5": "trip",
+             "agent": "name", "R2": "name"}
 # Rule -> the filter chip a row sits under on the page.
 CHIP = {"R1": "Place", "R6": "Place", "R2": "Pets", "R3": "Pets",
         "R4": "Move", "R5": "Move"}
@@ -159,7 +163,7 @@ def build_data(plan, workdir, max_px, quality, out_of_date=None):
                      "chip": CHIP.get(op["rule"], "Other"),
                      "from": op["from"], "to": op["to"], "reason": op["reason"],
                      "photos": op["photos"], "thumbs": thumbs,
-                     "word": WORD_KIND.get(op["rule"]), "answer": op["answer"]})
+                     "word": word_kind(op), "answer": op["answer"]})
     return {"title": plan["title"] or TITLE, "rows": rows,
             "refused": plan["refused"], "later": plan["later"],
             "digest": plan_digest(plan["ops"]),
@@ -202,19 +206,39 @@ def read_rows(lines):
     return out
 
 
-def check_word(rule, word):
+def word_kind(op):
+    """-> what the owner's word on row `op` is, or None (ok / skip only):
+    a row moving photos into an existing folder sets no name."""
+    if op["op"] not in ("RENAME", "MAKE-TRIP"):
+        return None
+    return WORD_KIND.get(op["rule"])
+
+
+def check_word(rule, word, kind=None):
     """The owner's words go into a folder name: checked as the fix plan's
-    apply will use them (R1 the place word, as `group set-where`, two joined
-    with `+`; R3 the [what]). -> warnings; raises on a refusal."""
-    kind = WORD_KIND.get(rule)
+    apply will use them (R1/R6 the place word, as `group set-where`, two
+    joined with `+`; R3 the [what]; R5 at most two place words, as `group
+    make-trip --where`; a whole name by the name grammar). -> warnings;
+    raises on a refusal."""
+    kind = kind or WORD_KIND.get(rule)
     if kind is None:
         raise SystemExit("a %s row takes `ok` or `skip`, not a word. Nothing "
                          "was written." % rule)
     warnings = []
     try:
-        if kind == "place":
-            for part in word.split(photo_name.NAME_SEP):
+        if kind in ("place", "trip"):
+            parts = word.split(photo_name.NAME_SEP)
+            if kind == "trip" and len(parts) > 2:
+                raise photo_index.Refused("a trip takes at most two place words (D3)")
+            for part in parts:
                 photo_index.agent_text(part, "the word %r" % word, "where", warnings)
+        elif kind == "name":
+            m = RE_WHOLE_NAME.match(word.strip())
+            kind_ = (photo_name.NAME_LEG if m and len(m.group(1)) == 4
+                     else photo_name.NAME_FOLDER)
+            refusals = photo_name.validate(word.strip(), kind=kind_)[1]
+            if refusals:
+                raise photo_index.Refused("the name %r: %s" % (word, "; ".join(refusals)))
         else:
             photo_index.agent_text(word, "the words %r" % word, "what")
     except photo_index.Refused as exc:
@@ -233,7 +257,7 @@ def word_problem(op, word, warnings):
     line for a whole valid folder name or None). A word goes into one row
     only: its refusal never stops the other rows (OR-3)."""
     m = RE_WHOLE_NAME.match(word.strip())
-    if m and WORD_KIND.get(op["rule"]):
+    if m and word_kind(op) not in (None, "name"):
         kind = photo_name.NAME_FOLDER if len(m.group(1)) == 8 else photo_name.NAME_LEG
         if photo_name.validate(word.strip(), kind=kind)[0]:
             return ("a whole folder name, not a %s word — not written; the "
@@ -242,7 +266,10 @@ def word_problem(op, word, warnings):
                     "\"the owner's name on the page\"" % (
                         photo_index.run_line("photo_index.py"), op["folder"], word.strip()))
     try:
-        warnings += check_word(op["rule"], word)
+        if word_kind(op) is None:
+            raise SystemExit("a %s row takes `ok` or `skip`, not a word. Nothing "
+                             "was written." % op["rule"])
+        warnings += check_word(op["rule"], word, word_kind(op))
     except SystemExit as exc:
         return str(exc).replace(" Nothing was written: ask the owner for other "
                                 "words.", " Not written: ask the owner for other "

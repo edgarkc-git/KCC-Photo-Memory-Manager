@@ -112,8 +112,9 @@ def the_rows_are_read_with_the_stages_own_pattern():
 def the_page_carries_every_row_and_three_thumbnails():
     """REPRODUCTION (G20). ⛔ FAILS on c7b761e (no fix plan page). `render`
     writes one self-contained page: every row with its rule, old → new,
-    reason and count, up to three sample photos embedded, `My word` only on
-    the rows that take one (R1 place, R3 words), the Refused list, the
+    reason and count, up to three sample photos embedded, `My word` on
+    every row that sets a name (G63: R1 place, R2 whole name, R3 words; the
+    R4 move takes none), the Refused list, the
     digest, and no mojibake."""
     with tempfile.TemporaryDirectory() as tmp:
         wd, md = workdir(tmp)
@@ -125,7 +126,7 @@ def the_page_carries_every_row_and_three_thumbnails():
     d = page_data(html)
     rows = d["rows"]
     return (len(rows) == 4 and [x["chip"] for x in rows] == ["Place", "Pets", "Move", "Pets"]
-            and [x["word"] for x in rows] == ["place", None, None, "what"]
+            and [x["word"] for x in rows] == ["place", "name", None, "what"]
             and len(rows[0]["thumbs"]) == 3 and rows[1]["thumbs"] == []
             and all(t.startswith("data:image/jpeg;base64,") for t in rows[0]["thumbs"])
             and len(d["refused"]) == 1 and d["digest"].startswith("sha256:")
@@ -185,12 +186,14 @@ def the_republished_page_is_read_back_too():
 def an_answer_for_another_draft_or_row_or_a_bad_word_writes_nothing():
     """REPRODUCTION (G21, G17). A page sent for an earlier draft (the digest
     differs), a row number the plan does not hold, a word on a row that
-    takes none (R2, R4), and a typed word that is a coordinate or holds a
+    takes none (R4), a word on R2 that is not a whole folder name, and a
+    typed word that is a coordinate or holds a
     grammar separator are all refused, and the plan file is byte-identical
     afterwards. ⛔ FAILS on c7b761e."""
     bad = {"stale": json.dumps({"digest": "sha256:0", "lines": ["1: ok"]}),
            "unknown row": "9: ok\n",
            "word on R2": "2: word: Lotus\n",
+           "word on R4": "3: word: Lotus\n",
            "coordinate": "1: word: 25.03,121.56\n",
            "separator": "1: word: Lotus_Bay\n",
            "R3 separator": "4: word: a_b\n",
@@ -243,14 +246,47 @@ def the_out_of_date_and_empty_states_are_carried_in_the_data():
 @case
 def a_make_trip_row_is_shown_when_the_stage_writes_one():
     """REPRODUCTION (R5 MAKE-TRIP). A trip row the stage writes is read and
-    shown like any row, OK or Skip only. ⛔ FAILS on c7b761e (no page)."""
+    shown like any row, with My word for the trip's place words (G63). ⛔
+    FAILS on c7b761e (no page)."""
     trip = {"op": "MAKE-TRIP", "rule": "R5", "folder": "F006",
             "from": "2 day folders 1025-1031", "to": "20241025-1031_Countryland_Dunmore",
             "reason": "a trip abroad", "photos": 6}
     plan = fp.parse_plan(plan_text(ops=[trip], refused=[]))
     row = fp.build_data(plan, "/nowhere", 64, 50)["rows"]
-    return (len(row) == 1 and row[0]["op"] == "MAKE-TRIP" and row[0]["word"] is None
+    return (len(row) == 1 and row[0]["op"] == "MAKE-TRIP" and row[0]["word"] == "trip"
             and row[0]["chip"] == "Move"), f"{row}"
+
+
+@case
+def every_naming_row_takes_my_word_checked_as_a_name():
+    """⭐ G63 / C-21 REPRODUCTION. A trip row, an agent row and a move row:
+    the trip and the agent row offer My word, the move none. A trip word is
+    at most two place words, each checked; an agent word is a whole folder
+    name the grammar accepts; a word on the move is refused. Each refusal
+    writes nothing for its row. ⛔ FAILS on 7280c54: `word:` was taken on R1
+    and R3 only, so the owner could not reword a trip or an agent row."""
+    ops = [{"op": "MAKE-TRIP", "rule": "R5", "folder": "F006",
+            "from": "2 day folders 1025-1031", "to": "20241025-1031_Countryland_Dunmore",
+            "reason": "a trip abroad", "photos": 6},
+           {"op": "RENAME", "rule": "agent", "folder": "F002",
+            "from": "20250111_Hillside_sofa", "to": "20250111_Hillside_nap",
+            "reason": "agent: the nap", "photos": 3},
+           {"op": "INTO-EXISTING", "rule": "R4", "folder": "F003", "from": "20250120_Birkton",
+            "to": "2025/20250120_Birk Old Street_market", "reason": "a folder", "photos": 6}]
+    text = plan_text(ops=ops, refused=[])
+    words = [r["word"] for r in fp.build_data(fp.parse_plan(text), "/nowhere", 64, 50)["rows"]]
+    got = {}
+    for why, answers in {"trip two": {1: "word:Old Pier+North Bay"},
+                         "trip three": {1: "word:Old Pier+North Bay+Sea Park"},
+                         "agent name": {2: "word:20250111_Hillside_old boats"},
+                         "agent not a name": {2: "word:Hillside walk day"},
+                         "move": {3: "word:Lotus"}}.items():
+        _new, done, _w, held = fp.apply_reply(text, None, answers)
+        got[why] = (bool(done), bool(held))
+    want = {"trip two": (True, False), "trip three": (False, True),
+            "agent name": (True, False), "agent not a name": (False, True),
+            "move": (False, True)}
+    return words == ["trip", "name", None] and got == want, f"words={words} got={got}"
 
 
 

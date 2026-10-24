@@ -398,6 +398,29 @@ def the_owners_own_place_word_is_never_proposed_over():
 
 
 @case
+def an_owner_word_on_an_agent_row_names_the_folder_after_the_grammar():
+    """⭐ G63 / C-21 REPRODUCTION. On an agent row the owner's word is the
+    whole folder name: one the grammar refuses is refused for that row and
+    nothing changes; a valid one names the folder. ⛔ FAILS on 7280c54: an
+    agent row took `ok` or `skip` only."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        must(ix.run("fix-plan", wd, "--agent", "F002", "--to", "20241102_Harbour_old pier",
+                    "--reason", "the pier"), "agent")
+        ix.run("fix-plan", wd)
+        answer(wd, *["word: Harbour walk day" if "(agent)" in x else "skip" for x in rows(wd)])
+        bcode, bout, _b = apply(wd)
+        ix.run("fix-plan", wd)
+        answer(wd, *["word: 20241102_Harbour_old boats" if "(agent)" in x else "skip"
+                     for x in rows(wd)])
+        acode, aout, aerr = apply(wd)
+        must(ix.run("render", wd), "render")
+        n = names(tmp)
+    return ("not a folder name this engine can use" in bout and acode == 0
+            and n["F002"] == "20241102_Harbour_old boats"), \
+        f"bad={bcode} {bout[-300:]!r} apply={acode} {(aout + aerr)[-300:]!r} names={n}"
+
+@case
 def a_failed_landmark_lookup_is_said_and_never_offered():
     """GUARD (A1's flag). A batch flagged `landmark_lookup_failed` gets no
     row to answer: the plan lists it as refused, saying to type the place,
@@ -1167,8 +1190,8 @@ def a_trip_abroad_becomes_a_make_trip_row_and_ok_makes_that_trip():
     days abroad: `trip_candidates` gives one MAKE-TRIP row (from "2 day
     folders 1101-1102", to the trip name, folder = the first id); `ok` runs
     `group make-trip`, and the trip parent then renders exactly `to` with
-    F001 and F002 as its legs; `word:` is refused on R5; a dump at home gets
-    no R5 row."""
+    F001 and F002 as its legs; `word:` on R5 makes the trip at the owner's
+    place word (G63); a dump at home gets no R5 row."""
     batches = [dict(b, day_type="OVERSEAS", country_word="Ruritania")
                for b in ix.G3_BATCHES]
     got = {}
@@ -1198,7 +1221,7 @@ def a_trip_abroad_becomes_a_make_trip_row_and_ok_makes_that_trip():
     return (ok[0] == 3 and len(ok[1]) == 1
             and f"MAKE-TRIP (R5) · F001 · `2 day folders 1101-1102` → `{TRIP}`" in ok[1][0]
             and ok[2] == 0 and ok[3] == [TRIP] and ok[4] == [("F001", tid), ("F002", tid)]
-            and word[2] == 1 and "takes `ok` or `skip`" in word[5] and word[3] == []
+            and word[2] == 0 and word[3] == ["20241101-1102_Ruritania_Somewhere"]
             and "(R5)" not in home_out), f"{got}"
 
 

@@ -240,8 +240,10 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     });
     a.appendChild(th);
     var picks = el("div", "picks");
-    /* `word:` is taken on R1 (the place word) and R3 (the words for the
-       look-word) only; every other row is OK or Skip. */
+    /* G63 — `word:` is taken on every row that sets a name (R1/R6 a place
+       word, R3 the words for the look-word, R5 the trip's place words, an
+       agent or R2 row the whole folder name); a row moving photos into an
+       existing folder is OK or Skip. */
     var choices = [["ok","OK"],["skip","Skip"]];
     if(r.word) choices.push(["word","My word"]);
     choices.forEach(function(p){
@@ -258,7 +260,9 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
     if(r.word && state.pick[r.n] === "word"){
       var lab = el("label", "word wordrow",
                    r.word === "place" ? "Your place word — not the whole folder name (e.g. Old Pier)"
-                                      : "Your words for this folder — not the whole folder name");
+                   : r.word === "trip" ? "Your place word for the trip — two at most, joined with + (e.g. Old Pier+North Bay)"
+                   : r.word === "name" ? "Your whole folder name, date first (e.g. 20241101_Old Pier_picnic)"
+                                       : "Your words for this folder — not the whole folder name");
       var inp = el("input");
       inp.type = "text"; inp.value = state.word[r.n] || "";
       inp.id = "word-" + r.n;
