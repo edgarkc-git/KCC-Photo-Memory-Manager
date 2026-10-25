@@ -202,13 +202,15 @@ def date_source(row, tag):
 def init_route(row, dated, msg):
     """-> (route, route_source, bucket key) for the four pack-independent
     rules, in the engine's order, or (None, None, None) = not decided yet."""
-    tier, cls = photo_sample.tier_of(row, None)
-    if tier == "T0":
+    if photo_sample.is_empty(row):
         # C-27 — before the no-date rule: a 0-byte file has no date either.
         return "skip_junk", "T0", None
     if not dated:
         # photo_plan.write_no_date_plan: every no-date file, before anything.
         return "to_be_checked", "D13-no-date", "to_be_checked"
+    tier, cls = photo_sample.tier_of(row, None)
+    if tier == "T0":
+        return "skip_junk", "T0", None
     _name, _note, known = photo_plan.dest_name(row, msg)
     if not known:
         return "others", "D13-format", "others"

@@ -1285,7 +1285,9 @@ def year_buckets(rows, dest_root, profile):
 
 
 def junk_note(row, msg):
-    return msg["note_junk_empty" if photo_sample.is_empty(row) else "note_junk_sidecar"]
+    if photo_sample.is_empty(row):
+        return msg["note_junk_empty"]
+    return msg["note_junk_sidecar"]
 
 
 def settle_no_date_rows(workdir, dest_root, profile, msg, ai_confirmed=False,
@@ -1316,8 +1318,10 @@ def settle_no_date_rows(workdir, dest_root, profile, msg, ai_confirmed=False,
         r["_class"] = cls
         r["_name"], note, _known = dest_name(r, msg)
         r["_action"] = "copy"
-        if cls == "junk":
+        if photo_sample.is_empty(r):
             # C-27 — a 0-byte file has no date either; listed, never copied.
+            # ⛔ Empty files only: an old manifest's `._` sidecar on this list
+            # keeps the copy it always had (golden 202605).
             r["_action"], r["_dest"], note = "skip_junk", "", junk_note(r, msg)
         elif cls == "no_exif" and ai_confirmed:
             r["_dest"] = f"{bucket_root}_{names['ai_images']}"
