@@ -1314,6 +1314,39 @@ def a_trip_abroad_becomes_a_make_trip_row_and_ok_makes_that_trip():
 
 
 @case
+def an_agent_name_beside_a_make_trip_row_is_checked_as_the_leg_it_becomes():
+    """⭐ C-19 REPRODUCTION (Camera: 6 owner-approved agent names failed
+    check after the same OK's MAKE-TRIP turned their folders into legs —
+    `YYYYMMDD` in a leg, [where] not the parent's — and freeze refused).
+    Both rows `ok`: render names F002 in its final, leg shape, `check` and
+    `freeze` pass, and the page row says the leg form. ⛔ FAILS on f9102e8:
+    check refused the leg name."""
+    batches = [dict(b, day_type="OVERSEAS", country_word="Ruritania")
+               for b in ix.G3_BATCHES]
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ix.g3_dump(tmp, batches=batches)
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        must(ix.run("fix-plan", wd, "--agent", "F002", "--to",
+                    "20241102_Shrine_temple walk", "--reason", "the shrine"), "agent")
+        ix.run("fix-plan", wd)
+        got = rows(wd)
+        answer(wd, *["ok" for _ in got])
+        acode, _aout, aerr = apply(wd)
+        rcode, _ro, rerr = ix.run("render", wd)
+        ccode, cout, cerr = ix.run("check", wd)
+        fcode, _fo, ferr = ix.run("freeze", wd)
+        f2 = next(fo for fo in ix.index_of(tmp)[0]["folders"] if fo["id"] == "F002")
+    agent = [x for x in got if "(agent) · F002" in x]
+    return (acode == 0 and rcode == 0 and ccode == 0 and fcode == 0
+            and f2.get("kind") == "leg" and f2.get("rendered") == "1102_Shrine_temple walk"
+            and agent and "`1102_Shrine_temple walk`" in agent[0]), \
+        (f"apply={acode} render={rcode} check={ccode} {(cout + cerr)[-300:]!r} "
+         f"freeze={fcode} {ferr[-200:]!r} f2={f2.get('kind')} {f2.get('rendered')!r} "
+         f"rows={got}")
+
+
+@case
 def a_trip_abroad_with_no_file_to_copy_gets_no_make_trip_row():
     """⭐ L-9 / G57 REPRODUCTION. The same two days abroad, every photo a
     twin already in the sorted tree: no MAKE-TRIP row. ⛔ FAILS on 7280c54:

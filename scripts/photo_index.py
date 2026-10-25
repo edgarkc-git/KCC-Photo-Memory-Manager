@@ -634,8 +634,11 @@ def unit_plan(u, n, paths, words=None):
     if words:
         plan["where"] = words(top)
     if u["legs"]:
+        # C-19 — an agent-named leg's [where] is the owner's word: D-I13
+        # stays unarmed for it here as in `render`.
         plan["legs"] = [dict({"from": a, "to": b, "name": Path(paths[leg["id"]]).name},
-                             **({"where": words(leg)} if words else {}))
+                             **({"where": words(leg)}
+                                if words and not leg.get("agent_name") else {}))
                         for leg, a, b in u["legs"]]
     if u["overrides"]:
         # E40 — a leg's days can arrive as an override (a `group split` piece
@@ -1227,13 +1230,17 @@ def render_holder(fo, members, cells, spans, labels, budget, cap, profile, rmsg,
         # landmark comes before a town in `batch_places`). A monthly parent's
         # leg is at that place by construction and still drops it.
         dropped = (where[:1] if trip_leg else []) if where == parent_words else where
-        # OR-10: an agent row the owner approved names a leg too.
-        name = fo.get("agent_name") or photo_name.render(
+        # OR-10: an agent row the owner approved names a leg too. C-19 — in
+        # the leg's shape: a row approved beside the MAKE-TRIP that made this
+        # folder a leg was written as a day folder (the year is the trip's),
+        # and its own [where] word is the owner's, so D-I13 is not armed.
+        agent = fo.get("agent_name")
+        name = as_leg_name(agent) if agent else photo_name.render(
             start, end, where=dropped, who=[who] if who else [],
             what=own or pick["what"], kind=photo_name.NAME_LEG)
         _ok, ref, warn = photo_name.validate(
             name, hard=hard, soft=soft, kind=photo_name.NAME_LEG,
-            where=where, parent_where=parent_words)
+            where=None if agent else where, parent_where=parent_words)
         validation["refusals"], validation["warnings"] = ref, warn
     else:
         # A folder's own `what` (set-what) wins over the pick; an agent row
@@ -4577,6 +4584,14 @@ def draft_fix_plan(workdir, pack, index, debug=None):
                 and ({op["folder"]} | set(op["apply"].get("folders") or [])) & merged):
             op["why"] = ("goes into an existing folder in another row, so this "
                          "row cannot apply beside it")
+    # C-19 — a rename beside a MAKE-TRIP row of its folder is said in the
+    # shape it takes when both are `ok`: the leg's.
+    tripped = {f for op in ops if op["op"] == "MAKE-TRIP"
+               for f in op["apply"].get("folders") or ()}
+    for op in ops:
+        if op["op"] == "RENAME" and op["rule"] == "agent" and op["folder"] in tripped:
+            op["reason"] += (f"; with the trip row `ok` it is the leg "
+                             f"`{as_leg_name(op['to'])}`")
     previews = preview_samples(workdir)
     for op in ops:
         # M9's thumbnails: up to 3 previews the work dir already holds for
