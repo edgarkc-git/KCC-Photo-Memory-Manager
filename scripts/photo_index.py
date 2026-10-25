@@ -4564,6 +4564,14 @@ def draft_fix_plan(workdir, pack, index, debug=None):
     # or new trip is offered for it.
     merged = {f for op in ops if op["op"] == "INTO-EXISTING"
               for f in op["apply"].get("folders") or [op["folder"]]}
+    # ... and so does a folder whose EVERY day another DAYS-INTO-EXISTING row
+    # takes: nothing is left in it to rename (L-8, M17).
+    taken = {}
+    for op in ops:
+        if op["op"] == "DAYS-INTO-EXISTING":
+            taken.setdefault(op["folder"], set()).update(op["apply"].get("days") or ())
+    merged |= {f for f, days in taken.items()
+               if {(m.get("date") or "")[:10] for m in copy_members(index, f)} <= days}
     for op in ops:
         if (op["op"] not in ("INTO-EXISTING", "DAYS-INTO-EXISTING")
                 and ({op["folder"]} | set(op["apply"].get("folders") or [])) & merged):

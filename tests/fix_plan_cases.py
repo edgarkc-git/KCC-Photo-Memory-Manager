@@ -1488,6 +1488,56 @@ def the_freezes_own_name_check_judges_the_new_leg_not_the_trip():
         f"freeze={fcode} legs={[(p['dest']['path'][-40:], p.get('legs')) for p in plans]} said={said}"
 
 
+@case
+def a_merge_into_a_flat_folder_offers_no_rename_beside_it():
+    """GUARD (L-8's own shape: Liked rows 2 + 21, F005 INTO-EXISTING an
+    owner's flat folder AND a RENAME of F005, both ok'd, the whole plan
+    refused). M16's G62 rule already lists the rename as refused; this pins
+    it for a merge into a day folder, not only into a trip's leg, and `ok`
+    on every offered row applies."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        owner_folder(tmp)
+        wd, _pack = ix.g3_dump(tmp)
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        must(ix.run("fix-plan", wd, "--agent", "F001", "--to", "20241101_Ford_morning",
+                    "--reason", "the morning"), "agent")
+        ix.run("fix-plan", wd)
+        got = rows(wd)
+        listed = "cannot apply beside it" in page(wd).read_text()
+        answer(wd, *["ok" for _ in got])
+        acode, aout, aerr = apply(wd)
+    f001 = [x for x in got if "· F001 ·" in x]
+    return (len(f001) == 1 and "INTO-EXISTING (R4)" in f001[0] and listed
+            and acode == 0), f"rows={got} apply={acode} {aerr[-300:]!r}"
+
+
+@case
+def a_folder_every_day_of_which_goes_elsewhere_offers_no_rename():
+    """⭐ L-8 REPRODUCTION, the case M16 left open: F001 holds 11-01 and
+    11-02, and each day already has an owner folder, so two
+    DAYS-INTO-EXISTING rows take every day of it. A RENAME of F001 is then
+    a question about an empty folder: listed as refused, never offered.
+    ⛔ FAILS on f9102e8: the rename was offered and applied beside them."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        owner_folder(tmp, day="2024:11:01 09:00:00", rel="2024/20241101_Old trip")
+        owner_folder(tmp, day="2024:11:02 09:00:00", rel="2024/20241102_Other day")
+        wd, _pack = ix.g3_dump(tmp, batches=[
+            {"batch": 1, "from": "2024-11-01", "to": "2024-11-02", "place": "Ford"}])
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        must(ix.run("fix-plan", wd, "--agent", "F001", "--to",
+                    "20241101-1102_Ford_morning", "--reason", "the morning"), "agent")
+        ix.run("fix-plan", wd)
+        got = rows(wd)
+        listed = "cannot apply beside it" in page(wd).read_text()
+        answer(wd, *["ok" for _ in got])
+        acode, _aout, aerr = apply(wd)
+    days = [x for x in got if "DAYS-INTO-EXISTING (R4) · F001" in x]
+    return (len(days) == 2 and not [x for x in got if "(agent) · F001" in x]
+            and listed and acode == 0), f"rows={got} apply={acode} {aerr[-300:]!r}"
+
+
 FLAT_SPAN = "2024/20240901-1215_Lotus_tower"
 
 
