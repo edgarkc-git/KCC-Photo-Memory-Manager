@@ -2203,6 +2203,33 @@ def settle_no_date_rows_writes_nothing_and_matches_the_no_date_plan():
 
 
 @case
+def a_zero_byte_file_is_junk_listed_and_never_copied():
+    """⭐ C-27 REPRODUCTION (Camera: a 0-byte `.temp-*` camera write copied
+    into the undated bucket). ⛔ FAILS on f9102e8: the no-date plan copied
+    it. Now it is `skip_junk`, still a row of the no-date list, and the
+    index's own first route says the same."""
+    import photo_index
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, pack = runnable_workdir(
+            tmp, {1: [label("/raw/a.jpg", {"subject_id": "subj-0001"})]})
+        (wd / "no-date-files.csv").write_text(
+            "SourceFile,FileName,FileType,FileSize,Make,Model\n"
+            "/raw/.temp-1.jpg,.temp-1.jpg,-,0,-,-\n"
+            "/raw/n.jpg,n.jpg,JPEG,10,-,-\n", encoding="utf-8")
+        r = plan_run(wd, pack, "--no-date")
+        path = wd / "plan" / "plan_no-date-files.csv"
+        got = {x["SourceFile"]: x["action"]
+               for x in csv.DictReader(open(path))} if path.exists() else {}
+        msg = photo_profile.messages(EN)
+        first = photo_index.init_route(
+            {"FileName": ".temp-1.jpg", "FileType": "-", "FileSize": "0",
+             "Make": "-", "Model": "-"}, False, msg)[0]
+    return (r.returncode == 0 and got == {"/raw/.temp-1.jpg": "skip_junk",
+                                          "/raw/n.jpg": "copy"}
+            and first == "skip_junk"), f"rc={r.returncode} got={got} first={first}"
+
+
+@case
 def a_manifest_with_no_file_date_keeps_todays_no_date_bucket():
     """GUARD — and stated as one on purpose: M14's per-file year is NOT BUILT
     when this case is written, so there is no fixed code for it to fail

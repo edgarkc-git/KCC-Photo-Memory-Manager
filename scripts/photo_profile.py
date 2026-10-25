@@ -784,6 +784,7 @@ MESSAGE_VOCAB = {
             "為截圖,既有檔位於行程資料夾,可手動移至月度截圖資料夾",
         "note_format_undeterminable": "無法判定實際檔案格式(D13)→ 需人工確認",
         "note_junk_sidecar": "系統中繼檔(AppleDouble/資源分支),非媒體 → 不複製",
+        "note_junk_empty": "空檔案(0 位元組),非媒體 → 不複製",
         "note_screenshot_exif_rule": "截圖(EXIF規則)",
         "note_shared": "shared(非本機拍攝,依日期歸檔 D-B)",
         "note_ai_confirmed": "AI生成(已人工確認)→ {bucket}",
@@ -985,6 +986,7 @@ MESSAGE_VOCAB = {
         "note_junk_sidecar":
             "a system metadata sidecar (AppleDouble / resource fork), not media "
             "→ not copied",
+        "note_junk_empty": "an empty file (0 bytes), not media → not copied",
         "note_screenshot_exif_rule": "screenshot (EXIF rule)",
         "note_shared": "shared (not shot on this device, filed by date D-B)",
         "note_ai_confirmed": "AI-generated (confirmed by a human) → {bucket}",

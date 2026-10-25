@@ -76,6 +76,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from photo_cluster import parse_date  # noqa: E402
 import photo_magic  # noqa: E402
+import photo_sample  # noqa: E402
 from photo_sample import (IMAGE_TYPES, SCREENSHOT_NAME,  # noqa: E402
                           VIDEO_TYPES, preclassify, screen_dims)
 import photo_evidence  # noqa: E402
@@ -1074,7 +1075,7 @@ def route(row, plan, dest_root, dupes, msg, format_known=True, profile=None,
     # since bd1a3b2 (2026-07-30), so only a manifest written before that date
     # can produce one; those manifests are still on disk and still replayed.
     if cls == "junk":
-        return "skip_junk", "", msg["note_junk_sidecar"], {"junk"}
+        return "skip_junk", "", junk_note(row, msg), {"junk"}
     if not format_known:
         # D13: real format undeterminable -> human-attention placeholder
         return ("copy", f"{dest_root}/{month}00_{bk['others']}",
@@ -1259,6 +1260,10 @@ def routes_by_file_date(rows):
     return bool(rows) and "FileModifyDate" in rows[0]
 
 
+def junk_note(row, msg):
+    return msg["note_junk_empty" if photo_sample.is_empty(row) else "note_junk_sidecar"]
+
+
 def settle_no_date_rows(workdir, dest_root, profile, msg, ai_confirmed=False,
                         twins=None):
     """-> (rows, counts per class, bucket root) — every no-date file with its
@@ -1287,7 +1292,10 @@ def settle_no_date_rows(workdir, dest_root, profile, msg, ai_confirmed=False,
         r["_class"] = cls
         r["_name"], note, _known = dest_name(r, msg)
         r["_action"] = "copy"
-        if cls == "no_exif" and ai_confirmed:
+        if cls == "junk":
+            # C-27 — a 0-byte file has no date either; listed, never copied.
+            r["_action"], r["_dest"], note = "skip_junk", "", junk_note(r, msg)
+        elif cls == "no_exif" and ai_confirmed:
             r["_dest"] = f"{bucket_root}_{names['ai_images']}"
             note = join_note(note, msg["note_ai_confirmed"].format(
                 bucket=names["ai_images"]), msg)

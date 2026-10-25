@@ -229,6 +229,12 @@ TIERS = {
 }
 
 
+def is_empty(row):
+    """C-27 — a 0-byte file (a camera's unfinished `.temp-*` write) holds no
+    media: junk, never copied."""
+    return str(row.get("FileSize") or "").split(" ")[0] == "0"
+
+
 def tier_of(row, profile=None):
     """-> (tier, class) for one manifest row. Camera-bearing rows get no tier.
 
@@ -248,7 +254,7 @@ def tier_of(row, profile=None):
     # bd1a3b2 on 2026-07-30), so no row from a manifest scanned after that
     # date can reach here. The tier exists for the manifests written BEFORE
     # it, which are still on disk and still replayed.
-    if name.startswith("._") or ftype == "MacOS":
+    if name.startswith("._") or ftype == "MacOS" or is_empty(row):
         return "T0", "junk"
 
     if not no_camera:
