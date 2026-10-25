@@ -455,6 +455,40 @@ def unbacked_names(plan, rows, visual, names):
     return out
 
 
+def plan_folders(plan):
+    """-> every folder path `plan` writes: its destination, legs, overrides."""
+    dest = plan["dest"]["path"]
+    out = {dest} | {f"{dest}/{leg['name']}" for leg in plan.get("legs") or []}
+    for ov in plan.get("overrides") or []:
+        out.add(ov["dest"]["path"] if isinstance(ov["dest"], dict) else ov["dest"])
+    return out
+
+
+def shared_rows(workdir, config, plan, bdata, dest_root, profile, msg, twins):
+    """M17 / L-13 — (rows, batch numbers) of every OTHER plan's copies into a
+    folder this plan writes. A split folder is fed by two plans (one reads
+    its own batch, one sends a day there as an override); its name, period
+    and [who] are the FOLDER's (G30), so the checks judge all its files.
+
+    ⛔ Checks only: the plan CSV and document stay this plan's own rows."""
+    mine = plan_folders(plan)
+
+    def into_mine(path):
+        return any(path == f or path.startswith(f + "/") or f.startswith(path + "/")
+                   for f in mine)
+
+    out, numbers = [], []
+    for other in config["plans"]:
+        if other["plan"] == plan["plan"] or not any(into_mine(f) for f in plan_folders(other)):
+            continue
+        batches = [b for b in bdata["batches"] if b["batch"] in other["batches"]]
+        rows = settle_rows(workdir, other, batches, dest_root, profile, msg, twins=twins)[0]
+        out += [r for r in rows if r["_action"] == "copy" and any(
+            r["_dest"] == f or r["_dest"].startswith(f + "/") for f in mine)]
+        numbers += other["batches"]
+    return out, numbers
+
+
 def unbacked_message(plan_number, unbacked, msg):
     """-> the refusal, every sentence from the owner's table (Rule 8)."""
     sep = msg["ref_separator"]
@@ -1553,8 +1587,10 @@ def main():
     # it keeps (B3b). Said out loud on stderr so it
     # reaches an operator reading a terminal AND a log, and so a refusal is
     # never something only a careful reader of the plan document would notice.
+    others, other_batches = shared_rows(workdir, config, plan, bdata, dest_root,
+                                        profile, msg, twin_paths(twin_map))
     name_refusals, name_warnings = check_plan_names(
-        plan, batches, *photo_profile.name_budget(profile), rows=rows)
+        plan, batches, *photo_profile.name_budget(profile), rows=rows + others)
     for w in name_warnings:
         print(f"  name warning: {w}", file=sys.stderr)
     for r in name_refusals:
@@ -1583,7 +1619,9 @@ def main():
     # file and no advanced batch behind it. ⛔ A hard stop, unlike R12's
     # grammar check above: R12 would refuse names already on the drive, and
     # this fires only when a pet's name has nothing to back it.
-    unbacked = unbacked_names(plan, rows, visual, subject_names(pack))
+    seen_all = visual if not others else visual_columns(
+        workdir, sorted(set(plan["batches"]) | set(other_batches)), profile, pack)
+    unbacked = unbacked_names(plan, rows + others, seen_all, subject_names(pack))
     if unbacked:
         sys.exit(unbacked_message(args.plan, unbacked, msg))
 

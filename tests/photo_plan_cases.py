@@ -1718,6 +1718,116 @@ def a_folder_that_receives_no_file_is_not_judged():
         return r.returncode == 0, f"rc={r.returncode} err={r.stderr[-300:]!r}"
 
 
+def shared_folder_workdir(root, labels, shared):
+    """M17 / L-13 — the freeze's shape after a split into a folder another
+    plan owns: plan 1 reads batch 1 (a.jpg 01-01, c.jpg 01-02) into
+    `20260101_ABC` with 01-02 overridden into `shared`; plan 2 reads batch 2
+    (b.jpg 01-03) straight into `shared`. Both batches are seen."""
+    wd, pack = build(root, PETS + [drafted("subj-0003", name=None)],
+                     {1: [x for x in labels if x["path"] != "/raw/b.jpg"],
+                      2: [x for x in labels if x["path"] == "/raw/b.jpg"]})
+    sorted_ = Path(root) / "sorted"
+    (wd / "batches.json").write_text(json.dumps({
+        "source": "/raw", "main_files": 3, "no_exif_date": 0, "batches": [
+            {"batch": 1, "from": "2026-01-01", "to": "2026-01-02",
+             "status": "classified", "label": "day out"},
+            {"batch": 2, "from": "2026-01-03", "to": "2026-01-03",
+             "status": "classified", "label": "day out"}]}), encoding="utf-8")
+    (wd / "plans.json").write_text(json.dumps({
+        "dest_root": str(sorted_),
+        "plans": [
+            {"plan": 1, "title": "B1", "batches": [1],
+             "dest": {"mode": "new", "path": str(sorted_ / "20260101_ABC")},
+             "overrides": [{"dates": ["2026-01-02"],
+                            "dest": str(sorted_ / shared),
+                            "reason": "photo_index: days F2 holds"}]},
+            {"plan": 2, "title": "B2", "batches": [2],
+             "dest": {"mode": "new", "path": str(sorted_ / shared)}}]}),
+        encoding="utf-8")
+    lines = ["SourceFile,FileName,FileType,FileSize,DateTimeOriginal,"
+             "CreateDate,GPSPosition,Make,Model,Software,ImageWidth,"
+             "ImageHeight,Duration,UserComment"]
+    for name, day in (("a.jpg", "01"), ("b.jpg", "03"), ("c.jpg", "02")):
+        lines.append(f"/raw/{name},{name},JPEG,100,2026:01:{day} 10:00:00,-,-,"
+                     "Apple,-,-,4032,3024,-,-")
+    (wd / "manifest.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return wd, pack
+
+
+def plan_run_n(wd, pack, n):
+    env = dict(os.environ)
+    env[photo_profile.ENV_VAR] = str(pack / "photo-profile.json")
+    return subprocess.run(
+        [sys.executable, str(SCRIPTS / "photo_plan.py"), str(wd),
+         "--plan", str(n)], capture_output=True, text=True, env=env)
+
+
+SHARED_LABELS = [label("/raw/a.jpg", None),
+                 label("/raw/b.jpg", {"subject_id": "subj-0001"}),
+                 label_r4("/raw/c.jpg", [{"subject_id": "subj-0002"},
+                                         {"subject_id": "subj-0003"}])]
+
+
+@case
+def a_folder_fed_by_two_plans_is_backed_by_the_other_plans_files():
+    """⭐ L-13 REPRODUCTION (the Liked freeze, P9 into split folder F062).
+    Plan 1's one file in the shared folder shows Birk and a draft; Lotus is
+    seen only in plan 2's file of the SAME folder. [who] is folder-level
+    (G30): both plans pass. ⛔ FAILS on f9102e8: plan 1 exits 1 with the
+    unbacked refusal for Lotus."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, pack = shared_folder_workdir(
+            tmp, SHARED_LABELS, "20260102-0103_XYZ_Lotus+Birk_play")
+        r1, r2 = plan_run_n(wd, pack, 1), plan_run_n(wd, pack, 2)
+        return r1.returncode == 0 and r2.returncode == 0, \
+            f"rc={r1.returncode},{r2.returncode} err={r1.stderr[-400:]!r}"
+
+
+@case
+def a_folder_fed_by_two_plans_where_no_file_backs_the_pet_is_refused():
+    """Guard (F12 not weakened): the same shape, and no file of EITHER plan
+    in the shared folder shows Lotus — both plans still refuse."""
+    with tempfile.TemporaryDirectory() as tmp:
+        labels = [label("/raw/a.jpg", {"subject_id": "subj-0001"}),
+                  label("/raw/b.jpg", {"subject_id": "subj-0002"}),
+                  label("/raw/c.jpg", {"subject_id": "subj-0003"})]
+        wd, pack = shared_folder_workdir(
+            tmp, labels, "20260102-0103_XYZ_Lotus+Birk_play")
+        r1, r2 = plan_run_n(wd, pack, 1), plan_run_n(wd, pack, 2)
+        said = "Lotus" in r1.stderr and "Lotus" in r2.stderr
+        return r1.returncode != 0 and r2.returncode != 0 and said, \
+            f"rc={r1.returncode},{r2.returncode} err={r1.stderr[-300:]!r}"
+
+
+@case
+def a_folder_fed_by_two_plans_is_named_on_all_its_days():
+    """⭐ L-13 (a) REPRODUCTION: the shared folder's period covers both
+    plans' days (01-02 from plan 1, 01-03 from plan 2) — no NAME CHECK line
+    from either plan. ⛔ FAILS on f9102e8: plan 1 judges `0102-0103`
+    against 01-02 only, plan 2 against 01-03 only."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, pack = shared_folder_workdir(
+            tmp, SHARED_LABELS, "20260102-0103_XYZ_Lotus+Birk_play")
+        r1, r2 = plan_run_n(wd, pack, 1), plan_run_n(wd, pack, 2)
+        said = [ln for r in (r1, r2) for ln in r.stderr.splitlines()
+                if "NAME CHECK FAILED" in ln]
+        return r1.returncode == 0 and r2.returncode == 0 and not said, \
+            f"rc={r1.returncode},{r2.returncode} said={said}"
+
+
+@case
+def a_shared_folder_named_wider_than_all_its_days_is_still_flagged():
+    """Guard: `0101-0103` is wider than every day the shared folder keeps
+    (01-02..01-03, both plans together) — still a NAME CHECK line."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, pack = shared_folder_workdir(
+            tmp, SHARED_LABELS, "20260101-0103_XYZ_Lotus+Birk_play")
+        r1, r2 = plan_run_n(wd, pack, 1), plan_run_n(wd, pack, 2)
+        flagged = all("NAME CHECK FAILED" in r.stderr and "0101-0103" in r.stderr
+                      for r in (r1, r2))
+        return flagged, f"err1={r1.stderr[-300:]!r} err2={r2.stderr[-300:]!r}"
+
+
 @case
 def the_refusal_is_in_the_owners_language():
     """Rule 8, one source (LL-PHO-188): the refusal reads the owner's table."""
