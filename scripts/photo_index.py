@@ -4143,7 +4143,10 @@ def span_days(year, m1, d1, m2, d2):
 def existing_trips(tree, root, own, mine):
     """-> {trip folder: ((first, last), {leg folder: (first, last)})} for the
     trip folders in the dest scan (`YYYYMMDD-MMDD_...`, legs `MMDD[-MMDD]_...`
-    inside), never one this dump created."""
+    inside), never one this dump created. ⛔ A trip holds a leg folder (L-11):
+    a flat dated folder — measured, 206 files across six months and no
+    subfolder — is a folder, never a trip; R4's day rule still finds its
+    days."""
     out = {}
     for t in tree:
         if not t["folder"] or path_key(t["path"]) in own:
@@ -4168,7 +4171,7 @@ def existing_trips(tree, root, own, mine):
                     if leg:
                         legs["/".join(parts[:i + 2])] = leg
             break
-    return out
+    return {trip: v for trip, v in out.items() if v[1]}
 
 
 def into_existing_trips(ctx, tree, root, own, mine, taken):

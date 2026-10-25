@@ -1488,6 +1488,36 @@ def the_freezes_own_name_check_judges_the_new_leg_not_the_trip():
         f"freeze={fcode} legs={[(p['dest']['path'][-40:], p.get('legs')) for p in plans]} said={said}"
 
 
+FLAT_SPAN = "2024/20240901-1215_Lotus_tower"
+
+
+@case
+def a_flat_folder_spanning_months_is_not_a_trip():
+    """⭐ L-11 REPRODUCTION (Liked: R4 offered a leg inside a flat folder of
+    206 files and no subfolder, `2022/20220620-1210_...`). An owner folder
+    with a `YYYYMMDD-MMDD` name and no leg folder in it is not a trip: no
+    R4 row puts 11-01 or 11-02 into it. ⛔ FAILS on f9102e8: two
+    INTO-EXISTING rows, each "a new leg folder" in it."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        owner_folder(tmp, day="2024:09:05 09:00:00", rel=FLAT_SPAN)
+        wd, _pack = ix.g3_dump(tmp)
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        ix.run("fix-plan", wd)
+        got = [x for x in rows(wd) if "R4" in x]
+    return not any("20240901-1215" in x for x in got), f"rows={got}"
+
+
+@case
+def a_trip_with_a_leg_folder_still_takes_a_new_leg():
+    """GUARD (L-11): the trip test is the leg folder, so the S-4 shape — a
+    trip holding a leg — still offers its new leg."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd = trip_with_one_leg(tmp)
+        got = [x for x in rows(wd) if "INTO-EXISTING (R4)" in x and "F002" in x]
+    return len(got) == 1 and "a new leg folder" in got[0], f"rows={got}"
+
+
 TRIP_1030_31 = "2024/20241030-1031_Ruritania_Ford"
 TRIP_1030_1102 = "2024/20241030-1102_Ruritania_Ford"
 
