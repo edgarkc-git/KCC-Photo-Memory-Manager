@@ -1800,6 +1800,24 @@ def a_folder_fed_by_two_plans_where_no_file_backs_the_pet_is_refused():
 
 
 @case
+def another_plans_missing_dedupe_never_stops_this_plan():
+    """Guard (Lead's ask on 747a978): plan 2 declares a dedupe ref and has no
+    results. Plan 1 is not stopped by plan 2's OA-3 gap — plan 2's files are
+    left out of the folder's evidence, so its Lotus refusal stands (the
+    pre-M17 judgement) — while plan 2 itself still stops on OA-3."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, pack = shared_folder_workdir(
+            tmp, SHARED_LABELS, "20260102-0103_XYZ_Lotus+Birk_play")
+        plans = json.loads((wd / "plans.json").read_text())
+        plans["plans"][1]["refs"] = [str(Path(tmp) / "ref.csv")]
+        (wd / "plans.json").write_text(json.dumps(plans))
+        r1, r2 = plan_run_n(wd, pack, 1), plan_run_n(wd, pack, 2)
+        ok = ("dedupe" not in r1.stderr and "Lotus" in r1.stderr
+              and r1.returncode != 0 and "photo_dedupe" in r2.stderr + r2.stdout)
+        return ok, f"rc={r1.returncode},{r2.returncode} err1={r1.stderr[-300:]!r}"
+
+
+@case
 def a_folder_fed_by_two_plans_is_named_on_all_its_days():
     """⭐ L-13 (a) REPRODUCTION: the shared folder's period covers both
     plans' days (01-02 from plan 1, 01-03 from plan 2) — no NAME CHECK line

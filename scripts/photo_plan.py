@@ -481,6 +481,11 @@ def shared_rows(workdir, config, plan, bdata, dest_root, profile, msg, twins):
     for other in config["plans"]:
         if other["plan"] == plan["plan"] or not any(into_mine(f) for f in plan_folders(other)):
             continue
+        if other.get("refs") and load_dedupe(workdir, other["batches"])[1]:
+            # OA-3 stops a plan for its OWN missing dedupe results only; the
+            # other plan's files are then left out (the stricter judgement),
+            # never routed as copies without their dedupe.
+            continue
         batches = [b for b in bdata["batches"] if b["batch"] in other["batches"]]
         rows = settle_rows(workdir, other, batches, dest_root, profile, msg, twins=twins)[0]
         out += [r for r in rows if r["_action"] == "copy" and any(
