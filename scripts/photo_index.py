@@ -2185,9 +2185,14 @@ def cmd_apply_page(args):
     registry = photo_subjects.load(pack=pack)
     blocks = photo_memory.parse_review(text)
     places = photo_memory.parse_places(text)
-    report, _bdir = photo_memory.see_reports(workdir).get(batch, (None, None))
-    source_of = {e.get("sample"): e.get("path")
-                 for e in (report or {}).get("selected") or [] if e.get("sample")}
+    # C-17 — the page past the cap shows frames of any batch of this dump:
+    # every see-report is read, the page's own batch last so it wins a tie.
+    reports = photo_memory.see_reports(workdir)
+    source_of, batch_of = {}, {}
+    for n in sorted(reports, key=lambda n: n == batch):
+        for e in (reports[n][0] or {}).get("selected") or []:
+            if e.get("sample"):
+                source_of[e["sample"]], batch_of[e["sample"]] = e.get("path"), n
     file_of = {f["source"]: f["file_id"] for f in index["files"]}
     crop_picks = [f"Q{block['n']}: {unit['crop_refusal']}" for block in blocks
                   for unit in block["picks"] if unit.get("crop_refusal")]
@@ -2207,8 +2212,10 @@ def cmd_apply_page(args):
                 if subject is None:
                     # G6-6d — a photo with 2+ animals: its names were logged on
                     # the photo itself, and its draft moved nowhere.
-                    subject = shared_frame_subject(workdir, registry, batch,
-                                                   source_of.get(Path(frame["path"]).name),
+                    sample = Path(frame["path"]).name
+                    subject = shared_frame_subject(workdir, registry,
+                                                   batch_of.get(sample, batch),
+                                                   source_of.get(sample),
                                                    unit["name"])
                 if subject is not None:
                     ids.add(subject.subject_id)

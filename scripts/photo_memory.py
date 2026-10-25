@@ -1732,7 +1732,7 @@ def seen_in_unit(subject, unit, batch=None):
 
 
 def build_questions(registry, workdir, pack, profile, rmsg, last_ask=False,
-                    batch=None):
+                    batch=None, late=False):
     """-> (questions, suppressed, round_deferred, held_for_final). ONE `Group
     it` question per `kind`, ranked by blast radius, each carrying that kind's
     unsettled drafts as numbered tiles (ONB-13a).
@@ -1795,15 +1795,23 @@ def build_questions(registry, workdir, pack, profile, rmsg, last_ask=False,
     where = FrameWhere(profile, rmsg)
 
     unit = Path(workdir).name
+    # C-17 (G72) — the ONE page past the cap asks every draft that STARTED in
+    # this dump and was never asked in it, from any of its batches; its frames
+    # are this work dir's, like a batch page's.
+    home = batch is not None or late
     for subject in sorted(registry.drafts,
                           key=lambda s: (not seen_in_unit(s, unit),
                                          -int(s.record.get("files", 0)),
                                          s.subject_id)):
-        if batch is not None and not seen_in_unit(subject, unit, batch):
+        if batch is not None and not late and not seen_in_unit(subject, unit, batch):
             # G6 (R7) — a batch page asks about the drafts OBSERVED in its
             # batch. The others are not this page's to list, even as withheld.
             # B1-3 (E36) — in THIS unit's batch: batch numbers restart at 1 in
             # every dump, so an earlier dump's batch 3 is not this page's.
+            continue
+        if late and not ((subject.record.get("origin") or {}).get("unit") == unit
+                         and seen_in_unit(subject, unit)
+                         and subject.subject_id not in seen_before):
             continue
         if subject.subject_id in settled:
             suppressed.append((subject.subject_id,
@@ -1860,7 +1868,7 @@ def build_questions(registry, workdir, pack, profile, rmsg, last_ask=False,
                                    f"asked at {page_label(prior[0])}, "
                                    "no new evidence"))
                 continue
-        sheet = (home_sheet(subject, workdir, frames) if batch is not None
+        sheet = (home_sheet(subject, workdir, frames) if home
                  else list(subject.record.get("contact_sheet") or [])[:frames])
         if not sheet:
             # Frames are the ONLY way an owner can notice that one cluster
@@ -1874,7 +1882,7 @@ def build_questions(registry, workdir, pack, profile, rmsg, last_ask=False,
                                "ai-drafted, still askable"))
             continue
         shown, dropped = tile_frames(subject, sheet, workdir, crops, where,
-                                     home=batch is not None)
+                                     home=home)
         if not shown and "not_mine" in dropped:
             suppressed.append(
                 (subject.subject_id,
@@ -4759,8 +4767,10 @@ def cmd_review(args):
     # lifting is the empty final round D7 measured.
     last_ask = bool(getattr(args, "final", False)
                     and not final_round_asked(workdir))
+    late = bool(getattr(args, "late", False))
     questions, suppressed, round_deferred, held_for_final = build_questions(
-        registry, workdir, pack, profile, rmsg, last_ask=last_ask, batch=batch)
+        registry, workdir, pack, profile, rmsg, last_ask=last_ask, batch=batch,
+        late=late)
     represented = build_representations(registry, profile, rmsg, workdir,
                                         FrameCrops(workdir, pack))
     places = []
@@ -4857,6 +4867,8 @@ def cmd_review(args):
             gone_section(photo_profile.review_messages(pack.profile), gone)) + "\n"
         print(f"{len({gone_path(f).name for f in gone})} memory photo(s) "
               "skipped: the file is gone — listed at the end of the page")
+    if late:
+        text = text.rstrip("\n") + "\n\n" + rmsg["review_late_page"] + "\n"
     if batch is None and out.exists():
         refusal = page_reuse_refusal(out, text)
         if refusal:
@@ -4931,6 +4943,14 @@ def cmd_review(args):
     return 0
 
 
+def seen_in_batch(registry, workdir, batch):
+    """-> True when a draft that started in this dump was seen in `batch`:
+    where the one page past the cap goes (C-17), the first such batch."""
+    unit = Path(workdir).name
+    return any((s.record.get("origin") or {}).get("unit") == unit
+               and seen_in_unit(s, unit, batch) for s in registry.drafts)
+
+
 def next_page(args, workdir, pack, registry, rmsg):
     """G6 (D-I6) — write the next batch page that is due. -> an exit status:
     PAGE_WRITTEN_RC, PAGE_WAITING_RC, or 0 when no page is due.
@@ -4973,6 +4993,7 @@ def next_page(args, workdir, pack, registry, rmsg):
                      .get("batches", []))
     said = {entry.get("change") for entry in index.get("log") or []}
     logged = []
+    late = False
     for number in batches:
         if number <= last:
             continue
@@ -4981,11 +5002,19 @@ def next_page(args, workdir, pack, registry, rmsg):
                                                pack.profile, rmsg,
                                                batch=number)[0]:
             kinds.append("sns")
+        elif pet_pages == cap and seen_in_batch(registry, workdir, number) and \
+                build_questions(registry, workdir, pack, pack.profile, rmsg,
+                                late=True)[0]:
+            # C-17 (G72) — the cap hid a NEW animal: ONE page more, before
+            # the copy, asking every new draft of this dump at once.
+            kinds.append("sns")
+            late = True
         if places.get(number):
             kinds.append("snl")
         if kinds:
             break
         why = (f"the {cap} pet page(s) are used and no new place is named here"
+               + ("" if pet_pages > cap else " (no new animal of this dump is waiting)")
                if pet_pages >= cap else "nothing to ask")
         change = f"B{number:02d}: no page — {why}"
         print(f"  {change}")
@@ -5007,7 +5036,7 @@ def next_page(args, workdir, pack, registry, rmsg):
         return PAGE_WRITTEN_RC
     cmd_review(argparse.Namespace(workdir=str(workdir), profile=args.profile,
                                   batch=number, out=None, checkpoint=None,
-                                  places_only="sns" not in kinds))
+                                  places_only="sns" not in kinds, late=late))
     return PAGE_WRITTEN_RC
 
 

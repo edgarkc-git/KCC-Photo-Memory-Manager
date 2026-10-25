@@ -1272,6 +1272,10 @@ REVIEW_VOCAB = {
         "review_title": "Memory Review — Checkpoint C{n}",
         # G6 — the per-batch page.
         "review_page_title": "Photo page {page} — batch {batch}",
+        "review_late_page": "This is the one page past this dump's pet-page "
+                            "limit: it asks about every animal first seen in "
+                            "this dump that no page has asked about yet, from "
+                            "all its batches.",
         "review_page_asks": "This page asks only about this batch: its "
                             "animals, and a place you visit often if one "
                             "first shows up here. It is one of a few short "

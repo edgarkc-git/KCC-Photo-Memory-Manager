@@ -172,15 +172,16 @@ def pages_go_to_the_first_pet_batches_and_every_new_place():
     """⭐ REPRODUCTION (U5-11). ⛔ FAILS on 8a70e69: there is no batch page, and
     `review` writes a dump-wide checkpoint page instead. Animals in batches
     1, 2, 3, 5, 6, 7 and a new place first seen in batch 6, with 4 pet pages:
-    pages for 1, 2, 3, 5 (animals) and 6 (the place alone). Batch 4 had
-    nothing to ask; 7 and 8 come after the pet pages are used. Each skip is
-    in the index log."""
+    pages for 1, 2, 3, 5 (animals) and 6 — its place, and since M17 (C-17,
+    G72) the ONE page past the cap, asking this dump's new animals of 6 and
+    7. Batch 4 had nothing to ask; 7 and 8 come after. Each skip is in the
+    index log."""
     with tempfile.TemporaryDirectory() as tmp, fixture_env():
         wd, _pack, extra = page_dump(tmp)
         seen, rc, said = walk_pages(tmp, wd, extra)
         log = [e["change"] for e in index_of(tmp)["log"]]
     want = [("P-B01", ["sns"]), ("P-B02", ["sns"]), ("P-B03", ["sns"]),
-            ("P-B05", ["sns"]), ("P-B06", ["snl"])]
+            ("P-B05", ["sns"]), ("P-B06", ["sns", "snl"])]
     skipped = [c for c in log if ": no page — " in c]
     return (seen == want and rc == 0
             and [c[:3] for c in skipped] == ["B04", "B07", "B08"]
@@ -189,14 +190,79 @@ def pages_go_to_the_first_pet_batches_and_every_new_place():
         f"seen={seen} rc={rc} skipped={skipped} said={said[-300:]!r}"
 
 
+def page_batches(text):
+    """-> the batch numbers of the frames a page shows."""
+    import re
+    return sorted({int(n) for n in re.findall(r"batch-(\d+)/samples", text)})
+
+
+@case
+def the_cap_never_hides_a_new_animal():
+    """⭐ C-17 REPRODUCTION (Camera: after 4 pet pages the new cream cat was
+    never asked; Liked: the kittens). Cap 1, animals new to this dump in
+    batches 1, 2 and 3: page 1, then ONE page more at batch 2 asking the
+    animals of 2 AND 3 (frames of both), then nothing — cap + 1. ⛔ FAILS on
+    f9102e8: one page, batches 2 and 3 never asked."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, _pack, extra = page_dump(tmp, pets=(1, 2, 3), place_batches=(),
+                                     pet_pages=1)
+        seen, rc, _said = walk_pages(tmp, wd, extra)
+        late = (wd / "P-B02.md").read_text() if (wd / "P-B02.md").exists() else ""
+    return ([s[0] for s in seen] == ["P-B01", "P-B02"] and rc == 0
+            and page_batches(late) == [2, 3]
+            and photo_profile.review_messages({})["review_late_page"] in late), \
+        f"seen={seen} rc={rc} batches={page_batches(late)}"
+
+
+@case
+def a_name_on_the_late_page_reaches_its_batchs_folder():
+    """⭐ C-17 end to end (Lead's ask): the late page P-B02 names the animal
+    of batch 3 — a tile from ANOTHER batch than the page's. `confirm --page`
+    and `apply-page` take it (the row holds batch 3's file), and `render`
+    puts the name in batch 3's folder."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, extra = page_dump(tmp, pets=(1, 2, 3), place_batches=(),
+                                        pet_pages=1)
+        op.declare_pets(str(pack_dir), ["Birk"])
+        next_page(wd, extra)
+        record_page(tmp, wd, "P-B01")
+        next_page(wd, extra)
+        page = wd / "P-B02.md"
+        text = page.read_text()
+        blocks = pm.parse_review(text)
+        numbers = [n for b in blocks for n, f in b["frames"].items()
+                   if "batch-03/" in f["path"]]
+        page.write_text(pmc.fill_pick(text, None, who="pet", name="Birk same",
+                                      frames=numbers[:1]))
+        rc, said = pmc.confirm_page(pack_dir, wd, page="P-B02", go=True)
+        code, out, err = apply_page(wd, "P-B02", "--go")
+        # `pmc.batch_fixture` appends 3-column rows for files page_dump's
+        # manifest already holds in full; render reads the full ones.
+        lines = (wd / "manifest.csv").read_text().splitlines()
+        (wd / "manifest.csv").write_text("\n".join(
+            [ln for ln in lines if ln.count(",") == lines[0].count(",")]) + "\n")
+        rcode, rout, rerr = ix.run("render", wd, "--no-vision")
+        index = index_of(tmp)
+    batch3 = {f["file_id"] for f in index["files"] if "B3_C0" in f["source"]}
+    rows = next((p["rows"] for p in index["pages"] if p["page_id"] == "P-B02"), [])
+    named = [fo.get("rendered") for fo in index["folders"]
+             if 3 in (fo.get("batches") or [])]
+    return (numbers and rc == 0 and code == 0 and rcode == 0
+            and rows and set(rows[0]["file_ids"]) <= batch3 and rows[0]["file_ids"]
+            and any("Birk" in (n or "") for n in named)), \
+        f"numbers={numbers} rc={rc} code={code} render={rcode} rows={rows} " \
+        f"named={named} said={said[-300:]!r} err={err[-300:]!r} {rerr[-300:]!r}"
+
+
 @case
 def the_pet_page_count_comes_from_the_pack():
     """REPRODUCTION (R8). ⛔ FAILS on 8a70e69. The same dump with
-    `memory.batch_pages` 2: pets get pages 1 and 2, the place still gets 6."""
+    `memory.batch_pages` 2: pets get pages 1 and 2, the one page past the cap
+    is 3 (C-17), the place still gets 6."""
     with tempfile.TemporaryDirectory() as tmp, fixture_env():
         wd, _pack, extra = page_dump(tmp, pet_pages=2)
         seen, rc, _said = walk_pages(tmp, wd, extra)
-    return ([s[0] for s in seen] == ["P-B01", "P-B02", "P-B06"] and rc == 0
+    return ([s[0] for s in seen] == ["P-B01", "P-B02", "P-B03", "P-B06"] and rc == 0
             and photo_profile.batch_pages({}) == 4), f"seen={seen} rc={rc}"
 
 
