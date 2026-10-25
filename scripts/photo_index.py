@@ -92,8 +92,10 @@ needs the SHA, so the two questions are one.
 """
 
 import argparse
+import contextlib
 import csv
 import hashlib
+import io
 import json
 from collections import Counter
 import os
@@ -4704,6 +4706,14 @@ def write_fix_plan(workdir, index, ops, refused):
     (workdir / "plan").mkdir(exist_ok=True)
     page = workdir / "plan" / FIX_PLAN_MD
     page.write_text(fix_plan_text(workdir, index, ops, refused), encoding="utf-8")
+    html = page.with_suffix(".html")
+    if html.exists():
+        # L-10 — a web page already made from an older plan would show rows
+        # that are gone: it is made again from these.
+        import photo_fixplan_page
+        with contextlib.redirect_stdout(io.StringIO()):
+            photo_fixplan_page.main(["render", str(page), "--workdir", str(workdir)])
+        print(f"{html.name} made again from the new rows")
     return page
 
 

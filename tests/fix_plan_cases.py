@@ -1571,6 +1571,24 @@ def a_folder_every_day_of_which_goes_elsewhere_offers_no_rename():
             and listed and acode == 0), f"rows={got} apply={acode} {aerr[-300:]!r}"
 
 
+@case
+def a_freeze_that_writes_rows_rewrites_the_web_page():
+    """⭐ L-10 REPRODUCTION (Liked: `freeze` wrote the new Review folders
+    rows to fix-plan.md; the old 21-row fix-plan.html stayed until a hand
+    `render`). A page already rendered is rendered again from the new rows.
+    ⛔ FAILS on f9102e8: the old page is left as it was."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        owner_folder(tmp)
+        wd, _pack = ready(tmp)
+        (wd / "plan").mkdir(exist_ok=True)
+        html = wd / "plan" / "fix-plan.html"
+        html.write_text("<html>OLD PAGE</html>", encoding="utf-8")
+        code, _o, _e = ix.run("freeze", wd)
+        text = html.read_text(encoding="utf-8")
+    return (code == 3 and "OLD PAGE" not in text and "INTO-EXISTING" in text), \
+        f"freeze={code} page={text[:120]!r}"
+
+
 FLAT_SPAN = "2024/20240901-1215_Lotus_tower"
 
 
