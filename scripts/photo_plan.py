@@ -423,6 +423,8 @@ def unbacked_names(plan, rows, visual, names):
     folders += [(f"{parent}/{leg['name']}", False)
                 for leg in plan.get("legs") or []]
     for ov in plan.get("overrides") or []:
+        if ov.get("merge"):
+            continue
         dest = ov["dest"]
         folders.append((dest["path"] if isinstance(dest, dict) else dest, True))
     copies = [r for r in rows if r["_action"] == "copy"]
@@ -1532,7 +1534,9 @@ def folder_name_checks(plan, batches, hard=None, soft=None, rows=None):
         # refusal stays unarmed here; the index checks each piece against its
         # own places (`check`, since B3a re-resolves them). Two overrides may
         # share a folder, which is checked once.
-        if any(path == o[0] for o in out):
+        if any(path == o[0] for o in out) or ov.get("merge"):
+            # L-13 — a merge into an existing folder: its name is the
+            # drive's, so neither its period nor its grammar is this plan's.
             continue
         if ov.get("leg"):
             # E40 — a leg of a trip whose days another plan reads: checked as

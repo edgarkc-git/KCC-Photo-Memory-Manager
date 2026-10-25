@@ -1846,6 +1846,46 @@ def a_shared_folder_named_wider_than_all_its_days_is_still_flagged():
         return flagged, f"err1={r1.stderr[-300:]!r} err2={r2.stderr[-300:]!r}"
 
 
+def merge_override_workdir(root, merge):
+    """M17 / L-13 G2 shape: plan 1's 01-02 goes as an override into an
+    owner's folder whose name spans other days and names Lotus, whom no file
+    of this plan shows. No other plan copies there. `merge` marks the
+    override the way `photo_index.unit_plan` marks an existing folder."""
+    labels = [label("/raw/a.jpg", {"subject_id": "subj-0001"}),
+              label("/raw/b.jpg", None),
+              label("/raw/c.jpg", {"subject_id": "subj-0002"})]
+    wd, pack = shared_folder_workdir(root, labels, "20251220-0110_XYZ_Lotus_play")
+    plans = json.loads((wd / "plans.json").read_text())
+    plans["plans"] = plans["plans"][:1]
+    if merge:
+        plans["plans"][0]["overrides"][0]["merge"] = True
+    (wd / "plans.json").write_text(json.dumps(plans))
+    return wd, pack
+
+
+@case
+def an_override_into_an_existing_folder_keeps_the_drives_name():
+    """⭐ L-13 REPRODUCTION (Liked G2, P9 into F062 on the drive). ⛔ FAILS on
+    73b3731: the existing name's period is judged against the one day this
+    plan sends, and Lotus against the one file, so the plan exits 1."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, pack = merge_override_workdir(tmp, merge=True)
+        r = plan_run_n(wd, pack, 1)
+        return r.returncode == 0 and "NAME CHECK FAILED" not in r.stderr, \
+            f"rc={r.returncode} err={r.stderr[-400:]!r}"
+
+
+@case
+def the_same_override_into_an_engine_made_folder_is_still_judged():
+    """Guard: the same override NOT marked as a merge (a folder the engine
+    names) — the period line and the Lotus refusal both stand."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, pack = merge_override_workdir(tmp, merge=False)
+        r = plan_run_n(wd, pack, 1)
+        return (r.returncode != 0 and "NAME CHECK FAILED" in r.stderr
+                and "Lotus" in r.stderr), f"rc={r.returncode} err={r.stderr[-400:]!r}"
+
+
 @case
 def the_refusal_is_in_the_owners_language():
     """Rule 8, one source (LL-PHO-188): the refusal reads the owner's table."""

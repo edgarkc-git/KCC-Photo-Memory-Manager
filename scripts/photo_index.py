@@ -646,10 +646,14 @@ def unit_plan(u, n, paths, words=None):
                         for leg, a, b in u["legs"]]
     if u["overrides"]:
         # E40 — a leg's days can arrive as an override (a `group split` piece
-        # in a trip): marked, so the name check reads it as a leg.
+        # in a trip): marked, so the name check reads it as a leg. L-13 — a
+        # piece that goes into an EXISTING folder is marked too: that name is
+        # the drive's, never judged as this plan's (E48).
         plan["overrides"] = [{"dates": ds, "dest": paths[h["id"]],
                               "reason": f"photo_index: days {h['id']} holds",
-                              **({"leg": True} if h["kind"] == "leg" else {})}
+                              **({"leg": True} if h["kind"] == "leg" else {}),
+                              **({"merge": True} if h["dest"]["mode"] == "merge"
+                                 and not h["dest"].get(NEW_LEG) else {})}
                              for ds, h in u["overrides"]]
     return plan
 

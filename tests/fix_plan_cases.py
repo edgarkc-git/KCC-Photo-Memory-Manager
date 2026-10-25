@@ -762,6 +762,43 @@ def a_per_day_move_into_a_folder_named_after_another_pet_passes_e48():
 
 
 @case
+def a_day_moved_into_a_wider_owner_folder_keeps_its_name_l13():
+    """⭐ REPRODUCTION (M17 / L-13, G2 shape). ⛔ FAILS on 73b3731: the
+    owner's folder spans 2024-10-30 to 11-02 and is named after Birk, whom no
+    photo of this dump shows; one day of a two-day batch moves into it as an
+    override, and photo_plan judged that EXISTING name as its own: the period
+    against the one day it receives, and Birk against the one moved file.
+    The name is on the drive already: freeze and the copy pass."""
+    rel = "2024/20241030-1102_Day out_Birk"
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, r4, _code = per_day(tmp, {rel: "2024:11:02 09:00:00"}, rel_pets=True)
+        _aout, (fcode, ferr), run = to_the_copy(wd, "ok")
+        mine = landed(tmp, rel)
+    return (len(r4) == 1 and "`2024-11-02` → `" in r4[0] and fcode == 0
+            and run.returncode == 3 and "IMG_0201.jpg" in mine
+            and "IMG_0101.jpg" not in mine), \
+        f"r4={r4} freeze={fcode} {ferr[-500:]!r} finish={run.returncode} {run.stdout[-300:]!r} mine={mine}"
+
+
+@case
+def only_an_existing_folder_override_is_marked_as_a_merge():
+    """Guard (L-13): `unit_plan` marks an override `merge` only when its
+    folder is an existing one; a new folder, a new leg of an existing trip
+    and a leg stay unmarked, so photo_plan still judges their names."""
+    def fo(fid, mode, kind="day", **extra):
+        return {"id": fid, "kind": kind, "dest": dict({"mode": mode}, **extra)}
+    top = fo("F1", "new")
+    heads = [fo("F2", "merge"), fo("F3", "new"),
+             fo("F4", "merge", **{photo_index.NEW_LEG: True}), fo("F5", "new", kind="leg")]
+    unit = {"top": top, "batches": [1], "legs": [],
+            "overrides": [([f"2024-11-0{k}"], h) for k, h in enumerate(heads, 2)]}
+    paths = {h["id"]: f"/sorted/{h['id']}" for h in [top] + heads}
+    plan = photo_index.unit_plan(unit, 1, paths)
+    marked = [o["dest"].rsplit("/", 1)[1] for o in plan["overrides"] if o.get("merge")]
+    return marked == ["F2"], f"marked={marked}"
+
+
+@case
 def a_per_day_answer_never_stands_for_other_days():
     """GUARD (G42): a per-day row's key carries its days, so a `skip` for
     2024-11-01 is not an answer for 2024-11-01 + 11-02 into the same
