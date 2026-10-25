@@ -32,6 +32,12 @@ try:
     from PIL import Image, ImageOps
 except ImportError:  # pragma: no cover - reported, never guessed around
     Image = None
+try:
+    # L-7 — a fix-plan row may show one of its own HEIC originals.
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:  # pragma: no cover
+    pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(os.path.dirname(HERE), "templates", "review-page.html")

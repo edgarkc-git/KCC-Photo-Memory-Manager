@@ -1237,8 +1237,9 @@ def a_merge_declared_by_hand_is_information_only():
 def each_row_lists_up_to_three_previews_the_work_dir_already_has():
     """M9 thumbnails (Lead 20261018). After a row, an indented `samples:` line
     names up to 3 see-stage previews of the folder's files, relative to the
-    work dir; no preview is made, a folder with none gets no line, and the
-    answers still parse past it."""
+    work dir; no preview is made, and the answers still parse past it. Since
+    M17 (L-7) a folder with no preview shows one of its own stills, by its
+    source path. ⛔ The no-preview half FAILS on f9102e8 (no line)."""
     got = {}
     for with_previews in (True, False):
         with tempfile.TemporaryDirectory() as tmp, ix.no_env():
@@ -1262,7 +1263,42 @@ def each_row_lists_up_to_three_previews_the_work_dir_already_has():
                                   acode)
     want = ["   samples: classify/batch-01/samples/IMG_0101.jpg | "
             "classify/batch-01/samples/IMG_0102.jpg"]
-    return got[True] == (want, 0) and got[False] == ([], 0), f"{got}"
+    own = got[False][0]
+    return (got[True] == (want, 0) and got[False][1] == 0 and len(own) == 1
+            and own[0].endswith("/IMG_0101.jpg") and " | " not in own[0]), f"{got}"
+
+
+@case
+def a_per_day_row_shows_the_photos_of_its_own_days():
+    """⭐ L-6 REPRODUCTION (Liked rows 3/4 and 16/17: two DAYS-INTO-EXISTING
+    rows split from one folder showed the SAME photos). F001 holds 11-01 and
+    11-02, each with an owner folder and a preview of its own: each row shows
+    only its day's. ⛔ FAILS on f9102e8: both rows showed both days'."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        owner_folder(tmp, day="2024:11:01 09:00:00", rel="2024/20241101_Old trip")
+        owner_folder(tmp, day="2024:11:02 09:00:00", rel="2024/20241102_Other day")
+        wd, _pack = ix.g3_dump(tmp, batches=[
+            {"batch": 1, "from": "2024-11-01", "to": "2024-11-02", "place": "Ford"}])
+        bdir = wd / "classify" / "batch-01"
+        (bdir / "samples").mkdir(parents=True, exist_ok=True)
+        base = Path(tmp).resolve() / "raw" / "dump-a"
+        selected = []
+        for name in ("IMG_0101.jpg", "IMG_0201.jpg"):
+            (bdir / "samples" / name).write_bytes(b"jpeg")
+            selected.append({"path": f"{base}/{name}", "sample": name})
+        (bdir / "see-report.json").write_text(json.dumps({"batch": 1, "selected": selected}))
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        ix.run("fix-plan", wd)
+        lines = page(wd).read_text().splitlines()
+    shown = {}
+    for i, line in enumerate(lines):
+        if "DAYS-INTO-EXISTING (R4)" in line and i + 1 < len(lines):
+            day = "2024-11-01" if "`2024-11-01`" in line else "2024-11-02"
+            shown[day] = lines[i + 1].strip()
+    return (shown.get("2024-11-01") == "samples: classify/batch-01/samples/IMG_0101.jpg"
+            and shown.get("2024-11-02") == "samples: classify/batch-01/samples/IMG_0201.jpg"), \
+        f"{shown}"
 
 
 # ---------------------------------------------------------------------------

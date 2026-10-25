@@ -4597,10 +4597,17 @@ def draft_fix_plan(workdir, pack, index, debug=None):
     previews = preview_samples(workdir)
     for op in ops:
         # M9's thumbnails: up to 3 previews the work dir already holds for
-        # the folder's files, by capture time.
-        op["samples"] = [previews[f["source"]] for f in sorted(
-            copy_members(index, op["folder"]), key=lambda f: f.get("date") or "")
-            if f["source"] in previews][:3]
+        # the files THIS row moves, by capture time — a per-day row's own
+        # days only (L-6). A row whose files have no preview shows one of
+        # its own stills (L-7): every row with files shows a photo.
+        days = set(op["apply"].get("days") or ())
+        moved = sorted((f for fid in (op["apply"].get("folders") or [op["folder"]])
+                        for f in copy_members(index, fid)
+                        if not days or (f.get("date") or "")[:10] in days),
+                       key=lambda f: f.get("date") or "")
+        op["samples"] = [previews[f["source"]] for f in moved
+                         if f["source"] in previews][:3] or [
+            f["source"] for f in moved if f.get("kind") == "still"][:1]
     offered, refused = [], []
     for op in ops:
         if op.get("later"):
