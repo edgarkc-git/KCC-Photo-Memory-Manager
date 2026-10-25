@@ -2230,6 +2230,23 @@ def a_zero_byte_file_is_junk_listed_and_never_copied():
 
 
 @case
+def a_dated_bucket_goes_under_its_year_folder():
+    """C-26 (Camera: `20250400_<tbc>` and `20260500_<tbc>` at the dest root
+    with `year_folders` on). Monthly and yearly buckets go under their year;
+    the year-less undated bucket and every bucket of a flat pack stay at the
+    root."""
+    tbc = photo_profile.buckets(EN)["to_be_checked"]
+    on, off = {"year_folders": True}, {}
+    got = [photo_plan.bucket_dir("/s", f"20250400_{tbc}", on),
+           photo_plan.bucket_dir("/s", f"202500_{tbc}", on),
+           photo_plan.bucket_dir("/s", f"_{tbc}/Camera", on),
+           photo_plan.bucket_dir("/s", f"20250400_{tbc}", off)]
+    want = [f"/s/2025/20250400_{tbc}", f"/s/2025/202500_{tbc}",
+            f"/s/_{tbc}/Camera", f"/s/20250400_{tbc}"]
+    return got == want, f"{got}"
+
+
+@case
 def a_manifest_with_no_file_date_keeps_todays_no_date_bucket():
     """GUARD — and stated as one on purpose: M14's per-file year is NOT BUILT
     when this case is written, so there is no fixed code for it to fail

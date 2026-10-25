@@ -852,9 +852,11 @@ def copied_tree(tmp, wd):
 def year_folders_put_every_dated_folder_under_its_year():
     """⭐ REPRODUCTION (E30, M7, G22). With the pack's `year_folders` on, the
     copy writes every dated folder under `YYYY/` — a trip and a monthly
-    parent under the year they start — while the screenshot bucket and the
-    no-date folder stay where they always were. ⛔ FAILS on c7b761e (no year
-    folder: the owner moved 53 folders by hand)."""
+    parent under the year they start, and since M17 (C-26) the monthly
+    screenshot bucket too — while the year-less no-date folder stays at the
+    root. ⛔ FAILS on c7b761e (no year folder: the owner moved 53 folders by
+    hand); the bucket half FAILS on f9102e8 (`20241200_Screenshots` at the
+    root)."""
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         wd, pack = ready(tmp, min_visits=3)
         set_year_folders(pack, True)
@@ -866,9 +868,8 @@ def year_folders_put_every_dated_folder_under_its_year():
     want = {"2024/20241025-1031_Northland/1025_Ashford/IMG_2501.jpg",
             "2024/20241200_Harbour/1211/IMG_1101.jpg",
             "2024/20241208_Townsville/IMG_0801.jpg",
-            "20241200_Screenshots/" + SHOT}
+            "2024/20241200_Screenshots/" + SHOT}
     loose = [t for t in tree if not t.startswith("2024/")
-             and not t.startswith("20241200_Screenshots/")
              and not t.startswith("_")]
     return (r.returncode == 0 and want <= set(tree) and not loose), \
         f"rc={r.returncode} tree={tree} {r.stderr[-200:]!r}"

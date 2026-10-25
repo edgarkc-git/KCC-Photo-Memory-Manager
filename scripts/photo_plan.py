@@ -1167,6 +1167,7 @@ def settle_rows(workdir, plan, batches, dest_root, profile, msg, twins=None):
         if ext_note and r["_action"] == "copy":
             r["_note"] = join_note(r["_note"], ext_note, msg)
             r["_tags"] = r["_tags"] | {"renamed"}
+    year_buckets(rows, dest_root, profile)
     apply_twins(rows, twins, msg)
     suffix_in_plan_collisions(rows, msg)
     return rows, candidates, paperwork, paperwork_why
@@ -1260,6 +1261,29 @@ def routes_by_file_date(rows):
     return bool(rows) and "FileModifyDate" in rows[0]
 
 
+def bucket_dir(dest_root, name, profile):
+    """C-26 — a bucket's directory: `dest_root/[YYYY/]<name>`. A MONTHLY
+    `YYYYMM00_*` or YEARLY `YYYY00_*` bucket goes under its year when the pack
+    keeps `year_folders` (G39), like every dated folder; any other bucket
+    stays at the root. ⛔ The ONE rule: the routes below and
+    `photo_index.layout_path()` both read it."""
+    head = name.split("_")[0]
+    kind = photo_name.kind_of(head)
+    year = (head[:4] if photo_profile.year_folders(profile)
+            and kind in (photo_name.NAME_MONTHLY, photo_name.NAME_YEARLY)
+            and re.fullmatch(photo_name.PERIOD_PATTERNS[kind], head) else None)
+    return f"{dest_root}/{year}/{name}" if year else f"{dest_root}/{name}"
+
+
+def year_buckets(rows, dest_root, profile):
+    """C-26 — every copy into a bucket at the root moves under its year
+    folder (`bucket_dir()`). A folder the plan names is already laid out."""
+    for r in rows:
+        parent, _, name = r["_dest"].rpartition("/")
+        if r["_action"] == "copy" and parent == str(dest_root):
+            r["_dest"] = bucket_dir(dest_root, name, profile)
+
+
 def junk_note(row, msg):
     return msg["note_junk_empty" if photo_sample.is_empty(row) else "note_junk_sidecar"]
 
@@ -1319,6 +1343,7 @@ def settle_no_date_rows(workdir, dest_root, profile, msg, ai_confirmed=False,
                 bucket=names["to_be_checked"]), msg)
         r["_note"] = note
         r["_tags"] = set()
+    year_buckets(rows, dest_root, profile)
     apply_twins(rows, twins, msg)
     suffix_in_plan_collisions(rows, msg)
     return rows, counts, bucket_root

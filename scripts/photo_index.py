@@ -612,7 +612,7 @@ def layout_path(index, folder_id, dest_root, profile):
     by_id = {fo["id"]: fo for fo in live(index)}
     fo = by_id[folder_id]
     if fo["kind"] == "bucket":
-        return f"{dest_root}/{fo['rendered']}"
+        return photo_plan.bucket_dir(dest_root, fo["rendered"], profile)
     top = by_id[fo["parent"]] if fo.get("parent") else fo
     unit = {"top": top, "legs": [(leg, None, None) for leg in legs_of(index, top["id"])]
             if top["kind"] in PARENTS else []}
@@ -874,6 +874,8 @@ def bucket_of(dest, words):
                 and parts[0][1:] in words and parts[1]):
             return words[parts[0][1:]], None, "/".join(parts)
     parent, _, base = dest.rpartition("/")
+    if re.fullmatch(r"\d{4}", Path(parent).name) and Path(parent).parent.as_posix() == PLACEHOLDER_ROOT:
+        parent = PLACEHOLDER_ROOT       # C-26 — `photo_plan.bucket_dir()`'s year
     prefix, _, word = base.partition("_")
     if parent != PLACEHOLDER_ROOT or word not in words:
         raise Refused(f"render cannot place the destination {dest!r}: a route "
@@ -3126,7 +3128,7 @@ def freeze_outputs(workdir):
     return {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in paths if p.is_file()}
 
 
-def expected_rows(index, paths, dest_root):
+def expected_rows(index, paths, dest_root, profile=None):
     """SourceFile -> (action, destination, file name) the freeze promises.
     `paths` is every folder's destination (`unit_paths`)."""
     folders = {fo["id"]: fo for fo in index["folders"]}
@@ -3137,8 +3139,8 @@ def expected_rows(index, paths, dest_root):
         if f["route"] == ROUTE_COPY:
             out[f["source"]] = ("copy", paths[f["folder"]], f["dest_name"])
         elif f["route"] in COPIED:
-            out[f["source"]] = ("copy", f"{dest_root}/{folders[f['folder']]['rendered']}",
-                                f["dest_name"])
+            out[f["source"]] = ("copy", photo_plan.bucket_dir(
+                dest_root, folders[f["folder"]]["rendered"], profile or {}), f["dest_name"])
         elif f["route"] == "skip_dupe":
             out[f["source"]] = ("skip_dupe", f["dupe_of"], None)
         elif f["route"] == "skip_junk":
@@ -3366,7 +3368,7 @@ def cmd_freeze(args):
     labels = id_labels(pack)
     paths = unit_paths(units, dest_root, real=True,
                        years=photo_profile.year_folders(pack.profile))
-    expected = expected_rows(index, paths, dest_root)
+    expected = expected_rows(index, paths, dest_root, pack.profile)
     # FIX8 F8-2 — BEFORE anything is written: a refused freeze leaves plans.json
     # and plan/ exactly as they were.
     renames, refused = earlier_copies_elsewhere(workdir, expected, dest_root)
