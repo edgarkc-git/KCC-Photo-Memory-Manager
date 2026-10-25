@@ -4669,7 +4669,31 @@ def owner_word(workdir, pack, index, fo, op, word, go):
 
 def fix_waiting(index, ops):
     answered = (index.get("fix_plan") or {}).get("answers") or {}
-    return [op for op in ops if op["key"] not in answered]
+    return [op for op in ops if op["key"] not in answered
+            and not skipped_before(index, op, answered)]
+
+
+MERGE_OPS = ("INTO-EXISTING", "DAYS-INTO-EXISTING")
+
+
+def skipped_before(index, op, answered):
+    """L-12 — an R4 merge row the owner already skipped in another shape: a
+    DAYS-INTO-EXISTING row left open, whose other days then went elsewhere,
+    comes back as INTO-EXISTING of the whole folder, the same move. It is
+    the same answer when an earlier skip took this folder to this target for
+    every day the row moves now; a folder that gained a day is asked again."""
+    if op["op"] not in MERGE_OPS:
+        return False
+    days = set(op["apply"].get("days") or ()) or {
+        (m.get("date") or "")[:10] for m in copy_members(index, op["folder"])}
+    for key, a in answered.items():
+        # Only a skipped per-day row says which days it covered.
+        if (a.get("answer") != "skip" or a.get("op") != "DAYS-INTO-EXISTING"
+                or key.split("|")[1] != op["folder"] or a.get("to") != op["to"]):
+            continue
+        if days <= set(a.get("from", "").split(", ")):
+            return True
+    return False
 
 
 def fix_plan_text(workdir, index, ops, refused):

@@ -1589,6 +1589,33 @@ def a_freeze_that_writes_rows_rewrites_the_web_page():
         f"freeze={code} page={text[:120]!r}"
 
 
+@case
+def a_row_left_open_is_not_asked_again_in_another_shape():
+    """⭐ L-12 REPRODUCTION (Liked round 2 re-asked round 1's row 3). F001
+    holds 11-01 and 11-02, each with an owner folder: two DAYS-INTO-EXISTING
+    rows. 11-01 left open (= skip), 11-02 `ok`. With only 11-01 left, R4
+    reads the same move as INTO-EXISTING of the whole folder: not asked
+    again, it is the row the owner already skipped. ⛔ FAILS on f9102e8:
+    round 2 offered it."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        owner_folder(tmp, day="2024:11:01 09:00:00", rel="2024/20241101_Old trip")
+        owner_folder(tmp, day="2024:11:02 09:00:00", rel="2024/20241102_Other day")
+        wd, _pack = ix.g3_dump(tmp, batches=[
+            {"batch": 1, "from": "2024-11-01", "to": "2024-11-02", "place": "Ford"}])
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        ix.run("fix-plan", wd)
+        first = rows(wd)
+        answer(wd, *["ok" if "2024-11-02" in x else "" for x in first])
+        must(apply(wd), "apply round 1")
+        for cmd in ("render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        ix.run("fix-plan", wd)
+        second = rows(wd)
+    return (len(first) == 2 and not [x for x in second if "· F001 ·" in x]), \
+        f"first={first} second={second}"
+
+
 FLAT_SPAN = "2024/20240901-1215_Lotus_tower"
 
 
