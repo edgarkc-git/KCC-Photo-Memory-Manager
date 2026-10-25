@@ -67,7 +67,7 @@ WORD_KIND = {"R1": "place", "R6": "place", "R3": "what", "R5": "trip",
              "agent": "name", "R2": "name"}
 # Rule -> the filter chip a row sits under on the page.
 CHIP = {"R1": "Place", "R6": "Place", "R2": "Pets", "R3": "Pets",
-        "R4": "Move", "R5": "Move"}
+        "R4": "Move", "R5": "Trip"}
 
 
 def parse_answer(raw):

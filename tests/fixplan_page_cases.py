@@ -246,15 +246,17 @@ def the_out_of_date_and_empty_states_are_carried_in_the_data():
 @case
 def a_make_trip_row_is_shown_when_the_stage_writes_one():
     """REPRODUCTION (R5 MAKE-TRIP). A trip row the stage writes is read and
-    shown like any row, with My word for the trip's place words (G63). ⛔
-    FAILS on c7b761e (no page)."""
+    shown like any row, with My word for the trip's place words (G63), under
+    its own filter chip "Trip" (L-5, owner ruling 20261025: "Move" counts only the
+    R4 moves). ⛔ FAILS on c7b761e (no page); the chip FAILS on f9102e8
+    ("Move")."""
     trip = {"op": "MAKE-TRIP", "rule": "R5", "folder": "F006",
             "from": "2 day folders 1025-1031", "to": "20241025-1031_Countryland_Dunmore",
             "reason": "a trip abroad", "photos": 6}
     plan = fp.parse_plan(plan_text(ops=[trip], refused=[]))
     row = fp.build_data(plan, "/nowhere", 64, 50)["rows"]
     return (len(row) == 1 and row[0]["op"] == "MAKE-TRIP" and row[0]["word"] == "trip"
-            and row[0]["chip"] == "Move"), f"{row}"
+            and row[0]["chip"] == "Trip"), f"{row}"
 
 
 @case
