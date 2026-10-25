@@ -20,6 +20,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -1222,6 +1223,90 @@ def a_batch_page_lists_only_this_dumps_drafts_of_that_batch():
             photo_profile.review_messages(pack.profile), batch=1)[0]
         asked = [t["subject_id"] for q in questions for t in q["tiles"]]
     return asked == [mine], f"mine={mine} asked={asked}"
+
+
+def sightings_from_an_earlier_dump(wd, draft, n, keep_own=True):
+    """Give `draft` `n` sightings an earlier dump saw (thumbnails on disk in
+    that dump's own work dir) and put them FIRST on its contact sheet — the
+    shape C-15/P2-5a measured: a draft this dump's batch joined, whose sheet
+    is led by another dump's frames."""
+    old = Path(wd).parent / "dump-old"
+    samples = old / "classify" / "batch-01" / "samples"
+    samples.mkdir(parents=True, exist_ok=True)
+    own = next(iter(draft.record["contact_sheet"]))
+    looks, sheet = [], []
+    for k in range(n):
+        name = f"OLD_{k}.jpg"
+        shutil.copy(Path(wd) / own, samples / name)
+        looks.append({"path": str(old / f"OLD_{k}.JPG"), "sample": name,
+                      "provenance": "viewed-image:", "label": "Cat",
+                      "vec_ref": f"sha256:old-{k}", "captured": "2028-06-01 10:00",
+                      "see_report": str(old / "classify" / "batch-01" / "see-report.json"),
+                      "workdir": str(old), "batch": 1, "run_id": "see-old"})
+        sheet.append(f"classify/batch-01/samples/{name}")
+    draft.record["evidence"].insert(0, {"batch": 1, "unit": "dump-old",
+                                        "run_id": "see-old", "files": n,
+                                        "state": "new", "looks": looks})
+    draft.record["contact_sheet"] = sheet + (draft.record["contact_sheet"] if keep_own else [])
+
+
+@case
+def a_batch_page_shows_only_frames_from_this_work_dir():
+    """⭐ C-15 / P2-5a REPRODUCTION (Camera P-B12, Liked P-B02). The draft's
+    contact sheet is led by five frames an earlier dump saw; this dump's own
+    frame is sixth. ⛔ FAILS on f9102e8: the page cut the sheet to five
+    BEFORE looking where each frame came from, so it showed the five old
+    frames and not this dump's."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, _extra = page_dump(tmp, pets=(1,), place_batches=())
+        pack = photo_profile.resolve_pack(explicit=pack_dir / photo_profile.PROFILE_NAME)
+        registry = pm.photo_subjects.load(pack=pack)
+        draft = registry.drafts[0]
+        sightings_from_an_earlier_dump(wd, draft, 5)
+        questions = pm.build_questions(
+            registry, str(wd), pack, pack.profile,
+            photo_profile.review_messages(pack.profile), batch=1)[0]
+        frames = [f["vec_ref"] for q in questions for t in q["tiles"]
+                  for f in t["frames"]]
+    return frames == ["sha256:1-0-0"], f"frames={frames}"
+
+
+@case
+def a_batch_page_with_no_sheet_frame_from_this_dump_shows_its_own_sighting():
+    """C-15 shape, the sheet's every entry from an earlier dump: the batch
+    page still asks about the animal this batch saw, on this dump's own
+    sighting — never the earlier dump's frames, never dropped. ⛔ FAILS on
+    f9102e8 (five old frames shown)."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, _extra = page_dump(tmp, pets=(1,), place_batches=())
+        pack = photo_profile.resolve_pack(explicit=pack_dir / photo_profile.PROFILE_NAME)
+        registry = pm.photo_subjects.load(pack=pack)
+        draft = registry.drafts[0]
+        sightings_from_an_earlier_dump(wd, draft, 6, keep_own=False)
+        questions = pm.build_questions(
+            registry, str(wd), pack, pack.profile,
+            photo_profile.review_messages(pack.profile), batch=1)[0]
+        frames = [f["vec_ref"] for q in questions for t in q["tiles"]
+                  for f in t["frames"]]
+    return frames == ["sha256:1-0-0"], f"frames={frames}"
+
+
+@case
+def the_end_of_dump_round_keeps_earlier_dumps_frames():
+    """GUARD: the whole-dump round is not a batch page — a draft's frames
+    from earlier dumps stay on it (F14 sightings span dumps)."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, _extra = page_dump(tmp, pets=(1,), place_batches=())
+        pack = photo_profile.resolve_pack(explicit=pack_dir / photo_profile.PROFILE_NAME)
+        registry = pm.photo_subjects.load(pack=pack)
+        draft = registry.drafts[0]
+        sightings_from_an_earlier_dump(wd, draft, 5)
+        questions = pm.build_questions(
+            registry, str(wd), pack, pack.profile,
+            photo_profile.review_messages(pack.profile))[0]
+        frames = [f["vec_ref"] for q in questions for t in q["tiles"]
+                  for f in t["frames"]]
+    return frames == [f"sha256:old-{k}" for k in range(5)], f"frames={frames}"
 
 
 @case

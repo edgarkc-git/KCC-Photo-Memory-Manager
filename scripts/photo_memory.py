@@ -1609,7 +1609,37 @@ def uncropped_refusal(out, frames):
             f"question is about. {why}")
 
 
-def tile_frames(subject, sheet, workdir=None, crops=None, where=None):
+def look_in_work_dir(look, workdir):
+    """C-15 / P2-5a — was this look seen in `workdir` (its see-report sits
+    under it)? Resolved on both ends, like `look_image()`."""
+    report = look.get("see_report")
+    if not (report and workdir):
+        return False
+    try:
+        Path(report).resolve().relative_to(Path(workdir).resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def home_sheet(subject, workdir, frames):
+    """C-15 / P2-5a — a batch page's contact sheet: the sheet's entries THIS
+    work dir saw, in sheet order, then cut to `frames`. Cut after the filter,
+    never before: a sheet led by an earlier dump's frames otherwise renders
+    only those. A sheet with no entry from here falls back to this work dir's
+    own sightings, so the animal this batch saw is still asked about."""
+    looks = [look for look in subject_looks(subject) if look_in_work_dir(look, workdir)]
+    names = {look.get("sample") for look in looks}
+    sheet = [item for item in subject.record.get("contact_sheet") or []
+             if Path(item).name in names]
+    if not sheet:
+        sheet = [look_image(look, workdir) for look in looks]
+        sheet = [item for item in sheet if item]
+    return sheet[:frames]
+
+
+def tile_frames(subject, sheet, workdir=None, crops=None, where=None,
+                home=False):
     """-> (frames, [reason codes]) — a tile's contact sheet RESOLVED BACK to
     the looks behind it, so every frame on the page carries a storage key.
 
@@ -1634,6 +1664,8 @@ def tile_frames(subject, sheet, workdir=None, crops=None, where=None):
     Every drop is REPORTED, never silent: the codes come back and the renderer
     says how many frames a tile lost and why."""
     looks = subject_looks(subject)
+    if home:
+        looks = [look for look in looks if look_in_work_dir(look, workdir)]
     frames, reasons, used = [], [], set()
 
     def note(code):
@@ -1828,7 +1860,8 @@ def build_questions(registry, workdir, pack, profile, rmsg, last_ask=False,
                                    f"asked at {page_label(prior[0])}, "
                                    "no new evidence"))
                 continue
-        sheet = list(subject.record.get("contact_sheet") or [])[:frames]
+        sheet = (home_sheet(subject, workdir, frames) if batch is not None
+                 else list(subject.record.get("contact_sheet") or [])[:frames])
         if not sheet:
             # Frames are the ONLY way an owner can notice that one cluster
             # holds two subjects, so a tile with none invites a name typed
@@ -1840,7 +1873,8 @@ def build_questions(registry, workdir, pack, profile, rmsg, last_ask=False,
                                "no example photo on disk — not asked; still "
                                "ai-drafted, still askable"))
             continue
-        shown, dropped = tile_frames(subject, sheet, workdir, crops, where)
+        shown, dropped = tile_frames(subject, sheet, workdir, crops, where,
+                                     home=batch is not None)
         if not shown and "not_mine" in dropped:
             suppressed.append(
                 (subject.subject_id,
