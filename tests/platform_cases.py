@@ -294,11 +294,13 @@ def a_quoted_windows_hint_gets_the_call_operator():
 def pack_init_bind(name):
     """-> (the object printed on the bind line, json.loads of it or the
     error, the pack's parent folder) for `photo_pack_init.py <name> juno`.
-    On nt <name> is put under a temp folder; elsewhere a Windows path is one
+    On nt the drive is dropped and the rest put under a temp folder (joining
+    `C:\\...` would discard the temp folder); elsewhere a Windows path is one
     relative file name, so it is run from a temp cwd and lands there too."""
     import subprocess
     with tempfile.TemporaryDirectory() as tmp:
-        root = os.path.join(tmp, name) if os.name == "nt" else name
+        root = (os.path.join(tmp, name.split(":", 1)[-1].lstrip("\\"))
+                if os.name == "nt" else name)
         env = {**os.environ, "PYTHONUTF8": "1"}
         out = subprocess.run([sys.executable, str(SCRIPTS / "photo_pack_init.py"),
                               root, "juno"], cwd=tmp, env=env,
