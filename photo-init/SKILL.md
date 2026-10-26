@@ -533,6 +533,11 @@ a. `<workspace>/Working Files/collection.json` — **the authoritative copy**:
 }
 ```
 
+Write it with a JSON writer (`json.dump`), never by pasting a path into the
+text: on Windows every backslash in a path must be doubled (`"C:\\Photos"`)
+or the file does not parse. The bind line `photo_pack_init.py` prints is
+already valid JSON — copy its values as printed.
+
 `owner` binds this collection to exactly one pack. Naming an owner with no
 pack stops the run — the engine will not fall back to whichever pack happens
 to be configured, because mixing two people's photo memories is worse than a

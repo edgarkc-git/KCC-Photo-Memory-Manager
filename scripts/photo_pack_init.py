@@ -24,6 +24,7 @@ command prints the absolute form for you to paste.
 """
 
 import argparse
+import json
 import re
 import shutil
 import sys
@@ -66,8 +67,11 @@ def main():
     # cannot see is relative.
     root = dest.parent.resolve()
     print(f"created pack for {display} at {dest}")
-    print('bind it: add {"owner": "%s", "memory_root": "%s"} to collection.json'
-          % (args.slug, root))
+    # json.dumps, never "%s": a Windows path's backslashes must be escaped
+    # or the pasted line does not parse.
+    bind = json.dumps({"owner": args.slug, "memory_root": str(root)},
+                      ensure_ascii=False)
+    print(f"bind it: add {bind} to collection.json")
     if not Path(args.memory_root).expanduser().is_absolute():
         print(f'note: you passed a relative memory_root ({args.memory_root!r}). '
               "The absolute form above is what collection.json needs — a "

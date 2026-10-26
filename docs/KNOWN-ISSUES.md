@@ -20,18 +20,12 @@ Nothing here touches your original photos: the product stays copy-only.
 
 ### Windows 11
 
-Two test-only defects. The product itself behaves correctly; only the tests are
-wrong there. On macOS all cases pass.
+Two test-only defects, both fixed in v2.3.0 (`doctor_cases` 34 of 34 on
+Windows 11). Run every command with `PYTHONUTF8=1` set (see docs/INSTALL.md).
 
-- **W11-1** `tests/doctor_cases.py` `the_prep_stop_quotes_a_product_path_with_a_space`
-  fails on Windows. The test expects the POSIX form of the doctor line. Windows
-  correctly prints the PowerShell form (`& "<python>" "<path>\photo_run.py" doctor`),
-  with both paths quoted.
-- **W11-2** `tests/doctor_cases.py` `a_copy_with_neither_says_it_does_not_know`
-  fails on Windows. The test's setup cannot delete a read-only file inside a
-  temporary `.git` folder (`PermissionError`), so the case never reaches the
-  check it guards.
-
-Result on Windows 11: `doctor_cases` 32 of 34. `doctor` and `fresh_owner_smoke`
-pass. Both defects are older than v2.2.0 and are planned for a later release.
-Run every command with `PYTHONUTF8=1` set (see docs/INSTALL.md).
+- **W11-1** (fixed in v2.3.0) `tests/doctor_cases.py`
+  `the_prep_stop_quotes_a_product_path_with_a_space` expected the POSIX form
+  of the doctor line on Windows.
+- **W11-2** (fixed in v2.3.0) `tests/doctor_cases.py`
+  `a_copy_with_neither_says_it_does_not_know` could not delete a read-only
+  file inside a temporary `.git` folder (`PermissionError`).

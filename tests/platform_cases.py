@@ -19,6 +19,7 @@ Run:
 import argparse
 import ast
 import io
+import json
 import os
 import re
 import shutil
@@ -288,6 +289,53 @@ def a_quoted_windows_hint_gets_the_call_operator():
                                    r"C:\p q\scripts\photo_see.py", "nt")
     py = photo_platform.run_line("py", r"C:\p q\scripts\photo_run.py", "nt")
     return (venv.startswith('& "C:') and py.startswith('py "C:')), (venv, py)
+
+
+def pack_init_bind(name):
+    """-> (the object printed on the bind line, json.loads of it or the
+    error, the pack's parent folder) for `photo_pack_init.py <name> juno`.
+    On nt <name> is put under a temp folder; elsewhere a Windows path is one
+    relative file name, so it is run from a temp cwd and lands there too."""
+    import subprocess
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, name) if os.name == "nt" else name
+        env = {**os.environ, "PYTHONUTF8": "1"}
+        out = subprocess.run([sys.executable, str(SCRIPTS / "photo_pack_init.py"),
+                              root, "juno"], cwd=tmp, env=env,
+                             capture_output=True, encoding="utf-8").stdout
+        m = re.search(r"bind it: add (\{.*\}) to collection\.json", out)
+        if not m:
+            return out, None, None
+        try:
+            parsed = json.loads(m.group(1))
+        except ValueError as exc:
+            return m.group(1), f"{type(exc).__name__}: {exc}", None
+        made = Path(parsed["memory_root"], "juno", "photo-profile.json").is_file()
+        return m.group(1), parsed, made
+
+
+@case
+def pack_init_bind_line_is_json_for_a_windows_path():
+    """REPRODUCTION (W-2). ⛔ FAILS on 7c8f86d: the bind line printed
+    memory_root with "%s", so `C:\\dev\\_gate4` came out with single
+    backslashes and the line pasted into collection.json did not parse
+    (`\\d`, `\\_` are bad JSON escapes)."""
+    name = "C:\\dev\\_gate4"
+    text, parsed, made = pack_init_bind(name)
+    return (isinstance(parsed, dict) and parsed["owner"] == "juno"
+            and parsed["memory_root"].endswith(name.split(":", 1)[1])
+            and made is True), (text, parsed)
+
+
+@case
+def pack_init_bind_line_keeps_a_cjk_path_readable():
+    """GUARD (W-2). A CJK memory_root parses back to the same path and is
+    printed as itself, not as \\u escapes."""
+    name = "\u7167\u7247\u8a18\u61b6"
+    text, parsed, made = pack_init_bind(name)
+    return (isinstance(parsed, dict) and name in text
+            and Path(parsed["memory_root"]).name == name
+            and made is True), (text, parsed)
 
 
 def main():
