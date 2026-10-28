@@ -2890,6 +2890,21 @@ def main():
         print(f"    {photo_platform.run_line(photo_platform.venv_python(), Path(__file__).resolve().parent / 'photo_identity.py')}"
               f" \"{workdir}\"")
     see_tick(workdir, report["batch"], "selected")
+    if not report["selected"] and not report["coverage"]["unembedded_in_pool"]:
+        # C-13 — nothing was picked (every file held out of vision, or none
+        # in the pool) and nothing is waiting for its embedding (that batch is
+        # not seen yet): there is nothing to view, so the batch is SEEN with
+        # no labels, exactly as an empty decisions file applies. It used to
+        # read "not seen" and send the agent to an empty samples/.
+        labels_path.write_text(json.dumps(
+            {"engine": report["engine"], "batch": report["batch"],
+             "applied_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+             "viewed": 0, "labels": apply_decisions(report, {}, samples_dir),
+             "cluster_label_conflicts": report["cluster_label_conflicts"]},
+            ensure_ascii=False, indent=1))
+        see_tick(workdir, report["batch"], "applied")
+        print(f"batch {report['batch']}: nothing to view — no file was picked, so "
+              f"it is recorded as seen with no labels ({labels_path})")
     # Last, after the report is written and every warning is out.
     if not args.no_thumbnails:
         photo_embed.exit_if_nothing_viewable(

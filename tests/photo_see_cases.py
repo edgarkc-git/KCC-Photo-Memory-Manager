@@ -2055,6 +2055,27 @@ def case_fjj_a_batch_of_only_held_files_is_not_a_stop(tmp):
 
 
 
+
+def case_c13_a_batch_with_nothing_to_view_is_seen(tmp):
+    """⭐ REPRODUCTION C-13 (Camera run: six 1-file batches held only a
+    document-flagged still). Nothing was selected, yet no labels file was
+    written, so the batch read "not seen" and the agent was told to view an
+    empty samples/ — the field fix was applying an empty decisions file by
+    hand. The selection now records the batch as seen with no labels, and
+    says why."""
+    RNG.seed(9)
+    f = Fixture().many(A, 3)
+    wd = f.write(tmp)
+    flags = {str(wd / r["name"]): True for r in f.files}
+    (wd / "embed" / "document-flags.json").write_text(json.dumps({"document": flags}))
+    proc = run_see(wd)
+    labels = wd / "classify" / "batch-01" / "see-labels.json"
+    assert proc.returncode == 0, proc.stderr
+    assert labels.exists(), proc.stdout[-500:]
+    assert json.loads(labels.read_text())["labels"] == [], labels.read_text()
+    assert "nothing to view" in proc.stdout, proc.stdout[-500:]
+
+
 def case_fjj_a_document_flagged_still_stays_out_of_vision(tmp):
     """REPRODUCES F-jj (a): a still the U3-06 check flagged at embed — a camera
     photo included (owner ruling Q-a) — was still a vision candidate."""
@@ -2083,6 +2104,8 @@ def case_fjj_an_unchecked_still_is_named_not_hidden(tmp):
 
 
 CASES = [
+    ("C-13: a batch with nothing to view is seen (REPRO)",
+     case_c13_a_batch_with_nothing_to_view_is_seen),
     ("F-jj: a document-flagged still stays out of vision (REPRO)",
      case_fjj_a_document_flagged_still_stays_out_of_vision),
     ("F-jj: an unchecked still is named, not hidden (GUARD)",
