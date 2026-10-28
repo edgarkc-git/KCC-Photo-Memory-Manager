@@ -4853,6 +4853,14 @@ def cmd_fix_plan(args):
     answers = index.setdefault("fix_plan", {}).setdefault("answers", {}) \
         if args.go else {}
     done, refused_n = [], 0
+    # W-7 — the place words an approved R1 row drops from a folder; an R5 trip
+    # over that folder is made without them, whatever the row order.
+    dropped = {}
+    for r in rows:
+        op = stands.get(fix_key(r))
+        if op and r["answer"] == "ok" and op["rule"] == "R1" \
+                and op["apply"].get("drops") and not op["apply"].get("word_only"):
+            dropped.setdefault(op["folder"], set()).update(op["apply"]["drops"])
     for r in rows:
         key = fix_key(r)
         op = stands.get(key)
@@ -4930,12 +4938,18 @@ def cmd_fix_plan(args):
                     fo["drop_what"] = sorted(set(fo.get("drop_what") or []) | set(a["drop_what"]))
                 said = f"drops {', '.join(a['drop_what'])} from [what]"
             elif op["rule"] == "R5":
+                gone = set().union(*(dropped.get(f, set()) for f in a["folders"]))
+                where = [w for w in a["where"] if w not in gone] or a["where"]
+                if where != a["where"]:
+                    print(f"  row {r['n']}: the trip's place leaves out "
+                          f"{', '.join(w for w in a['where'] if w not in where)}, "
+                          "dropped from its legs on this page")
                 if args.go:
                     by_number = {b["batch"]: b for b in json.loads(
                         (workdir / "batches.json").read_text(encoding="utf-8"))
                         .get("batches", [])}
                     said = group_make_trip(index, argparse.Namespace(
-                        folders=a["folders"], where=a["where"],
+                        folders=a["folders"], where=where,
                         country=a["country"], what=None),
                         pack, by_number, FIX_PLAN_CMD, "fix plan R5")
                 else:

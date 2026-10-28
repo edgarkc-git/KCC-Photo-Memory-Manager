@@ -1386,6 +1386,46 @@ def a_trip_abroad_becomes_a_make_trip_row_and_ok_makes_that_trip():
             and "(R5)" not in home_out), f"{got}"
 
 
+
+def w7_trip(answers):
+    """W-7: two days abroad at `Harbour+Birk County`, the county flagged an
+    administrative area, answered row by row with `answers(row text)`.
+    -> (the trip's rendered name, what apply said)."""
+    batches = [dict(b, day_type="OVERSEAS", country_word="Ruritania",
+                    place="Harbour+Birk County", place_kinds={"Birk County": "admin"})
+               for b in ix.G3_BATCHES]
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ix.g3_dump(tmp, batches=batches)
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        ix.run("freeze", wd)
+        answer(wd, *[answers(x) for x in rows(wd)])
+        _c, out, err = apply(wd)
+        must(ix.run("render", wd), "render")
+        trip = [fo.get("rendered") for fo in ix.index_of(tmp)[0]["folders"]
+                if fo["kind"] == "trip"]
+    return trip, out + err
+
+
+@case
+def a_place_r1_drops_from_the_legs_leaves_the_trip_name_too():
+    """⭐ W-7 REPRODUCTION (Win11 run 20261026). R1 dropped an administrative
+    area from the legs, and the R5 trip made on the same page still carried
+    it: `…_Grand Teton National Park+Teton County`. The trip's place words are
+    taken after the approved drops of its own legs. ⛔ FAILS on 3c5eb76."""
+    trip, said = w7_trip(lambda x: "ok")
+    return trip == ["20241101-1102_Ruritania_Harbour"], f"trip={trip} {said[-300:]!r}"
+
+
+@case
+def a_skipped_r1_row_leaves_the_trip_name_as_offered():
+    """GUARD W-7 — only an APPROVED drop reaches the trip: with the R1 rows
+    skipped the trip keeps the word its row offered."""
+    trip, said = w7_trip(lambda x: "ok" if "(R5)" in x else "skip")
+    return trip == ["20241101-1102_Ruritania_Harbour+Birk County"], \
+        f"trip={trip} {said[-300:]!r}"
+
+
 @case
 def an_agent_name_beside_a_make_trip_row_is_checked_as_the_leg_it_becomes():
     """⭐ C-19 REPRODUCTION (Camera: 6 owner-approved agent names failed
