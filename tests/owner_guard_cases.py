@@ -289,6 +289,65 @@ def a_staged_term_is_refused_from_a_linked_worktree():
         return r.commit(root=wt)
 
 
+
+BINARY_CASE = "no binary file ships unless allow-listed"
+JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01" + bytes(64) + b"\xff\xd9"
+# the OLE2 header a legacy .xls starts with, then padding
+XLS = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + bytes(504)
+
+
+@case
+def a_staged_image_with_no_term_is_refused():
+    """⭐ REPRODUCTION (G78). A binary cannot be scanned for an owner term
+    with any confidence (a short UTF-16 or legacy form of a CJK name hits
+    random bytes), so one that ships must be on BINARY_ALLOWED. On the C-29
+    guard this image, holding no term, was committed."""
+    with HookRepo() as r:
+        r.write("docs/shot.jpg", JPEG)
+        git(r.root, "add", "-A")
+        return r.commit(why=BINARY_CASE)
+
+
+@case
+def a_staged_sheet_with_no_term_is_refused():
+    """⭐ REPRODUCTION (G78). The same for a legacy spreadsheet blob."""
+    with HookRepo() as r:
+        r.write("templates/sheet.xls", XLS)
+        git(r.root, "add", "-A")
+        return r.commit(why=BINARY_CASE)
+
+
+@case
+def an_allow_listed_binary_is_accepted():
+    """GUARD (G78). A path on BINARY_ALLOWED ships; the list is the guard's
+    own, so the scratch copy of the guard is edited to name it."""
+    with HookRepo() as r:
+        guard = r.root / "tests" / "no_owner_facts.py"
+        text = guard.read_text(encoding="utf-8")
+        assert "BINARY_ALLOWED = ()" in text
+        guard.write_text(text.replace("BINARY_ALLOWED = ()",
+                                      'BINARY_ALLOWED = ("docs/shot.jpg",)'),
+                         encoding="utf-8")
+        r.write("docs/shot.jpg", JPEG)
+        git(r.root, "add", "-A")
+        before = r.head()
+        out = git(r.root, "commit", "-qm", "allowed", check=False)
+        moved = r.head() != before
+        return out.returncode == 0 and moved, f"exit {out.returncode}, moved={moved}"
+
+
+@case
+def an_empty_placeholder_is_not_a_binary():
+    """GUARD (G78). The repo's two empty .gitkeep files must keep passing."""
+    with HookRepo() as r:
+        r.write("templates/x/.gitkeep", b"")
+        git(r.root, "add", "-A")
+        before = r.head()
+        out = git(r.root, "commit", "-qm", "keep", check=False)
+        moved = r.head() != before
+        return out.returncode == 0 and moved, f"exit {out.returncode}, moved={moved}"
+
+
 @case
 def a_clean_staged_commit_passes():
     """GUARD. The control: the same hook lets a clean change through, so the

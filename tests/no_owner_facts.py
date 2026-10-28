@@ -100,7 +100,14 @@ SHIPPABLE_DIRS = ["scripts", "docs", "templates", "tests", ".githooks", ".github
 SHIPPABLE = SHIPPABLE_DIRS \
     + ROOT_FILES + sorted(p.name for p in REPO.glob("photo-*") if p.is_dir())
 NEVER = ("tests/golden", "tests/.owner-terms.json", "__pycache__",
-         ".venv", ".git")
+         ".venv", ".git", ".DS_Store")
+
+# G78 — the files that may ship as BINARY, by path. Empty today: the repo
+# ships no image, sheet or other binary. A binary cannot be checked for an
+# owner term — short UTF-16 and legacy forms of a 2-character CJK name hit
+# random binaries by chance (measured by APH) — so an unlisted one is
+# refused instead. Adding a path here is a reviewed decision.
+BINARY_ALLOWED = ()
 SUFFIXES = {".py", ".md", ".json", ".txt", ".sh", ".yaml", ".yml", ".toml",
             # SET-4a shipped the first rendered surface into `templates/`.
             # A page is prose plus an owner's vocabulary, which is exactly
@@ -303,6 +310,11 @@ def term_needles(terms):
             for enc in ENCODINGS:
                 needles.add(form.encode(enc).lower())
     return needles
+
+
+def is_binary(data):
+    """git's own test: a NUL byte in the first 8000 bytes. Empty is text."""
+    return b"\0" in data[:8000]
 
 
 def holds_term(data, needles):
@@ -576,6 +588,18 @@ def case_the_staging_check_does_not_lean_on_os_devnull():
     return ok is not False, detail
 
 
+def case_no_unlisted_binary_ships():
+    """G78. A binary file cannot be scanned for an owner term with any
+    confidence, so one that ships must be on BINARY_ALLOWED. Runs with or
+    without a term list: it is about what the guard can SEE."""
+    bad = sorted(rel for rel, data in STATE["files"].items()
+                 if is_binary(data) and rel not in BINARY_ALLOWED)
+    for rel in bad[:20]:
+        log(f"binary, not on BINARY_ALLOWED: {rel}")
+    return not bad, (f"{len(bad)} unlisted: " + ", ".join(bad[:5])) if bad \
+        else f"0 unlisted, {len(BINARY_ALLOWED)} allowed"
+
+
 def case_every_waiver_still_fires():
     """A waiver whose debt is already gone is a lie about how much debt there
     is, so it has to be deleted. Waivers are CJK-only (RS7d), so this is
@@ -640,6 +664,8 @@ CASES = [
     ("the staging check does not lean on os.devnull (REPRODUCTION)",
      case_the_staging_check_does_not_lean_on_os_devnull),
     ("every waiver still covers real debt", case_every_waiver_still_fires),
+    ("no binary file ships unless allow-listed",
+     case_no_unlisted_binary_ships),
 ]
 
 
