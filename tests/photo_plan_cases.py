@@ -1974,6 +1974,50 @@ def a_photo_of_a_bill_goes_to_the_to_be_checked_bucket():
         return ok, f"rc={r.returncode} rows={ {k: v['destination'][-30:] for k, v in rows.items()} }"
 
 
+
+def doc_flags(wd, flags):
+    """photo_embed's U3-06 document check, written by hand: {name: bool}."""
+    embed = wd / "embed"
+    embed.mkdir(exist_ok=True)
+    (embed / "document-flags.json").write_text(json.dumps(
+        {"document": {f"/raw/{n}": v for n, v in flags.items()}}))
+
+
+@case
+def a_batch_of_only_documents_goes_to_the_to_be_checked_bucket():
+    """⭐ C-13 / G80 REPRODUCTION (Camera run: six 1-file batches held one
+    document photo each, and each became a day folder of its own). A batch
+    whose EVERY file the document check flagged goes to ADR 0005's own
+    destination — the month's to-be-checked bucket, tag and note of the
+    paperwork class — not to a day folder. No paperwork score is needed.
+    ⛔ FAILS on 3c5eb76."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, pack = paper_workdir(tmp, [("form.jpg", "JPEG", "Apple"),
+                                       ("ticket.jpg", "JPEG", "Apple")])
+        doc_flags(wd, {"form.jpg": True, "ticket.jpg": True})
+        r = plan_run(wd, pack)
+        rows = routed(wd)
+        ok = (r.returncode == 0
+              and all(lands_in(rows.get(n, {}), TBC) for n in ("form.jpg", "ticket.jpg"))
+              and rows["form.jpg"]["note"] == en("note_paperwork"))
+        return ok, f"rc={r.returncode} rows={ {k: v['destination'][-30:] for k, v in rows.items()} }"
+
+
+@case
+def a_document_in_a_mixed_batch_keeps_its_day_folder():
+    """GUARD C-13 / G80 — F-jj "never moved" stands for a batch that is not
+    documents only: the flagged still stays with its batch."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wd, pack = paper_workdir(tmp, [("form.jpg", "JPEG", "Apple"),
+                                       ("view.jpg", "JPEG", "Apple")])
+        doc_flags(wd, {"form.jpg": True, "view.jpg": False})
+        r = plan_run(wd, pack)
+        rows = routed(wd)
+        ok = (r.returncode == 0 and rows
+              and not any(lands_in(v, TBC) for v in rows.values()))
+        return ok, f"rc={r.returncode} rows={ {k: v['destination'][-30:] for k, v in rows.items()} }"
+
+
 @case
 def a_paperwork_screenshot_goes_to_the_inbox_not_to_screenshots():
     """Lead ruling 20260911 (a): a Screenshots bucket is sorted output, not a

@@ -1047,7 +1047,7 @@ def collect_rows(workdir, batches):
 
 
 def route(row, plan, dest_root, dupes, msg, format_known=True, profile=None,
-          screen_candidates=frozenset(), paperwork=None):
+          screen_candidates=frozenset(), paperwork=None, documents=frozenset()):
     """-> (action, destination, note, tags)
 
     `tags` is a set of machine-readable markers for the branch that fired
@@ -1091,9 +1091,12 @@ def route(row, plan, dest_root, dupes, msg, format_known=True, profile=None,
     # screenshot.
     # ⛔ STILLS ONLY. A video is never scored by photo_embed, and is checked
     # for here as well, so no score file can ever move one.
-    if (paperwork and row.get("FileType") in IMAGE_TYPES
-            and src in paperwork
-            and paperwork[src] > photo_profile.paperwork_margin(profile)):
+    # C-13 / G80 — a batch whose EVERY file the document check flagged
+    # (`documents`) takes the same destination: a lone document photo is not
+    # a day. A document in a mixed batch stays with it (F-jj).
+    if src in documents or (paperwork and row.get("FileType") in IMAGE_TYPES
+                            and src in paperwork
+                            and paperwork[src] > photo_profile.paperwork_margin(profile)):
         return ("copy", f"{dest_root}/{month}00_{bk['to_be_checked']}",
                 msg["note_paperwork"], {"paperwork"})
     if cls in ("screenshot", "screen_record"):
@@ -1134,6 +1137,21 @@ def route(row, plan, dest_root, dupes, msg, format_known=True, profile=None,
     return "copy", dest, "", set()
 
 
+def document_only_batches(workdir, rows):
+    """C-13 / G80 -> the SourceFiles of every batch whose files the document
+    check (photo_embed's U3-06 flags) ALL flagged. A file never checked is
+    not a document, so a batch holding one is not documents only."""
+    import photo_embed
+    flags = photo_embed.load_document_flags(Path(workdir) / "embed")
+    if not flags:
+        return frozenset()
+    by_batch = {}
+    for r in rows:
+        by_batch.setdefault(r.get("_batch"), []).append(r["SourceFile"])
+    return frozenset(src for srcs in by_batch.values()
+                     if all(flags.get(s) is True for s in srcs) for src in srcs)
+
+
 def settle_rows(workdir, plan, batches, dest_root, profile, msg, twins=None):
     """-> (rows, screen candidates, paperwork scores, why) — every file of
     `plan`'s batches with its action, destination, note and tags settled by
@@ -1161,11 +1179,13 @@ def settle_rows(workdir, plan, batches, dest_root, profile, msg, twins=None):
     candidates = screen_size_candidates(workdir, profile)
     candidate_dims = screen_candidate_dims(candidates)
     paperwork, paperwork_why = paperwork_scores(workdir)
+    documents = document_only_batches(workdir, rows)
     for r in rows:
         r["_name"], ext_note, known = dest_name(r, msg)
         r["_action"], r["_dest"], r["_note"], r["_tags"] = route(
             r, plan, dest_root, dupes, msg, format_known=known, profile=profile,
-            screen_candidates=candidate_dims, paperwork=paperwork)
+            screen_candidates=candidate_dims, paperwork=paperwork,
+            documents=documents)
         if ext_note and r["_action"] == "copy":
             r["_note"] = join_note(r["_note"], ext_note, msg)
             r["_tags"] = r["_tags"] | {"renamed"}
