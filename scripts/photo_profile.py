@@ -1390,6 +1390,10 @@ REVIEW_VOCAB = {
         "review_no_facts": "—",
         "review_scene": "{subjects} · {clusters} visual cluster(s) (saw {seen} "
                         "of {files})",
+        # W-9 — photos were viewed and none held an animal: not the same as
+        # nothing viewed, which `review_scene_none` says.
+        "review_scene_no_subject": "no animal was recorded for this batch "
+                                   "(saw {seen} of {files})",
         "review_scene_none": "nothing visual was recorded for this batch (saw "
                              "{seen} of {files})",
         "review_subject_separator": ", ",

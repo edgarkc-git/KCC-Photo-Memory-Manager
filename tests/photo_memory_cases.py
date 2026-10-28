@@ -6676,6 +6676,38 @@ def case_c14_another_dumps_batch_is_not_this_one(tmp):
     assert "Birk" not in row["scene"], row["scene"]
 
 
+
+def w9_rows(tmp, drop_report=None):
+    """W-9: three seen batches whose subjects are taken out of the registry
+    view, so no batch has a subject; `drop_report` deletes one batch's see
+    report (nothing was viewed there). -> {batch: scene cell}."""
+    pack_dir, workdir = a_split_and_a_share(tmp)
+    if drop_report:
+        (workdir / "classify" / f"batch-{drop_report:02d}" / "see-report.json").unlink()
+    pack = open_pack(pack_dir)
+    registry = psub.load(pack=pack)
+    for subject in registry.subjects:
+        subject.record["evidence"] = []
+    rmsg = photo_profile.review_messages(pack.profile)
+    return {r["batch"]: r["scene"]
+            for r in pm.build_rows(workdir, registry, pack.profile, rmsg)}
+
+
+def case_w9_a_seen_batch_with_no_animal_says_no_animal(tmp):
+    """⭐ REPRODUCTION W-9 (Win11 run 20261026). A batch whose photos WERE
+    viewed and labelled, with no animal in them, said "nothing visual was
+    recorded for this batch" — which reads as "never looked at". It says
+    there was no animal."""
+    scene = w9_rows(tmp)[1]
+    assert "nothing visual" not in scene and "no animal" in scene, scene
+
+
+def case_w9_an_unseen_batch_still_says_nothing_visual(tmp):
+    """GUARD W-9 — a batch with no see report keeps "nothing visual"."""
+    scene = w9_rows(tmp, drop_report=2)[2]
+    assert "nothing visual" in scene, scene
+
+
 def case_a_draft_with_no_capture_date_keeps_the_bare_marker(tmp):
     """A control, and a real case rather than a hypothetical: `active` stays
     open when nothing in a group carried a capture date. Inventing a date to
@@ -8875,6 +8907,10 @@ CASES = [
      case_w5_a_box_of_another_kind_is_not_the_tile),
     ("W-5 — a box of the subject's kind is still cropped (GUARD)",
      case_w5_a_box_of_the_subjects_kind_is_still_cropped),
+    ("W-9 — a seen batch with no animal says no animal (REPRODUCTION)",
+     case_w9_a_seen_batch_with_no_animal_says_no_animal),
+    ("W-9 — an unseen batch still says nothing visual (GUARD)",
+     case_w9_an_unseen_batch_still_says_nothing_visual),
     ("C-14 — a subject is one fact per batch (REPRODUCTION)",
      case_c14_a_subject_is_one_fact_per_batch),
     ("C-14b — another dump's batch is not this one (REPRODUCTION)",

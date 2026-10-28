@@ -1165,7 +1165,8 @@ def build_rows(workdir, registry, profile, rmsg):
                              .join(subjects),
                     clusters=clusters, seen=seen, files=files)
                  if subjects else
-                 rmsg["review_scene_none"].format(seen=seen, files=files))
+                 rmsg["review_scene_no_subject" if seen else
+                      "review_scene_none"].format(seen=seen, files=files))
         rows.append({"batch": n, "from": batch.get("from", ""),
                      "to": batch.get("to", ""), "files": files, "seen": seen,
                      "facts": facts or [rmsg["review_no_facts"]],
