@@ -6216,11 +6216,9 @@ def _cmd_confirm(args):
                 # one on the line. Settling only `ids[0]` left the rest unnamed
                 # while the log claimed the question was closed.
                 #
-                # The N member ids keep their own records and share one name.
-                # That is transitional BY DESIGN: the human-attested merge is
-                # its own verb and its own build, and nothing here decides that
-                # two ids are one subject — the doctrine this file states
-                # everywhere.
+                # The N member ids are confirmed one by one here, and then
+                # FOLDED into one subject once written (C-28, below): the
+                # owner's one row is the human yes that they are one animal.
                 members = []
                 for subject_id in unit["subject_ids"]:
                     refusals.about = [subject_id]
@@ -7043,6 +7041,26 @@ def _cmd_confirm(args):
                     f"{group_note}"
                     f"\n  | by: {by} | src: {path.name} "
                     f"Q{block['n']}")
+                # ⭐ C-28 (M18, G74) — one `pick:` row is ONE animal (SNS-1:
+                # frames from different groups on one row ARE the merge), so
+                # its members become one subject here, through SNS-14's own
+                # fold. F15 used to leave them as N records sharing the name:
+                # P-B84 confirmed two pets called the same thing, and the
+                # 2-animal frame on the row could then not be logged ("held
+                # by 2"). A row the fold refuses (two kinds) keeps F15's
+                # outcome and says why.
+                if len(members) > 1:
+                    ids_here = [s.subject_id for s in members]
+                    why = registry.fold_refusal(ids_here)
+                    if why:
+                        notes.append(f"Q{block['n']}: the row named "
+                                     f"{unit['name']!r} stays "
+                                     f"{len(members)} records: {why}")
+                    else:
+                        apply_fold(registry, entities, ids_here, unit["name"],
+                                   unit["who"], by,
+                                   f"{path.name} Q{block['n']}",
+                                   f"Q{block['n']}", args.go, report)
 
             # ---- SNS-16 — the promotion, beside the fold -------------------
             #

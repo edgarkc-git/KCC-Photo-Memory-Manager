@@ -1366,8 +1366,11 @@ def case_one_answer_settles_every_member_id_and_only_what_it_answers(tmp):
         assert subject.status == psub.STATUS_CONFIRMED, subject.record
         assert subject.name == "Name-Two" and subject.who == "pet", subject.record
         assert subject.exemplars, f"{subject_id} was named but holds no exemplar"
+    # C-28 (M18): one answer over two drafts is ONE pet — the later id is
+    # folded into the earlier and stays as an alias, so one entities record.
     entities = json.loads((pack_dir / "photo-entities.json").read_text())
-    assert sorted(r["subject_id"] for r in entities["pets"]) == ids, entities
+    assert sorted(r["subject_id"] for r in entities["pets"]) == ids[:1], entities
+    assert after.get_literal(ids[1]).record.get("merged_into") == ids[0]
 
     settled = pm.settled_subjects(open_pack(pack_dir))
     assert all(settled.get(i) == psub.STATUS_CONFIRMED for i in ids), settled
@@ -7575,15 +7578,23 @@ def confirmed_named(pack_dir, name):
 
 
 def case_same_over_several_holders_folds_them(tmp):
-    """F13 (iii)(b), the UAT01-4 shape. C1's one answer over three drafts
-    leaves three records sharing a name (amendment (a), signed). At C2 the
+    """F13 (iii)(b), the UAT01-4 shape. Three records share a name. At C2 the
     owner says `same`, and on 7b74570 that was refused with "rename one of
     them first" — the product asking the owner to rename their pet. Now the
     unstamped holders are FOLDED and the frames join the one that keeps the
-    name, and the dry run says exactly what `--go` then does."""
-    pack_dir, workdir, _ids = four_drafts(tmp, rendered=3)
-    rc, said = name_three_drafts(pack_dir, workdir, "Name-M")
-    assert rc == 0, said
+    name, and the dry run says exactly what `--go` then does.
+
+    ⚠️ C-28 (M18): one answer over three drafts no longer leaves three
+    records — it folds them at C1. A pack confirmed before M18 still holds
+    that shape, so it is built here by hand, as such a pack holds it."""
+    pack_dir, workdir, ids = four_drafts(tmp, rendered=3)
+    registry = psub.load(pack=open_pack(pack_dir))
+    for sid in ids[:3]:
+        record = registry.get_literal(sid).record
+        record.update({"name": "Name-M", "who": "pet",
+                       "status": psub.STATUS_CONFIRMED,
+                       "confirmed_by": "Test Operator"})
+    registry.save()
     holders = confirmed_named(pack_dir, "Name-M")
     assert len(holders) == 3, holders
     rc_dry, dry, text = answer_next(pack_dir, workdir, 2, "Name-M same",
@@ -8047,6 +8058,121 @@ def case_u26_a_join_that_splits_nothing_is_not_rewritten(tmp):
     rc, said = confirm(pack_dir, workdir, checkpoint=1, go=False)
     assert "was read as two rows" not in said, said
     assert rc == 0, said
+
+
+
+# ============================================================ C-28 ======
+
+def c28_page(tmp, rows, shared=True):
+    """C-28, the P-B84 shape: two drafts, a pet the pack already remembers
+    (Birk), and — when `shared` — one frame of the first draft that holds two
+    animals. `rows(a, b, shared_n)` -> [(frames, name)], frames as page
+    numbers. -> (pack dir, work dir, a, b, shared frame number or None)."""
+    pack_dir, workdir = a_split_and_a_share(tmp)
+    reg = psub.load(pack=open_pack(pack_dir))
+    reg.create_subject(name="Birk", who="pet", kind="cat",
+                       active=["2029-01", None])
+    reg.save()
+    paths = draft_look_paths(pack_dir)
+    two = paths[0] if shared else None
+    write_detection_index(workdir, {
+        p: ([(0, 2, "1.0,1.0,9.0,9.0"), (1, 2, "9.0,9.0,19.0,19.0")]
+            if p == two else [(0, 1, "1.0,1.0,9.0,9.0")]) for p in paths})
+    pm.cmd_review(argparse.Namespace(
+        workdir=str(workdir), profile=str(pack_dir / "photo-profile.json"),
+        checkpoint=1, out=None))
+    path = workdir / "memory-review_C1.md"
+    block = pm.parse_review(path.read_text())[0]
+    by_subject = block["frames_by_subject"]
+    a, b = sorted(by_subject)
+    shared_n = None
+    if two:
+        shared_n = next(n for n, f in block["frames"].items()
+                        if pm.frame_source(workdir, f["path"]) == two)
+    text = path.read_text()
+    for frames, name in rows(by_subject[a], by_subject[b], shared_n):
+        if PICK_ROW not in text:
+            text = text.replace("> - `skip:`", "> - " + PICK_ROW + "\n> - `skip:`", 1)
+        text = fill_pick(text, None, frames=",".join(map(str, frames)), name=name)
+    path.write_text(text)
+    return pack_dir, workdir, a, b, shared_n
+
+
+def c28_named(pack_dir, name):
+    reg = psub.load(pack=open_pack(pack_dir))
+    return [s for s in reg.subjects
+            if s.name == name and s.status == psub.STATUS_CONFIRMED]
+
+
+def case_c28_one_row_over_two_drafts_makes_one_pet(tmp):
+    """⭐ REPRODUCTION C-28 (P-B84, LL-PHO-267). `pick: <both drafts' frames>
+    name: Lotus`, one of those frames a 2-animal photo also on a `Birk same`
+    row. The 2-animal frame leaves both rows first (G6-6d), so the Lotus row
+    is a join over two drafts with a NEW name — and it confirmed TWO subjects
+    called Lotus, then could not log the shared frame ("held by 2"). One row
+    is one animal (SNS-1): it must be ONE subject, and the shared frame logs
+    Lotus and Birk and banks under neither."""
+    pack_dir, workdir, a, b, shared_n = c28_page(tmp, lambda fa, fb, n: [
+        (list(fa) + list(fb), "Lotus"), ([n], "Birk same")])
+    rc_dry, dry = confirm(pack_dir, workdir, go=False)
+    assert rc_dry == 0, dry
+    rc, said = confirm(pack_dir, workdir, go=True)
+    assert rc == 0, said
+    lotus = c28_named(pack_dir, "Lotus")
+    assert len(lotus) == 1, ([s.subject_id for s in lotus], said[-1500:])
+    assert "is held by" not in said, said
+    birk = c28_named(pack_dir, "Birk")
+    assert len(birk) == 1, [s.subject_id for s in birk]
+    frame = pm.parse_review((workdir / "memory-review_C1.md").read_text()
+                            )[0]["frames"][shared_n]
+    held = ps.subjects_held(workdir, [frame["path"]])
+    ids = set(held[frame["path"]][1]) if frame["path"] in held else set()
+    assert {lotus[0].subject_id, birk[0].subject_id} <= ids, (held, said)
+    # exemplars key on `sha256:<frame ref>`; the other five frames bank
+    banked = {str(e.get("vec_ref")).split(":")[-1]
+              for s in lotus + birk for e in s.exemplars}
+    assert frame["ref"] not in banked and len(banked) == 5, (frame["ref"], banked)
+    log("one row, one new name, two drafts -> one pet; the 2-animal frame "
+        "logs both names and banks neither")
+
+
+def case_c28_a_plain_join_also_makes_one_pet(tmp):
+    """⭐ REPRODUCTION C-28, the shape with no shared frame: one row with one
+    NEW name over two drafts is one subject, not two records sharing it."""
+    pack_dir, workdir, a, b, _n = c28_page(tmp, lambda fa, fb, n: [
+        (list(fa) + list(fb), "Lotus")], shared=False)
+    rc, said = confirm(pack_dir, workdir, go=True)
+    assert rc == 0, said
+    lotus = c28_named(pack_dir, "Lotus")
+    assert len(lotus) == 1, ([s.subject_id for s in lotus], said[-1500:])
+    reg = psub.load(pack=open_pack(pack_dir))
+    loser = ({a, b} - {lotus[0].subject_id}).pop()
+    assert reg.get_literal(loser).status == psub.STATUS_MERGED_INTO, \
+        reg.get_literal(loser).status
+    log("the other draft is an alias of the one pet")
+
+
+def case_c28_the_dry_run_says_the_fold(tmp):
+    """⭐ REPRODUCTION C-28 — the dry run says the fold --go performs, and writes
+    nothing."""
+    pack_dir, workdir, a, b, _n = c28_page(tmp, lambda fa, fb, n: [
+        (list(fa) + list(fb), "Lotus")], shared=False)
+    before = (pack_dir / "photo-subjects" / "subjects.json").read_bytes()
+    rc, said = confirm(pack_dir, workdir, go=False)
+    assert rc == 0, said
+    assert "would be folded into one subject under 'Lotus'" in said, said
+    assert (pack_dir / "photo-subjects" / "subjects.json").read_bytes() == before
+
+
+def case_c28_one_draft_rows_are_unchanged(tmp):
+    """GUARD C-28 — two rows, two names, one draft each: two pets, no fold."""
+    pack_dir, workdir, a, b, _n = c28_page(tmp, lambda fa, fb, n: [
+        (list(fa), "Lotus"), (list(fb), "Birk-Two")], shared=False)
+    rc, said = confirm(pack_dir, workdir, go=True)
+    assert rc == 0, said
+    assert len(c28_named(pack_dir, "Lotus")) == 1
+    assert len(c28_named(pack_dir, "Birk-Two")) == 1
+    assert "folded" not in said, said
 
 
 # ============================================================ K24 ======
@@ -8523,6 +8649,14 @@ CASES = [
      case_u26_the_storage_gate_still_refuses_a_mixed_row),
     ("U2-6 — a join that splits nothing is not rewritten (GUARD)",
      case_u26_a_join_that_splits_nothing_is_not_rewritten),
+    ("C-28 — one row over two drafts makes one pet (REPRODUCTION)",
+     case_c28_one_row_over_two_drafts_makes_one_pet),
+    ("C-28 — a plain join also makes one pet (REPRODUCTION)",
+     case_c28_a_plain_join_also_makes_one_pet),
+    ("C-28 — the dry run says the fold (REPRODUCTION)",
+     case_c28_the_dry_run_says_the_fold),
+    ("C-28 — one-draft rows are unchanged (GUARD)",
+     case_c28_one_draft_rows_are_unchanged),
     ("OA-19 — the two-row remedy the refusal teaches is performed",
      case_the_two_row_remedy_the_refusal_teaches_is_performed),
     ("D6 — a split row and a naming row may share one name",
