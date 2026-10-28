@@ -312,6 +312,10 @@ coverage**, because frames no row picked are deferred and not a decision:
 | 1, shared with other subjects | `shared` | nothing — every member keeps its id under one name |
 | 2 or more | `split` | one child per row; the parent takes `status: superseded` and `split_into: [ids]` |
 
+The `shared` case writes nothing here, and the confirm then folds the row's
+members into ONE subject: one `pick:` row is one animal, so the earlier id
+keeps the name and the rest become aliases (C-28).
+
 A child is minted as its own draft with its OWN first-sighting centroid,
 computed by the caller from that row's frames and passed in — the parent's is
 never recomputed and never reassigned. It inherits a restricted COPY of the
