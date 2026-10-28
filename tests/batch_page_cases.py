@@ -214,6 +214,48 @@ def the_cap_never_hides_a_new_animal():
         f"seen={seen} rc={rc} batches={page_batches(late)}"
 
 
+
+@case
+def the_late_page_is_not_cut_by_the_round_ceiling():
+    """⭐ L-14 REPRODUCTION (Camera: the late page left 6 new drafts for the
+    end-of-dump page, AFTER the copy). G72 says the ONE page past the cap
+    asks every new animal of this dump before the copy, and the round's tile
+    ceiling cut it. Cap 1, new animals in batches 1-4, `tiles_per_round` 2:
+    the late page shows the animals of 2, 3 AND 4."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, extra = page_dump(tmp, pets=(1, 2, 3, 4), place_batches=(),
+                                        pet_pages=1)
+        pack = photo_profile.resolve_pack(
+            explicit=pack_dir / photo_profile.PROFILE_NAME)
+        registry = pmc.psub.load(pack=pack)
+        registry.data.setdefault("defaults", {})["tiles_per_round"] = 2
+        registry.save()
+        seen, rc, _said = walk_pages(tmp, wd, extra)
+        late = (wd / "P-B02.md").read_text() if (wd / "P-B02.md").exists() else ""
+    return ([s[0] for s in seen] == ["P-B01", "P-B02"] and rc == 0
+            and page_batches(late) == [2, 3, 4]), \
+        f"seen={seen} rc={rc} batches={page_batches(late)}"
+
+
+@case
+def an_ordinary_batch_page_still_keeps_the_ceiling():
+    """GUARD L-14 — only the late page is uncut: a batch page with more new
+    drafts than `tiles_per_round` still renders that many tiles."""
+    with tempfile.TemporaryDirectory() as tmp, fixture_env():
+        wd, pack_dir, extra = page_dump(tmp, pets=(1, 2, 3, 4), place_batches=(),
+                                        pet_pages=1)
+        pack = photo_profile.resolve_pack(
+            explicit=pack_dir / photo_profile.PROFILE_NAME)
+        registry = pmc.psub.load(pack=pack)
+        registry.data.setdefault("defaults", {})["tiles_per_round"] = 2
+        registry.save()
+        rmsg = photo_profile.review_messages(pack.profile)
+        questions, _s, over, _h = pm.build_questions(
+            pmc.psub.load(pack=pack), wd, pack, pack.profile, rmsg)
+        tiles = sum(len(q["tiles"]) for q in questions)
+    return tiles == 2 and over == 2, f"tiles={tiles} over={over}"
+
+
 @case
 def a_name_on_the_late_page_reaches_its_batchs_folder():
     """⭐ C-17 end to end (Lead's ask): the late page P-B02 names the animal

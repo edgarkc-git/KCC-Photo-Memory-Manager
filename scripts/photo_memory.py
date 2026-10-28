@@ -1951,6 +1951,12 @@ def build_questions(registry, workdir, pack, profile, rmsg, last_ask=False,
     per_question = int(registry.defaults.get(
         "drafts_rendered_per_question",
         photo_subjects.DEFAULT_THRESHOLDS["drafts_rendered_per_question"]))
+    if late:
+        # L-14 (G72) — the ONE page past the cap asks EVERY new animal of
+        # this dump before the copy; a ceiling here left the rest for the
+        # end-of-dump page, after it. Only this page: `{tiles_per_round}`
+        # still bounds every other round.
+        per_round = per_question = max(len(renderable), 1)
 
     # ---- the ROUND ceiling, and it cuts BEFORE the kinds are separated -----
     # `renderable` is in the outer loop's total order (this unit first, then
