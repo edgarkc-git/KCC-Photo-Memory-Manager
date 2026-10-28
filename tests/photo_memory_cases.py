@@ -4998,7 +4998,8 @@ def case_a_split_row_and_a_naming_row_share_one_name(tmp):
     ⭐ The invariant, and not the special case: **a refusal must never
     prescribe a row another gate would refuse.** So the two rows may share a
     name, and what they produce is what a row naming several tiles already
-    produces — one name over member ids that keep their own records (F15).
+    produces — ONE subject (G76, M18: the ids are folded; it was one name over
+    member ids that kept their own records, F15).
 
     ⛔ The narrow case stays refused, and `case_two_rows_one_name_asks_before_
     the_pack_moves` is where that is asserted: rows that name ONE draft
@@ -5057,12 +5058,15 @@ def case_a_split_row_and_a_naming_row_share_one_name(tmp):
     assert parent.status == psub.STATUS_SUPERSEDED, parent.record
     children = list(parent.record.get("split_into") or [])
     assert len(children) == 2, parent.record
-    # The split's first child and the whole draft beside it are ONE name...
+    # The split's first child and the whole draft beside it are ONE subject
+    # (G76): the earlier id keeps the name, the other is its alias...
+    keep, alias = sorted([children[0], other], key=after._ordinal)
     one = sorted(s.subject_id for s in after.subjects if s.name == "Name-One")
-    assert one == sorted([children[0], other]), (one, children, other)
-    for subject_id in one:
-        assert after.get_literal(subject_id).status == psub.STATUS_CONFIRMED, \
-            after.get_literal(subject_id).record
+    assert one == [keep], (one, children, other)
+    assert after.get_literal(keep).status == psub.STATUS_CONFIRMED, \
+        after.get_literal(keep).record
+    assert after.get_literal(alias).record.get("merged_into") == keep, \
+        after.get_literal(alias).record
     # ...and the other child is the other name, which is what makes this a
     # split and not a merge.
     two = [s.subject_id for s in after.subjects if s.name == "Name-Two"]
@@ -8229,6 +8233,77 @@ def case_c28_one_draft_rows_are_unchanged(tmp):
     assert "folded" not in said, said
 
 
+
+def g76_page(tmp, rows):
+    """G76 on the U2-6 fixture: a split draft `s`, the draft beside it `o`,
+    a remembered pet Birk, and frame s[1] made a 2-animal photo after the
+    page is written. `rows(s, o)` -> [(frames, name)]. -> (pack dir, work
+    dir, the 2-animal frame number)."""
+    pack_dir, workdir = a_split_and_a_share(tmp)
+    reg = psub.load(pack=open_pack(pack_dir))
+    reg.create_subject(name="Birk", who="pet", kind="cat",
+                       active=["2029-01", None])
+    reg.save()
+    pm.cmd_review(argparse.Namespace(
+        workdir=str(workdir), profile=str(pack_dir / "photo-profile.json"),
+        checkpoint=1, out=None))
+    path = workdir / "memory-review_C1.md"
+    block = pm.parse_review(path.read_text())[0]
+    by_subject = block["frames_by_subject"]
+    split = max(by_subject, key=lambda x: (len(by_subject[x]), x))
+    other = [x for x in by_subject if x != split][0]
+    s_frames, o_frames = by_subject[split], by_subject[other]
+    assert len(s_frames) >= 3, by_subject
+    n = s_frames[1]
+    two = pm.frame_source(workdir, block["frames"][n]["path"])
+    write_detection_index(workdir, {
+        p: ([(0, 2, "1.0,1.0,9.0,9.0"), (1, 2, "9.0,9.0,19.0,19.0")]
+            if p == two else [(0, 1, "1.0,1.0,9.0,9.0")])
+        for p in draft_look_paths(pack_dir)})
+    text = path.read_text()
+    for frames, name in rows(s_frames, o_frames, n):
+        if PICK_ROW not in text:
+            text = text.replace("> - `skip:`", "> - " + PICK_ROW + "\n> - `skip:`", 1)
+        text = fill_pick(text, None, frames=",".join(map(str, frames)), name=name)
+    path.write_text(text)
+    return pack_dir, workdir, n
+
+
+def case_g76_a_u26_row_with_a_shared_frame_is_one_pet(tmp):
+    """⭐ REPRODUCTION G76 (C-28's U2-6 half). `[s0, s1] + o` named Lotus
+    while `s[2:]` is another row: U2-6 reads the Lotus row as one row per
+    draft, each piece ONE member, and they stayed two records called Lotus.
+    s1 is a 2-animal photo also on `Birk same`, so it then could not be
+    logged ("held by 2"). One pet, and the 2-animal frame logs both names."""
+    pack_dir, workdir, n = g76_page(tmp, lambda s, o, n: [
+        ([s[0], n] + list(o), "Lotus"), (s[2:], "Lotus-Two"), ([n], "Birk same")])
+    rc, said = confirm(pack_dir, workdir, go=True)
+    assert rc == 0, said
+    assert "read as two rows" in said, said
+    lotus = c28_named(pack_dir, "Lotus")
+    assert len(lotus) == 1, ([x.subject_id for x in lotus], said[-1500:])
+    assert "is held by" not in said, said
+    birk = c28_named(pack_dir, "Birk")
+    frame = pm.parse_review((workdir / "memory-review_C1.md").read_text()
+                            )[0]["frames"][n]
+    held = ps.subjects_held(workdir, [frame["path"]])
+    ids = set(held[frame["path"]][1]) if frame["path"] in held else set()
+    assert {lotus[0].subject_id, birk[0].subject_id} <= ids, (held, said)
+
+
+def case_g76_two_typed_rows_with_one_new_name_are_one_pet(tmp):
+    """⭐ REPRODUCTION G76. The two rows the owner typed (amendment (a)'s
+    form: a split piece and the draft beside it, one new name) were two
+    records sharing the name. They are one pet; the split's other child keeps
+    its own name."""
+    pack_dir, workdir, _n = g76_page(tmp, lambda s, o, n: [
+        ([s[0]], "Lotus"), (s[1:], "Lotus-Two"), (list(o), "Lotus")])
+    rc, said = confirm(pack_dir, workdir, go=True)
+    assert rc == 0, said
+    assert len(c28_named(pack_dir, "Lotus")) == 1, said[-1500:]
+    assert len(c28_named(pack_dir, "Lotus-Two")) == 1, said[-1500:]
+
+
 # ============================================================ K24 ======
 
 def k24_page(tmp, q1_skip=None, q2_skip=None, q2_pick=None, extra=""):
@@ -8715,6 +8790,10 @@ CASES = [
      case_c28_the_dry_run_says_the_fold),
     ("C-28 — one-draft rows are unchanged (GUARD)",
      case_c28_one_draft_rows_are_unchanged),
+    ("G76 — a U2-6 row with a shared frame is one pet (REPRODUCTION)",
+     case_g76_a_u26_row_with_a_shared_frame_is_one_pet),
+    ("G76 — two typed rows with one new name are one pet (REPRODUCTION)",
+     case_g76_two_typed_rows_with_one_new_name_are_one_pet),
     ("OA-19 — the two-row remedy the refusal teaches is performed",
      case_the_two_row_remedy_the_refusal_teaches_is_performed),
     ("D6 — a split row and a naming row may share one name",

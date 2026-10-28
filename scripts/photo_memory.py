@@ -6484,9 +6484,8 @@ def _cmd_confirm(args):
                             f"{unit['name']!r} changed nothing on this row. "
                             "The rows sharing this name were not a question "
                             "here — they answer one subject across a draft "
-                            "you split and the drafts beside it — and either "
-                            "way each id keeps its own record under the one "
-                            "name.")
+                            "you split and the drafts beside it — and they "
+                            "become one subject either way.")
                 if unit.get("same") and unit.get("distinct"):
                     # Both answers to one question, on one row. ⛔ Neither is
                     # honoured and the row is refused whole: the two are
@@ -6916,9 +6915,9 @@ def _cmd_confirm(args):
                             f"Q{block['n']}: {name!r} was answered on "
                             f"{len(rows)} rows — one subject over the draft "
                             "you split and the drafts beside it, which is one "
-                            "answer and not two. They share the name and the "
-                            "member ids stay their own, exactly as several "
-                            "tiles on one row already do.")
+                            "answer and not two. They are folded into one "
+                            "subject, exactly as several tiles on one row "
+                            "are.")
                     continue
                 dropped = {id(row) for row in rows}
                 accepted = [row for row in accepted if id(row) not in dropped]
@@ -7069,26 +7068,37 @@ def _cmd_confirm(args):
                     f"{group_note}"
                     f"\n  | by: {by} | src: {path.name} "
                     f"Q{block['n']}")
-                # ⭐ C-28 (M18, G74) — one `pick:` row is ONE animal (SNS-1:
-                # frames from different groups on one row ARE the merge), so
-                # its members become one subject here, through SNS-14's own
-                # fold. F15 used to leave them as N records sharing the name:
-                # P-B84 confirmed two pets called the same thing, and the
-                # 2-animal frame on the row could then not be logged ("held
-                # by 2"). A row the fold refuses (two kinds) keeps F15's
-                # outcome and says why.
-                if len(members) > 1:
-                    ids_here = [s.subject_id for s in members]
-                    why = registry.fold_refusal(ids_here)
-                    if why:
-                        notes.append(f"Q{block['n']}: the row named "
-                                     f"{unit['name']!r} stays "
-                                     f"{len(members)} records: {why}")
-                    else:
-                        apply_fold(registry, entities, ids_here, unit["name"],
-                                   unit["who"], by,
-                                   f"{path.name} Q{block['n']}",
-                                   f"Q{block['n']}", args.go, report)
+
+            # ---- C-28 / G76 — one new name on this page is ONE pet --------
+            #
+            # Every accepted row giving the same new name — one row over 2+
+            # drafts, the pieces U2-6 reads one row as, or two rows the owner
+            # typed beside a split — is folded into one subject through
+            # SNS-14's own fold, once the rows are written. F15 left them as N
+            # records sharing the name: P-B84 confirmed two pets called the
+            # same thing, and a 2-animal frame on the row could then not be
+            # logged ("held by 2"). A `distinct` row is left out: the owner
+            # said that one is another animal. A name the fold refuses (two
+            # kinds) keeps the records apart and says why.
+            same_name = {}
+            for row in accepted:
+                if row.get("distinct"):
+                    continue
+                ids_here, _unit = same_name.setdefault(row["unit"]["name"],
+                                                       ([], row["unit"]))
+                ids_here += [s.subject_id for s in row["members"]
+                             if s.subject_id not in ids_here]
+            for name, (ids_here, unit) in same_name.items():
+                if len(ids_here) < 2:
+                    continue
+                why = registry.fold_refusal(ids_here)
+                if why:
+                    notes.append(f"Q{block['n']}: {name!r} stays "
+                                 f"{len(ids_here)} records: {why}")
+                    continue
+                apply_fold(registry, entities, ids_here, name, unit["who"],
+                           by, f"{path.name} Q{block['n']}",
+                           f"Q{block['n']}", args.go, report)
 
             # ---- SNS-16 — the promotion, beside the fold -------------------
             #
