@@ -1057,16 +1057,36 @@ def see_reports(workdir):
     return out
 
 
-def batch_observations(registry):
+def from_this_dump(entry, workdir, run_id):
+    """C-14b — is this evidence entry from THIS work dir's see run? A batch
+    number is per dump, so batch 7 of an older dump is not batch 7 here. The
+    looks name their work dir; an entry with none is matched on the see
+    report's run id, and one with neither (an older pack) is kept."""
+    dirs = {look.get("workdir") for look in entry.get("looks") or []
+            if look.get("workdir")}
+    if dirs:
+        here = Path(workdir).resolve()
+        return any(Path(d).resolve() == here for d in dirs)
+    if run_id and entry.get("run_id"):
+        return entry["run_id"] == run_id
+    return True
+
+
+def batch_observations(registry, workdir=None, reports=None):
     """-> {batch: [(subject, evidence entry), ...]} from the registry's own
     per-batch evidence. The registry is the record of what was observed; the
-    table only reads it."""
+    table only reads it. With `workdir`, only this dump's evidence."""
     out = {}
     for subject in registry.subjects:
         for entry in subject.record.get("evidence") or []:
             batch = entry.get("batch")
             if batch is None:
                 continue
+            if workdir is not None:
+                report = (reports or {}).get(int(batch), (None, None))[0]
+                if not from_this_dump(entry, workdir,
+                                      (report or {}).get("run_id")):
+                    continue
             out.setdefault(int(batch), []).append((subject, entry))
     for rows in out.values():
         rows.sort(key=lambda t: t[0].subject_id)
@@ -1077,7 +1097,7 @@ def build_rows(workdir, registry, profile, rmsg):
     """One row per batch, columns 1-5 of the TEMPLATE."""
     batches = load_json(Path(workdir) / "batches.json", {}) or {}
     reports = see_reports(workdir)
-    observed = batch_observations(registry)
+    observed = batch_observations(registry, workdir, reports)
     rows = []
     for batch in batches.get("batches", []):
         n = int(batch["batch"])
@@ -1087,16 +1107,24 @@ def build_rows(workdir, registry, profile, rmsg):
         seen = len((report or {}).get("selected") or [])
         clusters = len((report or {}).get("clusters") or [])
 
-        facts, subjects = [], []
+        # C-14 / L-4 — ONE line per subject, its files summed over every
+        # evidence entry this batch holds for it. It was one line per entry,
+        # so one pet seen six times in a batch was listed six times.
+        per = {}
         for subject, entry in observed.get(n, []):
             # TEMPLATE column 4's three tags: `new` = first sighting,
             # `again` = a draft reinforced, `known` = matched a confirmed fact.
             tag = {"reinforced": "again", "known": "known"}.get(
                 entry.get("state") or "new", "new")
+            got = per.setdefault(subject.subject_id, [subject, set(), 0])
+            got[1].add(tag)
+            got[2] += int(entry.get("files", 0) or 0)
+        facts, subjects = [], []
+        for subject, tags, total in per.values():
+            tag = next(t for t in ("new", "again", "known") if t in tags)
             shown = subject_display(subject, profile, rmsg)
             facts.append(rmsg[f"review_fact_{tag}"].format(
-                subject=f"{shown} ({subject.subject_id})",
-                files=entry.get("files", 0)))
+                subject=f"{shown} ({subject.subject_id})", files=total))
             subjects.append(shown)
         scene = (rmsg["review_scene"].format(
                     subjects=rmsg.get("review_subject_separator", ", ")

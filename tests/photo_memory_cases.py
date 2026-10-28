@@ -6586,6 +6586,60 @@ def case_the_scene_column_distinguishes_its_subjects(tmp):
     log(f"scene cell holds distinct labels: {both[0]['scene']}")
 
 
+
+def c14_rows(tmp):
+    """C-14 / L-4: a draft seen three times in batch 1 of THIS dump, and a
+    remembered pet (Birk) whose only evidence is batch 1 of ANOTHER dump.
+    -> (rows, the draft, Birk)."""
+    import copy
+    pack_dir, workdir = a_split_and_a_share(tmp)
+    reg = psub.load(pack=open_pack(pack_dir))
+    draft = reg.drafts[0]
+    first = next(e for e in draft.record["evidence"] if e.get("batch") == 1)
+    for _ in range(2):
+        again = copy.deepcopy(first)
+        again["state"] = "reinforced"
+        draft.record["evidence"].append(again)
+    birk = reg.create_subject(name="Birk", who="pet", kind="dog",
+                              active=["2020-01", "2020-12"])
+    old = copy.deepcopy(first)
+    old.update({"state": "known", "run_id": "see-old-dump"})
+    for look in old.get("looks") or []:
+        look.update({"workdir": str(tmp / "an-older-dump"), "run_id": "see-old-dump"})
+    birk.record["evidence"] = [old]
+    reg.save()
+    pack = open_pack(pack_dir)
+    rmsg = photo_profile.review_messages(pack.profile)
+    rows = pm.build_rows(workdir, psub.load(pack=pack), pack.profile, rmsg)
+    return rows, draft, birk, first
+
+
+def case_c14_a_subject_is_one_fact_per_batch(tmp):
+    """⭐ REPRODUCTION C-14 / L-4. The Key facts cell wrote one line per
+    EVIDENCE ENTRY, so a pet seen several times in one batch was listed
+    6+ times (`new X` again and again). One line per subject, files summed,
+    and the Scene cell names it once."""
+    rows, draft, _birk, first = c14_rows(tmp)
+    row = next(r for r in rows if r["batch"] == 1)
+    mine = [f for f in row["facts"] if draft.subject_id in f]
+    assert len(mine) == 1, row["facts"]
+    assert f"({3 * int(first.get('files', 0))}f)" in mine[0], mine
+    assert "**new**" in mine[0], mine
+    scene = row["scene"].split(" · ")[0]
+    assert len(scene.split(", ")) == len(row["facts"]), (row["scene"], row["facts"])
+
+
+def case_c14_another_dumps_batch_is_not_this_one(tmp):
+    """⭐ REPRODUCTION C-14b. Evidence is keyed by batch NUMBER, and batch 1
+    of an older dump is not batch 1 of this one: a pet last seen years ago
+    was listed as `known` on a batch with no such animal in it. Only evidence
+    from THIS work dir's own see run is a fact of this row."""
+    rows, _draft, birk, _first = c14_rows(tmp)
+    row = next(r for r in rows if r["batch"] == 1)
+    assert not [f for f in row["facts"] if birk.subject_id in f], row["facts"]
+    assert "Birk" not in row["scene"], row["scene"]
+
+
 def case_a_draft_with_no_capture_date_keeps_the_bare_marker(tmp):
     """A control, and a real case rather than a hypothetical: `active` stays
     open when nothing in a group carried a capture date. Inventing a date to
@@ -8649,6 +8703,10 @@ CASES = [
      case_u26_the_storage_gate_still_refuses_a_mixed_row),
     ("U2-6 — a join that splits nothing is not rewritten (GUARD)",
      case_u26_a_join_that_splits_nothing_is_not_rewritten),
+    ("C-14 — a subject is one fact per batch (REPRODUCTION)",
+     case_c14_a_subject_is_one_fact_per_batch),
+    ("C-14b — another dump's batch is not this one (REPRODUCTION)",
+     case_c14_another_dumps_batch_is_not_this_one),
     ("C-28 — one row over two drafts makes one pet (REPRODUCTION)",
      case_c28_one_row_over_two_drafts_makes_one_pet),
     ("C-28 — a plain join also makes one pet (REPRODUCTION)",
