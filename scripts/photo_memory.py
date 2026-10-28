@@ -1160,13 +1160,14 @@ def build_rows(workdir, registry, profile, rmsg):
             facts.append(rmsg[f"review_fact_{tag}"].format(
                 subject=f"{shown} ({subject.subject_id})", files=total))
             subjects.append(shown)
-        scene = (rmsg["review_scene"].format(
-                    subjects=rmsg.get("review_subject_separator", ", ")
-                             .join(subjects),
-                    clusters=clusters, seen=seen, files=files)
-                 if subjects else
-                 rmsg["review_scene_no_subject" if seen else
-                      "review_scene_none"].format(seen=seen, files=files))
+        if subjects:
+            scene = rmsg["review_scene"].format(
+                subjects=rmsg.get("review_subject_separator", ", ").join(subjects),
+                clusters=clusters, seen=seen, files=files)
+        elif seen:
+            scene = rmsg["review_scene_no_subject"].format(seen=seen, files=files)
+        else:
+            scene = rmsg["review_scene_none"].format(seen=seen, files=files)
         rows.append({"batch": n, "from": batch.get("from", ""),
                      "to": batch.get("to", ""), "files": files, "seen": seen,
                      "facts": facts or [rmsg["review_no_facts"]],
