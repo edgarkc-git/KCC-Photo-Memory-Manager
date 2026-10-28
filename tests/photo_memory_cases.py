@@ -8336,6 +8336,67 @@ def case_g76_two_typed_rows_with_one_new_name_are_one_pet(tmp):
     assert len(c28_named(pack_dir, "Lotus-Two")) == 1, said[-1500:]
 
 
+
+def g77_page(tmp, rows):
+    """C-16 / G77, the P-B12 shape: two remembered pets (Lotus, Birk) and a
+    draft frame whose identity index holds ONE box. `rows(n)` -> [(frames,
+    name)]. -> (pack dir, work dir, frame number, Lotus, Birk)."""
+    pack_dir, workdir = a_split_and_a_share(tmp)
+    reg = psub.load(pack=open_pack(pack_dir))
+    lotus = reg.create_subject(name="Lotus", who="pet", kind="cat",
+                               active=["2029-01", None])
+    birk = reg.create_subject(name="Birk", who="pet", kind="cat",
+                              active=["2029-01", None])
+    reg.save()
+    paths = draft_look_paths(pack_dir)
+    write_detection_index(workdir, {p: [(0, 1, "1.0,1.0,9.0,9.0")] for p in paths})
+    pm.cmd_review(argparse.Namespace(
+        workdir=str(workdir), profile=str(pack_dir / "photo-profile.json"),
+        checkpoint=1, out=None))
+    path = workdir / "memory-review_C1.md"
+    block = pm.parse_review(path.read_text())[0]
+    n = sorted(block["frames"])[0]
+    text = path.read_text()
+    for frames, name in rows(n):
+        if PICK_ROW not in text:
+            text = text.replace("> - `skip:`", "> - " + PICK_ROW + "\n> - `skip:`", 1)
+        text = fill_pick(text, None, frames=",".join(map(str, frames)), name=name)
+    path.write_text(text)
+    return pack_dir, workdir, n, lotus.subject_id, birk.subject_id
+
+
+def case_g77_one_box_named_on_two_rows_logs_both(tmp):
+    """⭐ REPRODUCTION C-16 / G77 (P-B12 frame 8). ONE detector box covered
+    two cats. Naming the frame on two rows was refused ("one photograph
+    cannot be two answers"), and naming one would bank a 2-cat crop. The
+    owner's rows win over the detector: each name is logged, the photo is
+    never an exemplar, and the page says the detector saw 1 box."""
+    pack_dir, workdir, n, lotus, birk = g77_page(tmp, lambda n: [
+        ([n], "Lotus same"), ([n], "Birk same")])
+    rc, said = confirm(pack_dir, workdir, go=True)
+    assert rc == 0, said
+    assert "the detector saw 1 box" in said, said
+    frame = pm.parse_review((workdir / "memory-review_C1.md").read_text()
+                            )[0]["frames"][n]
+    held = ps.subjects_held(workdir, [frame["path"]])
+    ids = set(held[frame["path"]][1]) if frame["path"] in held else set()
+    assert {lotus, birk} <= ids, (held, said)
+    reg = psub.load(pack=open_pack(pack_dir))
+    banked = [e for sid in (lotus, birk) for e in reg.get(sid).exemplars]
+    assert banked == [], banked
+
+
+def case_g77_one_box_on_one_row_is_unchanged(tmp):
+    """GUARD C-16 / G77 — a 1-box frame on ONE row is not read as several
+    animals: no detector line, and it answers as it always did."""
+    pack_dir, workdir, n, lotus, _birk = g77_page(tmp, lambda n: [
+        ([n], "Lotus same")])
+    rc, said = confirm(pack_dir, workdir, go=True)
+    assert rc == 0, said
+    assert "the detector saw 1 box" not in said, said
+    assert f"joined {lotus}" in said, said
+
+
 # ============================================================ K24 ======
 
 def k24_page(tmp, q1_skip=None, q2_skip=None, q2_pick=None, extra=""):
@@ -8826,6 +8887,10 @@ CASES = [
      case_c28_the_dry_run_says_the_fold),
     ("C-28 — one-draft rows are unchanged (GUARD)",
      case_c28_one_draft_rows_are_unchanged),
+    ("G77 — one box named on two rows logs both (REPRODUCTION)",
+     case_g77_one_box_named_on_two_rows_logs_both),
+    ("G77 — one box on one row is unchanged (GUARD)",
+     case_g77_one_box_on_one_row_is_unchanged),
     ("G76 — a U2-6 row with a shared frame is one pet (REPRODUCTION)",
      case_g76_a_u26_row_with_a_shared_frame_is_one_pet),
     ("G76 — two typed rows with one new name are one pet (REPRODUCTION)",

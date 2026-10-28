@@ -1213,8 +1213,12 @@ def a_stale_batch_page_refusal_leads_to_the_page_again():
 
 @case
 def a_one_animal_photo_on_two_rows_is_still_refused():
-    """GUARD (G6-6 item 4). ⛔ A photo the identity index counts ONE animal in
-    (or no row at all) on two rows is refused as before, nothing written."""
+    """GUARD (G6-6 item 4, changed by G77). A photo the identity index has
+    NO row for, on two rows, is refused as before, nothing written. One the
+    detector drew ONE box in is now read as the animals the owner named
+    (G77, owner 20261028: one box can cover two cats) — both logged, no
+    exemplar. A count of 1 made by the owner's own marks stays refused (see
+    the not-an-animal dry-run case)."""
     results = []
     for animals in (1, None):
         with tempfile.TemporaryDirectory() as tmp, fixture_env():
@@ -1234,7 +1238,7 @@ def a_one_animal_photo_on_two_rows_is_still_refused():
             named = subjects_named(pack_dir, "Pebble", "Juniper")
             results.append((rc, "more than one row" in said,
                             all(not s.get("exemplars") for s in named.values())))
-    return results == [(1, True, True), (1, True, True)], f"{results}"
+    return results == [(0, False, True), (1, True, True)], f"{results}"
 
 
 @case

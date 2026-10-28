@@ -477,6 +477,24 @@ def frame_animals(workdir, pack=None):
     return out
 
 
+def raw_boxes(workdir):
+    """-> {SourceFile: the detector's own det_count}, read straight from
+    identity.csv: no owner mark (not a real animal, same animal) applied.
+    G77 asks what the DETECTOR saw, never what the owner already said."""
+    path = Path(workdir) / "embed" / "identity.csv"
+    out = {}
+    if not path.is_file():
+        return out
+    with open(path, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            try:
+                count = int(row.get("det_count") or 0)
+            except ValueError:
+                continue
+            out[row["SourceFile"]] = max(out.get(row["SourceFile"], 0), count)
+    return out
+
+
 def frame_source(workdir, sample_rel):
     """-> the SourceFile a page frame's sample was made from, or None."""
     rel = Path(sample_rel)
@@ -498,6 +516,13 @@ def shared_frame_rows(workdir, block, refusals, pack=None):
     (SNS-16) and the frame clash never see it. A one-animal frame on two rows
     is left exactly as it was, and is refused by those rules as before.
 
+    G77 (C-16, owner 20261028) — the owner's rows win over the detector: a
+    frame the index holds ONE box for, named on 2+ rows with different names
+    (who and name on each), is read as that many animals, and
+    `block["owner_counted"]` says so for the caller to print. One box can
+    cover two cats. A 1-box frame on one row, or one the index does not
+    cover, is unchanged.
+
     Refused, whole rows: more rows than animals; a row missing who or name;
     the same name twice on one photo (that is one animal, not two)."""
     rows_of = {}
@@ -511,13 +536,22 @@ def shared_frame_rows(workdir, block, refusals, pack=None):
     if not doubled:
         return []
     animals = frame_animals(workdir, pack)
+    boxes = raw_boxes(workdir)
     logs, dropped = [], []
     for number, units in sorted(doubled.items()):
         frame = block["frames"][number]
-        count = animals.get(frame_source(workdir, frame["path"]), 1)
-        if count < 2:
-            continue
+        source = frame_source(workdir, frame["path"])
+        found = animals.get(source)
+        count = found or 1
         names = [(u["name"] or "").strip().casefold() for u in units]
+        if count < 2:
+            # a count of 1 the OWNER's own marks made stays the owner's
+            if not (found == 1 and boxes.get(source) == 1
+                    and all(u["who"] and u["name"] for u in units)
+                    and len(set(names)) == len(names)):
+                continue
+            count = len(units)
+            block.setdefault("owner_counted", []).append((number, count))
         why = None
         if len(units) > count:
             why = (f"it holds {count} animals and is on {len(units)} rows — "
@@ -5827,6 +5861,12 @@ def _cmd_confirm(args):
                 continue
             # G6-6d — FIRST, before any row is judged or U-3 notes a pick.
             logged = shared_frame_rows(workdir, block, refusals, pack)
+            for number, count in block.get("owner_counted") or []:
+                notes.append(
+                    f"Q{block['n']}: frame {number}: the detector saw 1 box; "
+                    f"you named {count} animals, so each name is logged and "
+                    "the photo is never remembered as an example of any of "
+                    "them.")
             if logged:
                 shared_logs.extend(logged)
                 shared_blocks.append((block, logged))
