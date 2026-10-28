@@ -6057,7 +6057,8 @@ def write_detection_index(workdir, per_file, dim=8, vectors=None):
     same vector, which is right for the cases that only care about counts and
     useless for any case about how far apart two frames sit (U2-12).
 
-    `per_file`: {path: [(det_index, det_count, box_string)]}. Written with
+    `per_file`: {path: [(det_index, det_count, box_string[, kind])]}, kind
+    "cat" unless given. Written with
     photo_identity's own CSV_FIELDS and read back by its own loader, for the
     reason `write_embed_index` gives: a hand-rolled index would only prove
     that two hand-rolled things agree.
@@ -6076,11 +6077,12 @@ def write_detection_index(workdir, per_file, dim=8, vectors=None):
     embed.mkdir(parents=True, exist_ok=True)
     rows = []
     for path in sorted(per_file):
-        for det_index, det_count, box in per_file[path]:
+        for det_index, det_count, box, *kind in per_file[path]:
             rows.append({"SourceFile": path, "sha256": f"sha-{det_index}",
                          "status": photo_identity.STATUS_OK,
                          "det_index": det_index, "det_count": det_count,
-                         "kind": "cat", "det_score": 0.9, "box": box,
+                         "kind": (kind or ["cat"])[0], "det_score": 0.9,
+                         "box": box,
                          "box_share": 0.4, "error": ""})
     with open(embed / "identity.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=photo_identity.CSV_FIELDS)
@@ -6403,6 +6405,36 @@ def case_the_tile_shows_the_crop_not_the_whole_frame(tmp):
 
 
 # ---- R4: a shared frame logs every name and banks none of them ------------
+
+def w5_page(tmp, kind):
+    """W-5: one cat draft's frame whose ONE detector box is of `kind`.
+    -> (page text, the crop file name that box would be shown as)."""
+    pack_dir, workdir, ids = two_lookalike_drafts(tmp)
+    paths = draft_look_paths(pack_dir)
+    write_detection_index(workdir, {paths[0]: [(0, 1, "1.0,1.0,9.0,9.0", kind)]})
+    pm.cmd_review(argparse.Namespace(
+        workdir=str(workdir), profile=str(pack_dir / "photo-profile.json"),
+        checkpoint=1, out=None))
+    text = (workdir / "memory-review_C1.md").read_text()
+    return text, f"{pm.CROP_DIR}/"
+
+
+def case_w5_a_box_of_another_kind_is_not_the_tile(tmp):
+    """⭐ REPRODUCTION W-5 (Win11 run 20261026). The viewer named the photo's
+    animal (a squirrel); the detector's one box, a `bird`, sat on a pine cone
+    beside it, and the pet page showed THAT crop: the owner was asked "is
+    this your pet?" over a pine cone. A box whose kind is not the subject's
+    kind is not this subject, so the frame is shown whole, as a frame with no
+    crop always is. `skip: N.M not-a-subject` stays the owner's fix."""
+    text, crop = w5_page(tmp, "bird")
+    assert crop not in text, [ln for ln in text.splitlines() if crop in ln]
+
+
+def case_w5_a_box_of_the_subjects_kind_is_still_cropped(tmp):
+    """GUARD W-5 — the same frame with a `cat` box keeps its crop."""
+    text, crop = w5_page(tmp, "cat")
+    assert crop in text, text[-1500:]
+
 
 def case_a_shared_frame_logs_both_names_and_banks_neither(tmp):
     """⭐ THE R4 MEMORIZE REPRODUCTION, and it is D-24 held at the write point.
@@ -8778,6 +8810,10 @@ CASES = [
      case_u26_the_storage_gate_still_refuses_a_mixed_row),
     ("U2-6 — a join that splits nothing is not rewritten (GUARD)",
      case_u26_a_join_that_splits_nothing_is_not_rewritten),
+    ("W-5 — a box of another kind is not the tile (REPRODUCTION)",
+     case_w5_a_box_of_another_kind_is_not_the_tile),
+    ("W-5 — a box of the subject's kind is still cropped (GUARD)",
+     case_w5_a_box_of_the_subjects_kind_is_still_cropped),
     ("C-14 — a subject is one fact per batch (REPRODUCTION)",
      case_c14_a_subject_is_one_fact_per_batch),
     ("C-14b — another dump's batch is not this one (REPRODUCTION)",

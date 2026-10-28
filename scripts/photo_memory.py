@@ -1381,13 +1381,21 @@ class FrameCrops:
                 self.filetypes = {r["SourceFile"]: r.get("FileType")
                                   for r in csv.DictReader(f)}
 
-    def describe(self, look):
+    def describe(self, look, kind=None):
         """-> {"crops": [work-dir-relative paths], "det_count": int} for one
         look, or None when this work dir's index has nothing to say about it.
 
         ⛔ None and `det_count` 0 are DIFFERENT answers — "not indexed here"
         versus "indexed, and there is no animal in it" — and the renderer
         must never collapse them into one sentence.
+
+        W-5 — with `kind` (the subject's own), only boxes of that kind are
+        cropped: a `bird` box on a pine cone beside a squirrel is not the
+        squirrel, and its crop was the whole tile. With none left the frame
+        shows whole, as a frame no index covers does (`other_kind`), which
+        F22's refusal lets through: no box was of this animal, so no crop of
+        it was lost.
+        `det_count` is unchanged: it counts what was detected.
         """
         path = (look or {}).get("path")
         if not self.available or not path:
@@ -1400,6 +1408,10 @@ class FrameCrops:
         if not identified:
             return {"crops": [], "det_count": 0}
         count = int(identified[0][0].get("det_count") or len(identified))
+        if kind and not any(r.get("kind") == kind for r, _i in identified):
+            return {"crops": [], "det_count": count, "other_kind": True}
+        if kind:
+            identified = [(r, i) for r, i in identified if r.get("kind") == kind]
         return {"crops": self._render(path, look, identified), "det_count": count}
 
     def all_not_mine(self, look):
@@ -1571,7 +1583,7 @@ def uncropped_frames(questions, represented):
     frames += [f for record in represented.get("remembered") or []
                for f in record.get("frames") or []]
     return [f for f in frames if (f.get("det_count") or 0) >= 1
-            and not f.get("crops")]
+            and not f.get("crops") and not f.get("other_kind")]
 
 
 def gone_path(frame):
@@ -1591,7 +1603,7 @@ def drop_gone_frames(questions, represented):
         out = []
         for f in frames:
             lost = ((f.get("det_count") or 0) >= 1 and not f.get("crops")
-                    and not gone_path(f).exists())
+                    and not f.get("other_kind") and not gone_path(f).exists())
             (gone if lost else out).append(f)
         return out
 
@@ -1737,10 +1749,11 @@ def tile_frames(subject, sheet, workdir=None, crops=None, where=None,
                  # dir's index has nothing to say about this frame" — NOT
                  # "there is no animal in it". The renderer keeps them apart.
                  "crops": [], "det_count": None}
-        told = crops.describe(chosen) if crops is not None else None
+        told = crops.describe(chosen, subject.kind) if crops is not None else None
         if told is not None:
             frame["crops"] = told["crops"]
             frame["det_count"] = told["det_count"]
+            frame["other_kind"] = bool(told.get("other_kind"))
         if where is not None:
             frame["where"], frame["where_web"] = where.place(frame)
         frames.append(frame)
@@ -2479,9 +2492,11 @@ def build_representations(registry, profile, rmsg, workdir=None, crops=None):
                 # whole photo: a wrong example looks right when the photo
                 # holds both animals. `FrameCrops` keeps them apart from
                 # "not indexed here" exactly as it does for a tile.
-                told = crops_for(frame).describe(frame) if crops is not None else None
+                told = (crops_for(frame).describe(frame, subject.kind)
+                        if crops is not None else None)
                 frame["crops"] = told["crops"] if told else []
                 frame["det_count"] = told["det_count"] if told else None
+                frame["other_kind"] = bool(told and told.get("other_kind"))
                 # Q3 — whole only when no index covers the look, and said.
                 frame["whole"] = told is None
             remembered.append({
