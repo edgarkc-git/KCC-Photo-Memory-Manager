@@ -63,8 +63,9 @@ the **install plan**: the lines to run for THIS OS, each once, in order. Every
 package comes from ONE line that installs the repo's own extras
 (`-e "<repo>[all]"`); on Windows or Linux with no NVIDIA card a CPU-only torch
 line runs before it. Exit
-**0** when everything required to start is present, **1** when not; the
-vision-only items are listed and do not change the exit.
+**0** when everything is present, **1** when an item required to start is
+missing, **2** when only the vision stages are not ready (its last line names
+what is missing).
 
 1) **Show the owner the list** — every MISSING item, its reason, and its
    download size where one is given (torch, the model weights). Do not

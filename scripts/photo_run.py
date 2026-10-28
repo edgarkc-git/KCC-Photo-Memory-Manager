@@ -358,6 +358,10 @@ def install_plan(items):
     return sorted(plan.values(), key=lambda p: " -m pip install -e " in p["run"])
 
 
+# W-3 — ready to start, not ready for the vision stages.
+EXIT_VISION_NOT_READY = 2
+
+
 def verdict(items):
     missing = [i for i in items if not i["ok"]]
     return {"ready_to_start": not any(i["need"] == NEED_START for i in missing),
@@ -481,7 +485,17 @@ def cmd_doctor(args):
     else:
         print(render_items(items, facts["platform"]).replace(
             "\n", f"\nbuild: {build}\n", 1))
-    sys.exit(0 if verdict(items)["ready_to_start"] else 1)
+    v = verdict(items)
+    if not v["ready_to_start"]:
+        sys.exit(1)
+    if not v["ready_for_vision"]:
+        # W-3 — a script reading only the exit code took 0 for "ready", while
+        # the vision stages were not.
+        if not args.json:
+            print("exit 2: the vision stages are not ready — missing: "
+                  + ", ".join(v["missing"]))
+        sys.exit(EXIT_VISION_NOT_READY)
+    sys.exit(0)
 
 
 # Run INSIDE the interpreter that makes previews (the repo .venv), never this
@@ -2066,8 +2080,8 @@ def main():
         description="Check Python, exiftool, the repo .venv and the packages in "
                     "it, a real preview, and the network. Each missing item "
                     "comes with the install line for THIS OS. Exit 0 when "
-                    "everything required to start is present, 1 otherwise; "
-                    "vision-only gaps are listed and do not change the exit.")
+                    "everything is present, 1 when an item required to start "
+                    "is missing, 2 when only the vision stages are not ready.")
     sp.add_argument("--json", action="store_true",
                     help="one JSON object, for the agent")
     sp.set_defaults(func=cmd_doctor)

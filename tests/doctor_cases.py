@@ -330,11 +330,24 @@ def run_doctor(fs, json_out=False):
 
 @case
 def doctor_exits_1_only_when_a_start_item_is_missing():
+    """Exit 1 = a START item is missing; W-3 gave the vision gap its own 2."""
     start, _ = run_doctor(facts(exiftool=None))
-    vision, text = run_doctor(facts(modules=dict(OK_MODULES, torch=None)))
     healthy, _ = run_doctor(facts())
-    return (start == 1 and vision == 0 and healthy == 0
-            and "vision stages: not ready" in text), (start, vision, healthy)
+    return (start == 1 and healthy == 0), (start, healthy)
+
+
+@case
+def doctor_exits_2_and_says_what_is_missing_when_vision_is_not_ready():
+    """⭐ W-3 REPRODUCTION (Win11 run 20261026). `doctor` exited 0 while the
+    vision stages were "not ready (8 MISSING)", so a script reading only the
+    exit code took the box for ready. Now exit 2, and the last line names
+    what is missing; the JSON form exits the same. ⛔ FAILS on 3c5eb76."""
+    vision, text = run_doctor(facts(modules=dict(OK_MODULES, torch=None)))
+    jcode, _out = run_doctor(facts(modules=dict(OK_MODULES, torch=None)),
+                             json_out=True)
+    last = text.strip().splitlines()[-1]
+    return (vision == 2 and jcode == 2 and "vision stages: not ready" in text
+            and "torch" in last and "missing" in last), (vision, jcode, last)
 
 
 @case
@@ -398,11 +411,12 @@ def a_doctor_without_the_vision_stages_says_a_run_needs_them():
     """REPRODUCTION (K1). Ready to start, vision stages not ready: doctor
     ended on "ready to start: yes" and the switch-back line, and the run
     stopped later at the preview check. The last lines now say a normal run
-    needs step 4. Wording only: the exit code is still 0 (GUARD)."""
+    needs step 4. Since W-3 the exit is 2 and one line after them names
+    what is missing."""
     code, said = run_doctor(facts(preview=None))
-    tail = said.rstrip().splitlines()[-2:]
+    tail = said.rstrip().splitlines()[-3:-1]
     full_code, full = run_doctor(facts())
-    return (code == 0 and full_code == 0
+    return (code == 2 and full_code == 0
             and "ready to start: yes · vision stages: not ready" in said
             and tail[0].startswith("⚠️  A normal run is NOT ready yet")
             and "docs/INSTALL.md step 4" in tail[1] and "ffmpeg" in tail[1]
