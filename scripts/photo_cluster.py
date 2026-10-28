@@ -1941,8 +1941,9 @@ def landmark_failed_note(batches):
     if not hit:
         return None
     n = sum(b["landmark_failed_stops"] for b in hit)
-    return (f"⚠️ landmark lookup failed for {n} stop(s), named by town; re-run "
-            f"to retry (batch(es) {', '.join('B%s' % b['batch'] for b in hit)})")
+    return (f"⚠️ landmark lookup failed for {n} stop(s), named by town; retry "
+            "with `photo_index.py retry-landmarks <dump>`, before or after the "
+            f"copy (batch(es) {', '.join('B%s' % b['batch'] for b in hit)})")
 
 
 def local_name_notice(batches, msg, language):

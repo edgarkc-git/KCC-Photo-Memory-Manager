@@ -55,7 +55,8 @@ Nothing here touches your original photos: the product stays copy-only.
   with "my word".
 - **The map service can fail for a while (502/504).** A place lookup that
   failed is named by its town. Run `photo_run.py cluster <dump> --force` before
-  the dump's index is made to retry the lookups.
+  the dump's index is made to retry the lookups; after that, even after the
+  copy, run `photo_index.py retry-landmarks <dump> --go`.
 
 ### Windows 11
 

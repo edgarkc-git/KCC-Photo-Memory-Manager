@@ -618,6 +618,75 @@ def a_failed_landmark_lookup_is_said_out_loud():
          f"where={where.stderr[-200:]!r}")
 
 
+
+def c25_retry(tmp, answers):
+    """C-25: a dump clustered while every request was refused (its away
+    batches flagged), initialised; then `retry-landmarks --go` with the
+    shared cache holding `answers` (what the map service answers now), the
+    network still refused. -> (batches before, batches after, said, net log)."""
+    days = {k: DAYS[k] for k in ("2025-05-01", "2025-05-02")}
+    wd = dump(tmp, days=days, cache={})
+    log = Path(tmp) / "net.log"
+    if cluster(wd, log).returncode:
+        raise RuntimeError("cluster failed")
+    ix.run("init", wd)
+    ix.run("render", wd, "--no-vision")
+    before = json.loads((wd / "batches.json").read_text())["batches"]
+    (wd.parent / "geocode-cache.json").write_text(json.dumps(answers))
+    asked_before = len(requests(log))
+    saved = {k: os.environ.get(k) for k in ("PYTHONPATH", "PHOTO_TEST_NET_LOG")}
+    os.environ.update(offline_env(log))
+    try:
+        dry = ix.run("retry-landmarks", wd)
+        go = ix.run("retry-landmarks", wd, "--go")
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    after = json.loads((wd / "batches.json").read_text())["batches"]
+    plan = ix.run("fix-plan", wd)
+    return before, after, dry, go, requests(log)[asked_before:], plan
+
+
+@case
+def a_failed_landmark_lookup_can_be_retried_after_the_copy():
+    """⭐ C-25 REPRODUCTION. 8 stops' lookups failed on a real run and were
+    named by town; the run said "re-run to retry", but the copy was made and
+    a re-cut is refused after grouping. `photo_index retry-landmarks` looks
+    the failed batches up again through the stage's own lookup (dry run
+    writes nothing) and writes the place it now finds into batches.json, the
+    flag cleared, so the Review folders page can offer it. ⛔ FAILS on
+    3c5eb76: no such command."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        before, after, dry, go, _sent, plan = c25_retry(
+            tmp, json.loads(FIXTURE.read_text()))
+    flagged = [b["batch"] for b in before
+               if "landmark_lookup_failed" in (b.get("flags") or [])]
+    fixed = [b for b in after if b["batch"] in flagged]
+    return (flagged and dry[0] == 0 and "DRY RUN" in dry[1] and go[0] == 0
+            and all("landmark_lookup_failed" not in (b.get("flags") or [])
+                    and b.get("place") for b in fixed)
+            and any(b.get("place") != o.get("place")
+                    for b, o in zip(fixed, [x for x in before if x["batch"] in flagged]))
+            and any("(R1)" in ln and b["place"].split("+")[0] in ln
+                    for b in fixed for ln in plan[1].splitlines())), \
+        f"flagged={flagged} dry={dry[1][-300:]!r} go={go[0]} {(go[1] + go[2])[-400:]!r} " \
+        f"after={[(b['batch'], b.get('place'), b.get('flags')) for b in after]}"
+
+
+@case
+def a_lookup_that_fails_again_keeps_the_batch_as_it_was():
+    """GUARD C-25 — with the service still refusing, nothing is written, the
+    flag stays, and a failure is never cached (each retry asks again)."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        before, after, _dry, go, sent, _plan = c25_retry(tmp, {})
+    return (go[0] == 0 and before == after and "still no landmark" in go[1]
+            and any("overpass" in r["url"] for r in sent)), \
+        f"go={go} sent={len(sent)}"
+
+
 @case
 def a_stop_whose_lookup_failed_is_named_by_its_town():
     """⭐ REPRODUCTION (UAT5 U5-9). ⛔ FAILS on d5201b6: a day whose other

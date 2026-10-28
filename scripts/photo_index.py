@@ -2034,6 +2034,95 @@ def relabel(workdir, pack, target, index, go=False, reason=None):
     return result
 
 
+FAILED_FLAG = "landmark_lookup_failed"
+
+
+def retry_landmarks(workdir, pack, batches_doc):
+    """C-25 — the place of every batch whose landmark lookup failed, looked
+    up again. -> {batch number: the new batch entry} for each one that now
+    has a place and no failed stop.
+
+    `photo_cluster` runs again on a SCRATCH copy of the manifest with the
+    dump's own settings and the shared geocode cache, so the lookups are the
+    stage's own (`overpass_post()`, the one caller; a failure is never
+    cached; no request near a home). Only batches whose days are the same in
+    both cuts are read: nothing here re-cuts a dump."""
+    import shutil
+    import tempfile
+    failed = [b for b in batches_doc.get("batches") or []
+              if FAILED_FLAG in (b.get("flags") or [])]
+    if not failed:
+        return {}
+    with tempfile.TemporaryDirectory() as tmp:
+        scratch = Path(tmp) / workdir.name
+        scratch.mkdir()
+        shutil.copy2(workdir / "manifest.csv", scratch / "manifest.csv")
+        cmd = [sys.executable, str(HERE / "photo_cluster.py"), str(scratch), "--force",
+               "--profile", str((pack.dir / photo_profile.PROFILE_NAME).resolve()),
+               "--geocode-cache", str(workdir.parent / "geocode-cache.json")]
+        for key, opt in (("max_batch", "--max-batch"), ("away_km", "--away-km")):
+            if batches_doc.get(key) is not None:
+                cmd += [opt, str(batches_doc[key])]
+        r = subprocess.run(cmd, capture_output=True, text=True, env=pack_env(pack))
+        if r.returncode:
+            raise Refused("photo_cluster failed — nothing changed:\n"
+                          + (r.stdout + r.stderr)[-800:])
+        fresh = json.loads((scratch / "batches.json").read_text(encoding="utf-8"))
+    by_days = {(b.get("from"), b.get("to")): b for b in fresh.get("batches") or []}
+    out = {}
+    for b in failed:
+        nb = by_days.get((b.get("from"), b.get("to")))
+        if nb and nb.get("place") and FAILED_FLAG not in (nb.get("flags") or []):
+            out[b["batch"]] = nb
+    return out
+
+
+def cmd_retry_landmarks(args):
+    """C-25 — after a failed landmark lookup the run said "re-run to retry",
+    and by then the copy was made. This looks the failed batches up again
+    and writes the places found into batches.json; the Review folders page
+    then offers each landmark (R1), and a folder already copied is renamed
+    by the final check (ADR 0007). Dry run unless --go."""
+    workdir = Path(args.workdir).resolve()
+    loaded = load(workdir, args.profile)
+    if loaded is None:
+        return 0
+    pack, _target, _index = loaded
+    bpath = workdir / "batches.json"
+    doc = json.loads(bpath.read_text(encoding="utf-8"))
+    failed = [b["batch"] for b in doc.get("batches") or []
+              if FAILED_FLAG in (b.get("flags") or [])]
+    if not failed:
+        print("retry-landmarks: no batch's landmark lookup failed — nothing to do")
+        return 0
+    found = retry_landmarks(workdir, pack, doc)
+    for b in doc["batches"]:
+        if b["batch"] not in failed:
+            continue
+        nb = found.get(b["batch"])
+        if nb is None:
+            print(f"  B{b['batch']:02d}: still no landmark (the lookup failed "
+                  "again, or the days cut differently) — kept")
+            continue
+        print(f"  B{b['batch']:02d}: {b.get('place') or '—'} → {nb['place']}")
+        if args.go:
+            b.update(place=nb["place"], label=nb.get("label", b.get("label")),
+                     place_kinds=nb.get("place_kinds") or {},
+                     landmark_failed_stops=0,
+                     flags=[f for f in b.get("flags") or [] if f != FAILED_FLAG])
+    if not found:
+        return 0
+    if not args.go:
+        print("DRY RUN — nothing written. Add --go to write.")
+        return 0
+    stamped_backup(bpath, "retry-landmarks")
+    bpath.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"retry-landmarks: {len(found)} batch(es) have a landmark now; next: "
+          f"`{run_line('photo_index.py')} fix-plan \"{workdir}\"` offers each one "
+          "(R1); a folder already copied is renamed by the final check")
+    return 0
+
+
 def cmd_relabel(args):
     workdir = Path(args.workdir).resolve()
     loaded = load(workdir, args.profile)
@@ -6301,6 +6390,13 @@ def main(argv=None):
     L.add_argument("--go", action="store_true")
     L.add_argument("--reason")
     L.set_defaults(fn=cmd_relabel)
+    t = sub.add_parser("retry-landmarks", help="look up again the batches whose "
+                                               "landmark lookup failed, before or "
+                                               "after the copy (dry run unless --go)")
+    t.add_argument("workdir")
+    t.add_argument("--profile")
+    t.add_argument("--go", action="store_true")
+    t.set_defaults(fn=cmd_retry_landmarks)
     a = sub.add_parser("apply-page", help="record a confirmed batch page (G6): "
                                           "its rows, a named place's refs, a "
                                           "PROPOSED monthly parent (dry run "

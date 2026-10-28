@@ -561,7 +561,10 @@ the picture pass, and follow it whenever a session ends mid-run.
   reachability probe counted apart. A landmark lookup that failed is said once
   for the dump, by `cluster`. Later renders and the copy do not repeat it; the
   execution log still records it. Retry with `photo_run.py cluster "<work dir>"
-  --force` before the index is made.
+  --force` before the index is made; once it is made (before or after the
+  copy), `photo_index.py retry-landmarks "<work dir>" --go` looks the failed
+  batches up again, and the Review folders page offers each landmark found
+  (R1). A folder already copied is renamed by the final check.
 
 ## The Review folders page (G20, G21, G45)
 
