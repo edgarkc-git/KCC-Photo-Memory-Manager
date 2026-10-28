@@ -6072,8 +6072,11 @@ def group_set_where(index, args, pack, by_number, cmd, reason):
     """E43 — the owner's own `[where]` for one day folder or leg, before the
     freeze. It beats the lookup (ADR 0001): relabel, recut and split keep it.
     The derived refs are kept in `where_set.was`, so `--clear` gives them
-    back rather than leaving the folder with no place."""
-    fo = group_target(index, args.folder)
+    back rather than leaving the folder with no place.
+
+    C-22 — a TRIP parent takes it too: it was refused, so a trip's name
+    could only change by hand after the copy. Its legs keep their own."""
+    fo = group_target(index, args.folder, allow=HOLDERS + ("trip",))
     held = fo.get("where_set")
     old = [r["ref"] for r in fo["where"]]
     warnings = []
@@ -6393,7 +6396,7 @@ def main(argv=None):
                               "freeze (G56); a dry run unless --go")
     p.add_argument("folder", help="the trip folder, e.g. F012")
     p.add_argument("--go", action="store_true", help="record it")
-    p = action("set-where", "the owner's own [where] for a day folder or leg, "
+    p = action("set-where", "the owner's own [where] for a day folder, leg or trip, "
                             "or --clear (back to the looked-up place)")
     p.add_argument("folder")
     p.add_argument("text", nargs="?")

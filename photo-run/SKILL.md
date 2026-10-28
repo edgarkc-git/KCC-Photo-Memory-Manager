@@ -367,7 +367,7 @@ missing — there is no second list to keep in step.
    python3 scripts/photo_index.py group split 202401 F011 --at 2024-10-30 --reason "..."
    python3 scripts/photo_index.py group merge 202401 F034 --into F033 --reason "..."
    python3 scripts/photo_index.py group set-what 202401 F044 "<text>" --reason "..."
-   python3 scripts/photo_index.py group set-where 202401 F044 "<place>" --reason "..."   # the owner's place word for a day folder or leg; --clear gives the looked-up place back
+   python3 scripts/photo_index.py group set-where 202401 F044 "<place>" --reason "..."   # the owner's place word for a day folder, leg or trip parent; --clear gives the looked-up place back
    python3 scripts/photo_index.py group set-who 202401 F044 --drop <name> --reason "..."   # one pet out of THIS folder's name; --clear gives it back
    python3 scripts/photo_index.py dest 202401 F003 merge "<existing folder>" --ref "<its work dir>" --reason "..."
    ```

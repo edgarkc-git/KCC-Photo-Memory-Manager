@@ -960,8 +960,8 @@ def set_where_names_the_folder_and_clear_gives_the_lookup_back():
 @case
 def set_where_works_on_a_leg_and_never_on_a_parent_or_a_bucket():
     """REPRODUCTION (E43). ⛔ FAILS on 11f5353 (no action). A leg takes the
-    word and renders it, since it differs from the trip's; a trip parent is
-    refused (its place is `make-trip --where`), so is a bucket (G10)."""
+    word and renders it, since it differs from the trip's; a bucket is
+    refused (G10). Since C-22 a trip parent takes it too (it was refused)."""
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         wd, _pack = ready(tmp)
         must(trip(wd), "make-trip")
@@ -971,13 +971,13 @@ def set_where_works_on_a_leg_and_never_on_a_parent_or_a_bucket():
         f = folders(tmp)
         parent = next(fid for fid, fo in f.items() if fo["kind"] == "trip")
         bucket = next(fid for fid, fo in f.items() if fo["kind"] == "bucket")
-        before = index(tmp)
         p_code, _o, p_err = run("group", "set-where", wd, parent, "X", "--reason", "r")
+        before = index(tmp)
         b_code, _o, b_err = run("group", "set-where", wd, bucket, "X", "--reason", "r")
         same = index(tmp) == before
         leg = names(tmp)["F002"]
-    return (leg == "1026_Lotus Falls" and p_code and b_code and same
-            and "trip" in p_err and "bucket" in b_err), \
+    return (leg == "1026_Lotus Falls" and p_code == 0 and b_code and same
+            and "bucket" in b_err), \
         f"leg={leg} p={p_code} {p_err[-120:]!r} b={b_code} {b_err[-120:]!r}"
 
 
@@ -1294,6 +1294,86 @@ def unmake_trip_is_a_dry_run_then_takes_the_trip_back():
             and all(f[d]["kind"] == "day" and f[d]["parent"] is None for d in TRIP_DAYS)
             and days_after == days_before and len(logged) >= len(TRIP_DAYS)), \
         f"dry={dcode} same={same} go={gcode} {(gout + gerr)[-300:]!r} {days_before} {days_after}"
+
+
+
+@case
+def a_trip_parent_takes_the_owners_own_place_word():
+    """⭐ C-22 REPRODUCTION. A trip parent could not be renamed once made:
+    `group set-where` refused "a trip folder", make-trip refused its legs,
+    and the owner's new trip names had to wait for a hand rename after the
+    copy. `set-where` now takes a trip parent before the freeze (the owner's
+    own word, ADR 0001), the legs keep their own places, and `--clear`
+    gives the made place back. ⛔ FAILS on 3c5eb76: refused."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        must(trip(wd), "make-trip")
+        parent = next(fid for fid, fo in folders(tmp).items() if fo["kind"] == "trip")
+        render(wd)
+        legs_before = {d: names(tmp)[d] for d in TRIP_DAYS}
+        code, out, err = run("group", "set-where", wd, parent, "Southfield Parks",
+                             "--reason", "the owner's trip name")
+        render(wd)
+        renamed = names(tmp)[parent]
+        legs_after = {d: names(tmp)[d] for d in TRIP_DAYS}
+        ccode, cout, cerr = run("group", "set-where", wd, parent, "--clear",
+                                "--reason", "back")
+        render(wd)
+        back = names(tmp)[parent]
+    return (code == 0 and renamed == "20241025-1031_Southfield Parks"
+            and legs_after == legs_before and ccode == 0
+            and back == "20241025-1031_Northland"), \
+        f"code={code} {(out + err)[-300:]!r} renamed={renamed} back={back} " \
+        f"{(cout + cerr)[-200:]!r} legs={legs_before} -> {legs_after}"
+
+
+
+@case
+def a_copied_trip_parent_is_renamed_by_the_final_check():
+    """⭐ C-22 REPRODUCTION, after the copy. The owner names a trip that is
+    already on the drive: unfreeze, `set-where` on the trip, re-lock, and
+    `finish --go` stops at the final check with a RENAME row for the trip
+    folder. `ok` + --go renames it with its legs inside (ADR 0007: a folder
+    this engine copied, size + SHA-256 + name proof), and verify still
+    passes. Originals are never touched. ⛔ FAILS on 3c5eb76: set-where
+    refused the trip, so no row could exist."""
+    def finish(wd):
+        env = {k: v for k, v in os.environ.items() if k != photo_profile.ENV_VAR}
+        return subprocess.run([sys.executable, str(RUN), "finish", str(wd), "--go",
+                               "--skip-memory"], capture_output=True, text=True, env=env)
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ready(tmp)
+        must(trip(wd), "make-trip")
+        render(wd)
+        must(run("check", wd), "check")
+        must(run("freeze", wd), "freeze")
+        first = finish(wd)
+        parent = next(fid for fid, fo in folders(tmp).items() if fo["kind"] == "trip")
+        must(run("unfreeze", wd, "--reason", "the owner's trip name"), "unfreeze")
+        code, out, err = run("group", "set-where", wd, parent, "Southfield Parks",
+                             "--reason", "the owner's trip name")
+        if code == 0:
+            render(wd)
+            must(run("check", wd), "check")
+            must(run("freeze", wd), "freeze")
+        again = finish(wd)
+        page_path = wd / "plan" / "after-check.md"
+        page = page_path.read_text() if page_path.is_file() else ""
+        row = "`20241025-1031_Northland` → `20241025-1031_Southfield Parks`"
+        page_path.write_text(page.replace("answer: ______", "answer: ok", 1))
+        gcode, gout, gerr = run("after-check", wd, "--answers", page_path, "--go")
+        root = Path(tmp) / "sorted"
+        tree = sorted(p.relative_to(root).as_posix() for p in root.rglob("*")
+                      if p.is_file())
+        vcode, _v, _e = run("verify", wd, "--copied")
+    moved = [t for t in tree if t.startswith("20241025-1031_Southfield Parks/")]
+    return (first.returncode == 0 and code == 0 and again.returncode == 3
+            and row in page and gcode == 0 and len(moved) == 6
+            and "20241025-1031_Southfield Parks/1025_Ashford/IMG_2501.jpg" in moved
+            and not any(t.startswith("20241025-1031_Northland/") for t in tree)
+            and vcode == 0), \
+        f"code={code} {(out + err)[-200:]!r} again={again.returncode} " \
+        f"page={page[-400:]!r} go={gcode} {(gout + gerr)[-300:]!r} tree={tree}"
 
 
 @case
