@@ -1023,6 +1023,115 @@ def two_pets_at_home(tmp, rel=AT_HOME, day="2024:11:01 09:00:00",
     return wd, r4, (code, out + err), fin.finish(wd)
 
 
+
+MISNAMED = "2024/20241105_Old trip"
+
+
+def g79_flow(tmp, word_answer, change_after_copy=False):
+    """L-16 / G79: day 2024-11-01 merges (R4 ok) into the owner's folder named
+    `20241105_…`, whose period the name check refuses. The freeze passes and
+    points at the row; unfreeze, answer the NAME-CHECK row `word_answer`,
+    re-lock, copy, and (if any) answer the final check's name row `ok`.
+    -> dict of what each step said and what is on the drive."""
+    owner_folder(tmp, rel=MISNAMED)
+    wd, _pack = ready(tmp)
+    ix.run("freeze", wd)
+    answer(wd, *["ok" for _ in rows(wd)])
+    must(apply(wd), "apply R4")
+    for cmd in ("render", "check"):
+        must(ix.run(cmd, wd), cmd)
+    first = ix.run("freeze", wd)
+    must(ix.run("unfreeze", wd, "--reason", "answer the name check"), "unfreeze")
+    ix.run("fix-plan", wd)
+    got = rows(wd)
+    answer(wd, *[word_answer for _ in got])
+    applied = apply(wd)
+    for cmd in ("render", "check"):
+        must(ix.run(cmd, wd), cmd)
+    second = ix.run("freeze", wd)
+    run = fin.finish(wd)
+    root = Path(tmp).resolve() / "sorted"
+    if change_after_copy:
+        (root / MISNAMED / "OLD_0002.jpg").write_bytes(b"added by hand")
+    page = after_page(wd).read_text() if after_page(wd).is_file() else ""
+    lines = [ln for ln in page.splitlines() if ln.rstrip().endswith("answer: ______")]
+    if lines:
+        answer_after(wd, *["ok" if "(name check)" in ln else "skip" for ln in lines])
+    after = ix.run("after-check", wd, "--answers", after_page(wd), "--go") \
+        if lines else (0, "", "")
+    return {"first": first, "rows": got, "applied": applied, "second": second,
+            "page": page, "after": after,
+            "drive": sorted(p.name for p in (root / "2024").iterdir())}
+
+
+@case
+def a_name_check_row_answered_ok_keeps_the_name_and_silences_the_line():
+    """⭐ L-16 / G79 REPRODUCTION, `ok`. The NAME CHECK on a merge into an
+    existing folder was a report-only line at the freeze (5 on Liked G2).
+    It is a Review folders row: the first freeze is NOT stopped by it and
+    points at it; `ok` keeps the name and the next freeze says "answered:
+    kept" instead of the line. ⛔ FAILS on 3c5eb76: no row."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        got = g79_flow(tmp, "ok")
+    second = got["second"][1] + got["second"][2]
+    return (got["first"][0] == 0 and "row NAME-CHECK F001" in got["first"][1]
+            and len(got["rows"]) == 1 and "NAME-CHECK (G75) · F001" in got["rows"][0]
+            and got["applied"][0] == 0 and got["second"][0] == 0
+            and "answered: kept `20241105_Old trip`" in second
+            and "NAME CHECK FAILED" not in second
+            and "(name check)" not in got["page"]
+            and "20241105_Old trip" in got["drive"]), f"{got}"
+
+
+@case
+def a_name_check_row_answered_with_a_word_renames_after_the_copy():
+    """⭐ L-16 / G79 REPRODUCTION, `word:`. The owner's name for the EXISTING
+    folder is renamed only by the final check after the copy, through G41's
+    proof, and it replaces the engine's own row for that folder."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        got = g79_flow(tmp, "word: 20241101-1105_Old trip")
+    rows_after = [ln for ln in got["page"].splitlines() if "RENAME (" in ln]
+    return (got["applied"][0] == 0 and got["second"][0] == 0
+            and "becomes `20241101-1105_Old trip` at the final check" in got["second"][1]
+            and len(rows_after) == 1 and "RENAME (name check)" in rows_after[0]
+            and got["after"][0] == 0
+            and got["drive"] == ["20241101-1105_Old trip"]), f"{got}"
+
+
+@case
+def a_skipped_name_check_row_keeps_todays_line_and_never_blocks():
+    """⭐ L-16 / G79 REPRODUCTION, `skip`. A skipped row keeps today's line at
+    the freeze, and the freeze never stops for it."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        got = g79_flow(tmp, "skip")
+    second = got["second"][1] + got["second"][2]
+    return (len(got["rows"]) == 1 and got["second"][0] == 0
+            and "NAME CHECK FAILED" in second
+            and got["drive"] == ["20241105_Old trip"]), f"{got}"
+
+
+@case
+def a_name_check_word_is_checked_by_the_name_grammar():
+    """GUARD G79 — the `word:` is a whole folder name and photo_name.validate()
+    judges it: a word that is no name is refused, nothing written."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        got = g79_flow(tmp, "word: Old trip")
+    return (got["applied"][0] == 1 and "nothing written for it" in got["applied"][1]
+            and "(name check)" not in got["page"]), f"{got['applied']}"
+
+
+@case
+def a_name_check_rename_is_refused_when_the_folder_changed_after_the_scan():
+    """GUARD G79 — G41's proof: the owner added a file to the folder after
+    the scan, so the final check renames nothing."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        got = g79_flow(tmp, "word: 20241101-1105_Old trip", change_after_copy=True)
+    said = got["after"][1] + got["after"][2]
+    return ("RENAME (name check)" in got["page"] and got["after"][0] == 1
+            and "changed since the engine looked at it" in said
+            and got["drive"] == ["20241105_Old trip"]), f"{got['after']} {got['drive']}"
+
+
 @case
 def an_owner_folder_gaining_pets_is_renamed_at_the_final_check():
     """⭐ REPRODUCTION (UAT6 U6-1, G47). ⛔ FAILS on 3c6adb1: Review folders

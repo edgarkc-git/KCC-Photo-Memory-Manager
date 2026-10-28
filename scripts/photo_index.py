@@ -3456,7 +3456,7 @@ def cmd_freeze(args):
         print(f"  (Review folders, no word: {line})")
     waiting = fix_waiting(index, ops)
     if waiting:
-        page = write_fix_plan(workdir, index, waiting, refused_ops)
+        page = write_fix_plan(workdir, index, fix_open(index, ops), refused_ops)
         print(page.read_text(encoding="utf-8").rstrip())
         print(f"STOP (exit {EXIT_FIX_PLAN}): Review folders waits for the owner's "
               f"answers in {page} — nothing frozen")
@@ -3600,8 +3600,23 @@ def cmd_freeze(args):
         print(f"The list is kept in plan/{RENAMES_MD}.")
     print(f"  {len(plans)} plan(s) exported to plans.json; {len(todo)} file(s) to "
           f"copy, {distinct} distinct SHA-256; dest root {dest_root}")
+    answers = (index.get("fix_plan") or {}).get("answers") or {}
+    named = {k.split("|")[1]: a for k, a in answers.items()
+             if a.get("op") == "NAME-CHECK" and a.get("answer") in ("ok", "word")}
     for line in said:
-        print(f"  photo_plan's own name check: {line}")
+        fid = re.search(r"\((F\d+)\)", line)
+        a = named.get(fid.group(1)) if fid else None
+        if a and a["answer"] == "ok":
+            print(f"  photo_plan's own name check: {line.split(':', 1)[0]}: "
+                  f"answered: kept `{a['from']}`")
+        elif a:
+            print(f"  photo_plan's own name check: {line.split(':', 1)[0]}: "
+                  f"answered: `{a['from']}` becomes `{a['word']}` at the final check")
+        else:
+            print(f"  photo_plan's own name check: {line}")
+            if fid:
+                print(f"    answer it on Review folders (`photo_index.py fix-plan "
+                      f"<dump>`, row NAME-CHECK {fid.group(1)}) — not blocking")
     dump = finish_target(workdir)
     print(f"next: photo_run.py finish {dump}        # dry run: previews the copy "
           "and where --go would stop; writes nothing\n"
@@ -3783,8 +3798,8 @@ FIX_PLAN_CMD = "index fix-plan"
 # The stop the fix plan puts to the owner: rows wait, nothing frozen.
 EXIT_FIX_PLAN = 3
 FIX_ANSWERS = ("ok", "skip")
-FIX_OPS = ("RENAME", "INTO-EXISTING", "DAYS-INTO-EXISTING", "MAKE-TRIP")
-FIX_ROW = re.compile(r"^(\d+)\. (RENAME|INTO-EXISTING|DAYS-INTO-EXISTING|MAKE-TRIP) \(([^)]+)\) · (F\d+) · "
+FIX_OPS = ("RENAME", "INTO-EXISTING", "DAYS-INTO-EXISTING", "MAKE-TRIP", "NAME-CHECK")
+FIX_ROW = re.compile(r"^(\d+)\. (RENAME|INTO-EXISTING|DAYS-INTO-EXISTING|MAKE-TRIP|NAME-CHECK) \(([^)]+)\) · (F\d+) · "
                      r"`([^`]*)` → `([^`]*)` · .*· answer:\s*(.*?)\s*$")
 NOTHING_TO_CHANGE = "Nothing to change."
 BY_HAND = "the engine did not create this folder: rename it by hand"
@@ -4613,7 +4628,60 @@ def rule_r6(ctx):
     return out
 
 
-FIX_RULES = (rule_r1, rule_r2, rule_r3, rule_r4, rule_r5, rule_r6)
+NAME_CHECK_RULE = "G75"
+
+
+def existing_name_checks(workdir, pack, index):
+    """-> [(folder, existing path, refusals)]: each folder this dump merges
+    into or fills an EXISTING folder whose name fails photo_plan's name check
+    on the days it keeps. The plans are built as the freeze builds them; the
+    freeze itself never refuses these (B3: a name already on the drive)."""
+    by_number = {b["batch"]: b for b in json.loads(
+        (workdir / "batches.json").read_text(encoding="utf-8")).get("batches", [])}
+    units = export_units(index, by_number)
+    dest_root = photo_plan.resolve_dest_root(workdir, None, pack.profile)
+    labels = id_labels(pack)
+    paths = unit_paths(units, dest_root, real=True,
+                       years=photo_profile.year_folders(pack.profile))
+    expected = expected_rows(index, paths, dest_root, pack.profile)
+    day = {f["source"]: (f.get("date") or "")[:10] for f in index["files"]}
+    rows = [{"_action": a, "_dest": d, "_day": day.get(src, "")}
+            for src, (a, d, _n) in expected.items() if day.get(src)]
+    budget = photo_profile.name_budget(pack.profile)
+    out = []
+    for u in (u for u in units if u["batches"]):
+        fo = u["top"]
+        if fo["dest"]["mode"] == "new":
+            continue
+        plan = unit_plan(u, 1, paths, words=lambda f: where_words(f, labels)[0])
+        top = plan["dest"]["path"]
+        batches = [by_number[n] for n in plan["batches"] if n in by_number]
+        for path, _name, refusals, _w in photo_plan.folder_name_checks(
+                plan, batches, *budget, rows=rows):
+            if path == top and refusals:
+                out.append((fo, path, refusals))
+    return out
+
+
+def rule_name_check(ctx):
+    """G75 / G79 (L-16) — a merge into an existing folder whose name fails the
+    name check is a Review folders row, no longer only a line at the freeze.
+    ⛔ It never blocks (`fix_waiting` leaves it out): `ok` keeps the name and
+    silences the line, `word:` renames that existing folder at the final
+    check after the copy (G41's proof), `skip` or blank keeps the line."""
+    out = []
+    for fo, path, refusals in existing_name_checks(ctx["workdir"], ctx["pack"],
+                                                   ctx["index"]):
+        name = Path(path).name
+        out.append(fix_op("NAME-CHECK", NAME_CHECK_RULE, fo, name, name,
+                          len(copy_members(ctx["index"], fo["id"])),
+                          "the name check: " + "; ".join(refusals)
+                          + " — `ok` keeps the name, `word: <name>` renames this "
+                          "existing folder after the copy", path=path))
+    return out
+
+
+FIX_RULES = (rule_r1, rule_r2, rule_r3, rule_r4, rule_r5, rule_r6, rule_name_check)
 
 
 def fix_problem(op, ctx):
@@ -4652,7 +4720,8 @@ def draft_fix_plan(workdir, pack, index, debug=None):
     ctx = {"workdir": workdir, "pack": pack, "index": index, "by_number": by_number,
            "dest_root": photo_plan.resolve_dest_root(workdir, None, pack.profile)}
     ops = [op for rule in FIX_RULES for op in rule(ctx)
-           if op["from"] != op["to"] or op["apply"].get("word_only")]
+           if op["from"] != op["to"] or op["apply"].get("word_only")
+           or op["op"] == "NAME-CHECK"]
     # ADR 0001 — the owner's word beats the lookup: R6 over R1, per folder.
     owned = {op["folder"] for op in ops if op["rule"] == "R6"}
     ops = [op for op in ops if not (op["rule"] == "R1" and op["folder"] in owned)]
@@ -4770,6 +4839,12 @@ def owner_word(workdir, pack, index, fo, op, word, go):
 
 
 def fix_waiting(index, ops):
+    """-> the rows that stop the freeze. G79: a NAME-CHECK row never does."""
+    return [op for op in fix_open(index, ops) if op["op"] != "NAME-CHECK"]
+
+
+def fix_open(index, ops):
+    """-> every row with no answer yet: the ones the page shows."""
     answered = (index.get("fix_plan") or {}).get("answers") or {}
     return [op for op in ops if op["key"] not in answered
             and not skipped_before(index, op, answered)]
@@ -4923,7 +4998,7 @@ def cmd_fix_plan(args):
         print(f"  (Review folders, no word: {line})")
     if not args.answers:
         waiting = fix_waiting(index, ops)
-        page = write_fix_plan(workdir, index, waiting, refused)
+        page = write_fix_plan(workdir, index, fix_open(index, ops), refused)
         print(page.read_text(encoding="utf-8").rstrip())
         return EXIT_FIX_PLAN if waiting else 0
     path = Path(args.answers)
@@ -4961,7 +5036,25 @@ def cmd_fix_plan(args):
         answer = r["answer"] or "skip"
         fo = next(x for x in index["folders"] if x["id"] == op["folder"])
         said = None
-        if answer == "word":
+        if op["op"] == "NAME-CHECK" and answer == "word":
+            # G79 — a whole new name for the EXISTING folder, checked now and
+            # renamed only by the final check after the copy.
+            word = (r["word"] or "").strip()
+            hard, soft = photo_profile.name_budget(pack.profile)
+            refusals = photo_name.validate(word, hard=hard, soft=soft,
+                                           kind=photo_name.NAME_FOLDER)[1]
+            if COORDINATE_IN_NAME.search(word):
+                refusals.append("it reads as a coordinate (Operational Rule 3)")
+            if refusals:
+                print(f"  ⛔ row {r['n']}: the name {word!r}: {'; '.join(refusals)} "
+                      "— nothing written for it")
+                refused_n += 1
+                continue
+            said = (f"`{op['from']}` becomes `{word}` at the final check, after "
+                    "the copy")
+        elif op["op"] == "NAME-CHECK" and answer == "ok":
+            said = f"`{op['from']}` keeps its name; its name check is answered"
+        elif answer == "word":
             if op["rule"] not in WORD_RULES or op["op"] not in ("RENAME", "MAKE-TRIP"):
                 print(f"  ⛔ row {r['n']}: {op['rule']} takes `ok` or `skip`, not a "
                       "word — nothing written for it")
@@ -5069,7 +5162,7 @@ def cmd_fix_plan(args):
                 if args.go:
                     fo["agent_name"] = a["agent_name"]
                 said = f"the folder is named `{a['agent_name']}`"
-        if said and args.go:
+        if said and args.go and op["op"] != "NAME-CHECK":
             fo.update(rendered=None, validation=None)
         print(f"  row {r['n']} {op['op']} ({op['rule']}) {op['folder']}: {answer}"
               + (f" — {said}" if said else ""))
@@ -5141,6 +5234,47 @@ def after_rows(workdir, index, plans, pack=None):
     if pack is not None:
         rows += [r for r in owner_rows(workdir, index, plans, pack) if not r.get("why")]
         rows += [r for r in period_rows(workdir, index, plans, pack) if not r.get("why")]
+    named = name_check_rows(workdir, index, plans)
+    # The owner's own name for a folder (G79) wins over the engine's
+    # proposal for the same folder (ADR 0001).
+    mine = {r["path"] for r in named}
+    return [r for r in rows if r.get("path") not in mine] + named
+
+
+NAME_RULE = "name check"
+
+
+def name_check_rows(workdir, index, plans):
+    """G79 — the owner's `word:` on a NAME-CHECK row: the EXISTING folder the
+    dump merged into takes that name, offered here, after the copy, and never
+    before. The owner's folder is renamed with G41's proof (refused when it
+    changed since the scan); a folder an engine copy created, with the copy
+    records of the collection."""
+    root = plans.get("dest_root") or ""
+    answers = (index.get("fix_plan") or {}).get("answers") or {}
+    created = collection_copies(workdir, root)[0]
+    verified = photo_execute.verified_anywhere(Path(workdir) / "plan")
+    folders = {fo["id"]: fo for fo in live(index)}
+    rows, seen = [], set()
+    for key, a in answers.items():
+        fo = folders.get(key.split("|")[1])
+        if a.get("op") != "NAME-CHECK" or a.get("answer") != "word" or fo is None:
+            continue
+        path = Path(fo["dest"].get("existing_path") or "")
+        rel = rel_under(path, root)
+        new = (a.get("word") or "").strip()
+        if not new or rel in (None, "") or not path.is_dir() or path.name == new \
+                or str(path) in seen:
+            continue
+        seen.add(str(path))
+        rows.append({"op": "RENAME", "rule": NAME_RULE, "from": rel,
+                     "to": (PurePosixPath(rel).parent / new).as_posix(),
+                     "photos": sum(1 for v in verified.values()
+                                   if under(v.get("dest") or "", path)),
+                     "path": str(path), "words": [],
+                     "owner": photo_execute.real_key(path) not in created,
+                     "reason": "your own name for this folder, answered on "
+                               "Review folders (G79)"})
     return rows
 
 
@@ -5431,7 +5565,7 @@ def follow_owner_renames(workdir, index):
     except ValueError:
         return
     moves = {e["path_from"]: e["path_to"] for e in entries
-             if e.get("rule") in (OWNER_RULE, PERIOD_RULE)
+             if e.get("rule") in (OWNER_RULE, PERIOD_RULE, NAME_RULE)
              and e.get("path_from") and e.get("path_to")}
     for fo in live(index):
         dest = fo["dest"]
@@ -5525,7 +5659,15 @@ def apply_after(args, workdir, index, plans, pack=None):
                       f"looked at it; nothing was renamed ({why})")
                 refused += 1
                 continue
-        elif row["rule"] == PERIOD_RULE:
+        elif row["rule"] == NAME_RULE and row.get("owner"):
+            why = owner_folder_problem(old, new, owner_scan_of(index, row["path"]),
+                                       photo_execute.verified_anywhere(workdir / "plan"))
+            if why:
+                print(f"  ⛔ row {r['n']}: your folder changed since the engine "
+                      f"looked at it; nothing was renamed ({why})")
+                refused += 1
+                continue
+        elif row["rule"] in (PERIOD_RULE, NAME_RULE):
             # G70 — the trip holds copies of more than one dump: every dump's
             # record is the proof, and every one of them follows the rename.
             made, every, by_dump = collection_copies(workdir, str(root))
@@ -5555,7 +5697,7 @@ def apply_after(args, workdir, index, plans, pack=None):
                   "back, nothing renamed")
             refused += 1
             continue
-        if row["rule"] in (OWNER_RULE, PERIOD_RULE):
+        if row["rule"] in (OWNER_RULE, PERIOD_RULE, NAME_RULE):
             for wd in dict.fromkeys([workdir, *collection_dumps(workdir)]):
                 move_record(Path(wd), old, new)
         else:
@@ -5566,7 +5708,8 @@ def apply_after(args, workdir, index, plans, pack=None):
                      "op": r["op"], "rule": r["rule"], "from": r["from"],
                      "to": r["to"], "before": n, "after": sum(after.values()),
                      **({"path_from": str(old), "path_to": str(new)}
-                        if row["rule"] in (OWNER_RULE, PERIOD_RULE) else {})})
+                        if row["rule"] in (OWNER_RULE, PERIOD_RULE, NAME_RULE)
+                        else {})})
         print(f"  renamed `{r['from']}` → `{r['to']}`: size + SHA-256 + name "
               f"of every file, before {n} = after {sum(after.values())}")
     skipped = sum(1 for r in answered if r["answer"] != "ok")

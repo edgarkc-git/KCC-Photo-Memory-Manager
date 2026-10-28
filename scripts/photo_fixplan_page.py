@@ -64,7 +64,7 @@ MAX_SAMPLES = 3
 # is (the fix plan's apply: R1/R6 the place word, through set-where; R3 the
 # [what]; R5 the trip's place word(s); an agent or R2 row the whole name).
 WORD_KIND = {"R1": "place", "R6": "place", "R3": "what", "R5": "trip",
-             "agent": "name", "R2": "name"}
+             "agent": "name", "R2": "name", "G75": "name"}
 # Rule -> the filter chip a row sits under on the page.
 CHIP = {"R1": "Place", "R6": "Place", "R2": "Pets", "R3": "Pets",
         "R4": "Move", "R5": "Trip"}
@@ -209,7 +209,7 @@ def read_rows(lines):
 def word_kind(op):
     """-> what the owner's word on row `op` is, or None (ok / skip only):
     a row moving photos into an existing folder sets no name."""
-    if op["op"] not in ("RENAME", "MAKE-TRIP"):
+    if op["op"] not in ("RENAME", "MAKE-TRIP", "NAME-CHECK"):
         return None
     return WORD_KIND.get(op["rule"])
 
