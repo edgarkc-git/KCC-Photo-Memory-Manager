@@ -22,7 +22,7 @@ else
     py=python3
 fi
 
-if ! "$py" "$repo/tests/no_owner_facts.py"; then
+if ! "$py" "$repo/tests/no_owner_facts.py" --staged; then
     echo ""
     echo "pre-commit: the owner-fact guard refused this commit."
     echo "Fix the hit, or add a waiver in tests/no_owner_facts.py that says WHY"

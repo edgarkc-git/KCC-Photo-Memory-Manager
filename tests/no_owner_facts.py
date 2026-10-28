@@ -9,7 +9,11 @@ no language it did not resolve at run time.
           BUILD-VALIDATION locale, never a hardcoded one — no code, comment,
           test or doc is written in it.
 
-  ./.venv/bin/python3 tests/no_owner_facts.py [-v]
+  ./.venv/bin/python3 tests/no_owner_facts.py [-v] [--staged]
+
+--staged (what .githooks/pre-commit runs) reads the files a commit is about
+to store: the paths listed in the git INDEX, each read from its staged blob.
+Without it the files on disk are read, as a direct run always has.
 
 Exit 0 = pass.
 
@@ -33,6 +37,11 @@ build. A skipped case is not a passed one, so it is subtracted from the
 summary and counted beside it — CI prints that line as its whole answer, and
 `5/5 passed` while three cases never ran is a claim the run cannot make.
 
+C-29: the owner half matches on RAW BYTES, in every file whatever its type,
+in UTF-8, UTF-16-LE and UTF-16-BE. It used to read text files only and skip
+any file that did not decode as UTF-8, so one stray byte, a UTF-16 file or an
+image beside the term passed. The CJK half still reads text files only.
+
 Known debt is waived, not hidden. Each waiver names a reason, and the run
 prints how many hits are waived, so the number can only go down on purpose.
 Waiving is the mechanism for "we know, it is queued" — never for "make it
@@ -43,6 +52,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -86,7 +96,8 @@ def is_scannable_root_file(path):
 ROOT_FILES = sorted(p.name for p in REPO.iterdir() if is_scannable_root_file(p))
 # What a stranger downloads, plus the test suite that ships beside it.
 # RS7d: `.githooks/` and `.github/` ship in the zip too, and were never read.
-SHIPPABLE = ["scripts", "docs", "templates", "tests", ".githooks", ".github"] \
+SHIPPABLE_DIRS = ["scripts", "docs", "templates", "tests", ".githooks", ".github"]
+SHIPPABLE = SHIPPABLE_DIRS \
     + ROOT_FILES + sorted(p.name for p in REPO.glob("photo-*") if p.is_dir())
 NEVER = ("tests/golden", "tests/.owner-terms.json", "__pycache__",
          ".venv", ".git")
@@ -199,27 +210,104 @@ def excluded(rel):
     return False
 
 
-def walk(roots):
-    for root in roots:
+def is_text(rel):
+    """-> is this file read as TEXT by the CJK half? A root file always is;
+    "" = a file with no extension, such as .githooks/pre-commit."""
+    return "/" not in rel or Path(rel).suffix in SUFFIXES | {""}
+
+
+def disk_files():
+    """-> [(relpath, bytes)] of every shippable file on DISK, any type."""
+    out = []
+    for root in SHIPPABLE:
         p = REPO / root
         if p.is_file():
-            yield p
+            out.append((root, p.read_bytes()))
             continue
         for f in sorted(p.rglob("*")):
             rel = f.relative_to(REPO).as_posix()
-            # "" = a file with no extension, such as .githooks/pre-commit
-            if not f.is_file() or f.suffix not in SUFFIXES | {""}:
-                continue
-            if excluded(rel):
-                continue
-            yield f
+            if f.is_file() and not excluded(rel):
+                out.append((rel, f.read_bytes()))
+    return out
 
 
-def read_lines(path):
+def in_scope(rel):
+    """The SHIPPABLE test for a path that is in the index, not on disk."""
+    parts = rel.split("/")
+    if len(parts) == 1:
+        return parts[0] not in NOT_SOURCE
+    top = parts[0]
+    return (top in SHIPPABLE_DIRS or top.startswith("photo-")) \
+        and not excluded(rel)
+
+
+def index_files():
+    """-> [(relpath, bytes)] of every shippable file in the git INDEX, read
+    from its staged blob (C-29). A commit stores the staged copy, so a disk
+    copy that was cleaned or deleted after `git add` must not stand in for it.
+
+    ⛔ The hook's GIT_* are KEPT here, unlike the staging probe below. Measured
+    20261028: during `git commit -a` the hook's GIT_INDEX_FILE is
+    `.git/index.lock`, and during `git commit <path>` it is
+    `.git/next-index-*.lock`. Those temporary indexes hold what is being
+    committed; scrubbed, the read falls back to `.git/index` and misses it.
+    These calls only read, and only this repo, so they cannot re-init it."""
+    def git(args, data=None):
+        return subprocess.run(["git", *args], cwd=REPO, input=data,
+                              capture_output=True, check=True).stdout
+
+    entries = []
+    for rec in git(["ls-files", "--stage", "-z"]).split(b"\0"):
+        if not rec:
+            continue
+        meta, path = rec.split(b"\t", 1)
+        mode, sha, _stage = meta.split()
+        rel = path.decode("utf-8", "surrogateescape")
+        if mode != b"160000" and in_scope(rel):      # 160000 = a submodule
+            entries.append((rel, sha))
+    raw = git(["cat-file", "--batch"], b"".join(sha + b"\n" for _, sha in entries))
+    out, at = [], 0
+    for rel, sha in entries:
+        end = raw.index(b"\n", at)
+        header = raw[at:end].split()
+        if len(header) != 3:
+            raise RuntimeError(f"cannot read the staged blob of {rel}")
+        size = int(header[2])
+        out.append((rel, raw[end + 1:end + 1 + size]))
+        at = end + 1 + size + 1
+    return out
+
+
+def shipped_bytes(rel):
+    """-> the bytes of one shipped file from the scanned set, or None."""
+    return STATE["files"].get(rel)
+
+
+def lines_of(data):
     try:
-        return path.read_text(encoding="utf-8").splitlines()
+        return data.decode("utf-8").splitlines()
     except UnicodeDecodeError:
         return []
+
+
+ENCODINGS = ("utf-8", "utf-16-le", "utf-16-be")
+
+
+def term_needles(terms):
+    """-> the byte strings to look for. bytes.lower() folds ASCII only, so a
+    term is also encoded in its upper and lower forms; the haystack gets the
+    same bytes.lower(), which keeps a true match a match in every encoding."""
+    needles = set()
+    for t in terms:
+        for form in (t, t.lower(), t.upper()):
+            for enc in ENCODINGS:
+                needles.add(form.encode(enc).lower())
+    return needles
+
+
+def holds_term(data, needles):
+    low = data.lower()
+    return any(n in low for n in needles)
 
 
 def allowed_lines(lines):
@@ -238,9 +326,10 @@ def allowed_lines(lines):
 def scan_cjk():
     """-> (hits, waived) as lists of (relpath, line no, excerpt)."""
     hits, waived = [], []
-    for f in walk(SHIPPABLE):
-        rel = f.relative_to(REPO).as_posix()
-        lines = read_lines(f)
+    for rel, data in STATE["files"].items():
+        if not is_text(rel):
+            continue
+        lines = lines_of(data)
         skip = allowed_lines(lines)
         for i, line in enumerate(lines, 1):
             if i in skip or not CJK.search(line):
@@ -254,19 +343,25 @@ def scan_cjk():
 
 
 def scan_owner_terms(terms):
-    """-> hits as (relpath, line no, placeholder). No waiver applies here."""
+    """-> hits as (relpath, line no, placeholder). No waiver applies here.
+    Line 0 = found in the raw bytes only (not UTF-8 text, or split oddly)."""
     hits = []
     lowered = [t.lower() for t in terms]
-    for f in walk(SHIPPABLE):
-        rel = f.relative_to(REPO).as_posix()
-        if rel == Path(__file__).relative_to(REPO).as_posix():
+    needles = term_needles(terms)
+    guard = Path(__file__).relative_to(REPO).as_posix()
+    for rel, data in STATE["files"].items():
+        if rel == guard:
             continue                    # the guard names no terms of its own
-        for i, line in enumerate(read_lines(f), 1):
+        found = False
+        for i, line in enumerate(lines_of(data), 1):
             low = line.lower()
             if not any(t in low for t in lowered):
                 continue
             # never echo the term itself, only where it was found
             hits.append((rel, i, "<owner term found — not printed>"))
+            found = True
+        if not found and holds_term(data, needles):
+            hits.append((rel, 0, "<owner term found in raw bytes — not printed>"))
     return hits
 
 
@@ -311,19 +406,17 @@ def case_guard_holds_no_owner_terms():
     committed example against the private list."""
     if STATE["terms"] is None:
         return SKIP, "no private term list"
-    lowered = [t.lower() for t in STATE["terms"]]
+    needles = term_needles(STATE["terms"])
     bad = []
-    for p in (Path(__file__), HERE / ".owner-terms.example.json"):
-        if not p.exists():
-            continue
-        low = p.read_text(encoding="utf-8").lower()
-        if any(t in low for t in lowered):
-            bad.append(p.name)
+    for rel in ("tests/no_owner_facts.py", "tests/.owner-terms.example.json"):
+        data = shipped_bytes(rel)
+        if data is not None and holds_term(data, needles):
+            bad.append(Path(rel).name)
     return not bad, ", ".join(bad) or "clean"
 
 
 def case_private_term_list_is_gitignored():
-    ignore = (REPO / ".gitignore").read_text()
+    ignore = (shipped_bytes(".gitignore") or b"").decode("utf-8", "replace")
     ok = OWNER_TERMS_FILE.name in ignore
     return ok, "listed in .gitignore" if ok else "NOT in .gitignore"
 
@@ -373,7 +466,6 @@ def case_golden_fixtures_cannot_be_staged():
 
 
 def staging_probes(addable):
-    import shutil
     import tempfile
     problems = []
     notes = []
@@ -389,7 +481,7 @@ def staging_probes(addable):
             p = tmp / rel
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text("x\n")
-        shutil.copy(REPO / ".gitignore", tmp / ".gitignore")
+        (tmp / ".gitignore").write_bytes(shipped_bytes(".gitignore") or b"")
         listed = addable(tmp)
         if control not in listed:
             problems.append("positive control not addable — the probe is broken")
@@ -403,7 +495,7 @@ def staging_probes(addable):
         (link_root / "tests").mkdir(parents=True)
         (link_root / "scripts").mkdir()
         (link_root / control).write_text("x\n")
-        shutil.copy(REPO / ".gitignore", link_root / ".gitignore")
+        (link_root / ".gitignore").write_bytes(shipped_bytes(".gitignore") or b"")
         try:
             os.symlink(tmp / "tests" / "golden", link_root / "tests" / "golden",
                        target_is_directory=True)
@@ -557,10 +649,22 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="list the offending lines")
-    VERBOSE = ap.parse_args().verbose
+    ap.add_argument("--staged", action="store_true",
+                    help="read the files from the git index, as a commit "
+                         "will store them (the pre-commit hook passes this)")
+    args = ap.parse_args()
+    VERBOSE = args.verbose
 
     terms, note = load_owner_terms()
     STATE["terms"] = terms
+    try:
+        STATE["files"] = dict(index_files() if args.staged else disk_files())
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+        # an unreadable source is a refusal, never a quiet pass
+        print(f"  cannot read the {'index' if args.staged else 'disk'}: {exc}")
+        sys.exit(1)
+    print(f"  source: {'git index (staged blobs)' if args.staged else 'disk'}, "
+          f"{len(STATE['files'])} files")
     STATE["cjk"] = scan_cjk()
     STATE["owner"] = scan_owner_terms(terms) if terms else []
     print(f"  owner terms: {note}")
