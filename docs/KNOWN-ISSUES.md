@@ -1,5 +1,26 @@
 # Known issues
 
+## v2.4.0
+
+Measured in the v2.4.0 release checks: the full test set, and a real dump
+slice on macOS run up to the freeze. Nothing here touches your original
+photos: the product stays copy-only.
+
+### All platforms
+
+- **The picture-pass time estimate can still be far too low** (as in v2.3.0).
+  Plan for longer than the estimate.
+- **A slow map service still shows no progress** while it retries (as in
+  v2.3.0). It has not hung; let it finish.
+- **The freeze can still warn that a Review folders row was refused when it was
+  applied** (as in v2.3.0). Check the folder name on disk.
+- **A NAME-CHECK row is answered at `check`, before the freeze.** If you leave
+  it open and freeze, answering it later needs `photo_index.py unfreeze`, then
+  render, check and freeze again. It never blocks the copy.
+- **Renaming a trip parent, dropping a place from it, and retrying a landmark
+  lookup after the copy** passed the test set but were not yet run on a real
+  trip dump.
+
 ## v2.3.0
 
 Measured in the v2.3.0 release checks: a 6,032-file dump and a scratch dump
