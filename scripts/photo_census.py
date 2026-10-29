@@ -103,7 +103,14 @@ def portrait_key(w, h):
     found none of them, and the page told the owner "no file at this size"
     about a question that MOVES FILES. A second copy of this rule is how that
     happened; import this one.
+
+    -> None when either side is absent (exiftool's `-`, or blank): the size is
+    unknown, so it matches no candidate. A Samsung `*_BACK_SEAMLESS_ZOOM.mp4`
+    carries no ImageWidth/ImageHeight and the sheet died on it (C-2). Any
+    other non-number still raises — that is a different defect.
     """
+    if w in (None, "", "-") or h in (None, "", "-"):
+        return None
     return (w, h) if int(w) <= int(h) else (h, w)
 
 

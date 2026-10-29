@@ -1089,6 +1089,74 @@ def no_home_sheet_cases(tmp, wd):
           "NO HOME PROPOSED" not in sheet(wd, "sheet-homes"))
 
 
+def no_size_video_cases(tmp):
+    """C-2 — a camera-less video whose ImageWidth/ImageHeight is `-`
+    (exiftool's absent marker; a seamless-zoom clip writes none) crashed the
+    sheet in `portrait_key` with a ValueError. The census already skipped it;
+    the sheet's screen section keyed every camera-less row by size."""
+    unit = os.path.join(tmp, "unit-nosize")
+    os.makedirs(unit)
+    rows = []
+    # Lotus's screen, stored landscape: the census proposes 900x1600.
+    for i in range(4):
+        path = os.path.join(tmp, "src-nosize", "lotus%02d.jpg" % i)
+        jpg(path, w=60, h=40)
+        rows.append(row(path, os.path.basename(path), w="1600", h="900"))
+    clip = os.path.join(tmp, "src-nosize", "birk_BACK_SEAMLESS_ZOOM.mp4")
+    with io.open(clip, "wb") as fh:
+        fh.write(b"\0" * 64)
+    rows.append(row(clip, os.path.basename(clip), ftype="MP4", w="-", h="-"))
+    with io.open(os.path.join(unit, "manifest.csv"), "w", encoding="utf-8",
+                 newline="") as fh:
+        wr = csv.DictWriter(fh, fieldnames=COLS)
+        wr.writeheader()
+        wr.writerows(rows)
+
+    out_dir = os.path.join(tmp, "sheet-nosize")
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            op.main(["sheet", unit, "--out-dir", out_dir])
+        said, err = io.open(os.path.join(out_dir, "answers.txt"),
+                            encoding="utf-8").read(), ""
+    except Exception as e:
+        said, err = "", "%s: %s" % (type(e).__name__, e)
+    check("C-2 the sheet goes on past a video with no size (REPRODUCTION)",
+          not err and said, err)
+    page, perr = os.path.join(tmp, "page-nosize.html"), ""
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            render_to(unit, page, with_coords=False)
+    except Exception as e:
+        perr = "%s: %s" % (type(e).__name__, e)
+    check("C-2 the page goes on past a video with no size (REPRODUCTION)",
+          not perr and os.path.exists(page), perr)
+    pk = op.photo_census.portrait_key
+    try:
+        unknown = [pk("-", "-"), pk("1600", "-"), pk("", "900")]
+    except ValueError as e:
+        unknown = [str(e)]
+    check("C-2 portrait_key reads an absent size as unknown (REPRODUCTION)",
+          unknown == [None, None, None], unknown)
+    check("C-2 a real size still collapses to portrait (GUARD)",
+          pk("1600", "900") == ("900", "1600")
+          and pk("900", "1600") == ("900", "1600"))
+    raised = False
+    try:
+        pk("abc", "900")
+    except ValueError:
+        raised = True
+    check("C-2 a size that is not a number still raises (GUARD)", raised)
+    if not perr:
+        cands = data_of(io.open(page, encoding="utf-8").read())["screens"]["candidates"]
+        mine = [c for c in cands if c["dims"] == ["900", "1600"]]
+        check("C-2 the real candidate still finds its own files, and only "
+              "them (GUARD)",
+              len(mine) == 1 and len(mine[0]["names"]) == 4
+              and mine[0]["thumbs"]
+              and not any("SEAMLESS" in n for c in cands for n in c["names"]),
+              json.dumps([(c["dims"], c["names"]) for c in cands]))
+
+
 def answer_contract(tmp):
     """W1A: naming-first at SNL, an opt-in pack write, A44's missing writer,
     and a declared animal becoming a subject record."""
@@ -2099,6 +2167,7 @@ def main():
         repeat_page_cases(tmp, wd)
         sheet_pack_cases(tmp, wd)
         no_home_sheet_cases(tmp, wd)
+        no_size_video_cases(tmp)
         printed_line_cases(tmp)
         country_cases(tmp, wd)
         nothing_new_cases(tmp, wd)

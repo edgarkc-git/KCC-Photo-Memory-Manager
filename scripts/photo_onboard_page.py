@@ -510,7 +510,8 @@ def screens_section(rows, census, profile=None, full_names=None):
         # ⛔ Collapsed the way the CENSUS collapses it — same predicate, not a
         # second copy (M13). Keyed raw, a candidate whose files are all stored
         # in the other orientation found none of its own evidence and the page
-        # said "no file at this size" beside `files: 2`.
+        # said "no file at this size" beside `files: 2`. A row with no size
+        # lands under None, which no candidate is (C-2).
         at_size[photo_census.portrait_key(row.get("ImageWidth"),
                                           row.get("ImageHeight"))].append(row)
 
