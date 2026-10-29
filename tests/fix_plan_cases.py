@@ -1110,6 +1110,148 @@ def a_skipped_name_check_row_keeps_todays_line_and_never_blocks():
             and got["drive"] == ["20241105_Old trip"]), f"{got}"
 
 
+WIDE = "2024/20241030-1101_Old trip"
+
+
+def g81_check(tmp, rel=WIDE):
+    """L-16b (G81): F001 (2024-11-01) is merged by hand (`dest merge`) into
+    the owner's folder whose period is wider than the batch, as on the real
+    dump. -> (work dir, what the `check` after it printed)."""
+    owner_folder(tmp, rel=rel)
+    wd, _pack = ready(tmp)
+    ref = Path(tmp).resolve() / "ref"
+    ref.mkdir()
+    head = (wd / "manifest.csv").read_text(encoding="utf-8").splitlines()[0]
+    (ref / "manifest.csv").write_text(head + "\n", encoding="utf-8")
+    must(ix.run("dest", wd, "F001", "merge", Path(tmp).resolve() / "sorted" / rel,
+                "--ref", ref, "--reason", "the owner's folder"), "dest")
+    must(ix.run("render", wd), "render")
+    return wd, must(ix.run("check", wd), "check")
+
+
+def printed_answer_line(out):
+    """The answer command `check` printed, run as printed (LL-PHO-240)."""
+    line = next(ln.strip() for ln in out.splitlines()
+                if " fix-plan " in ln and ln.rstrip().endswith("--go"))
+    import shlex
+    run = subprocess.run(shlex.split(line), capture_output=True, text=True)
+    return run.returncode, run.stdout + run.stderr
+
+
+def g81_answered(tmp, answer_text):
+    """dest merge → render → check → answer as `check` says → render, check,
+    freeze. -> dict of each step's (code, words)."""
+    wd, out = g81_check(tmp)
+    got = {"check": out, "rows": rows(wd) if page(wd).is_file() else []}
+    if got["rows"]:
+        answer(wd, *[answer_text for _ in got["rows"]])
+        got["apply"] = printed_answer_line(out) if " fix-plan " in out else (-1, "")
+    for cmd in ("render", "check"):
+        must(ix.run(cmd, wd), cmd)
+    code, fout, ferr = ix.run("freeze", wd)
+    got["freeze"] = (code, fout + ferr)
+    return got
+
+
+@case
+def g81_check_shows_the_name_check_row_before_the_freeze():
+    """⭐ L-16b / G81 REPRODUCTION. A NAME-CHECK row never stops the freeze, so
+    the freeze was where it first showed — and the freeze then refused the
+    answer. `check` shows it while the index is open and writes the page.
+    ⛔ FAILS on 333196e: check says nothing, no page."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, out = g81_check(tmp)
+        got = rows(wd) if page(wd).is_file() else []
+    return ("row NAME-CHECK F001" in out and " fix-plan " in out
+            and "before the freeze" in out and len(got) == 1
+            and "NAME-CHECK (G75) · F001 · `20241030-1101_Old trip`" in got[0]), \
+        f"{out[-600:]!r} {got}"
+
+
+@case
+def g81_ok_answered_before_the_freeze_needs_no_unfreeze():
+    """⭐ L-16b / G81 REPRODUCTION, `ok`. The row answered with the command
+    `check` printed is taken at once; the freeze then says "answered: kept",
+    and no step says unfreeze. ⛔ FAILS on 333196e: no row before the freeze."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        got = g81_answered(tmp, "ok")
+    said = got["check"] + "".join(v[1] for k, v in got.items()
+                                  if isinstance(v, tuple))
+    return (len(got["rows"]) == 1 and got.get("apply", (1,))[0] == 0
+            and got["freeze"][0] == 0
+            and "answered: kept `20241030-1101_Old trip`" in got["freeze"][1]
+            and "NAME CHECK FAILED" not in got["freeze"][1]
+            and "unfreeze" not in said), f"{got}"
+
+
+@case
+def g81_word_answered_before_the_freeze_waits_for_the_final_check():
+    """⭐ L-16b / G81 REPRODUCTION, `word:`. G79 unchanged: the owner's name is
+    taken before the freeze and the folder is renamed only at the final check
+    after the copy. ⛔ FAILS on 333196e: no row before the freeze."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        got = g81_answered(tmp, "word: 20241101_Old trip")
+        on_drive = sorted(p.name for p in (Path(tmp).resolve() / "sorted" / "2024").iterdir())
+    return (got.get("apply", (1,))[0] == 0 and got["freeze"][0] == 0
+            and "becomes `20241101_Old trip` at the final check" in got["freeze"][1]
+            and on_drive == ["20241030-1101_Old trip"]), f"{got} {on_drive}"
+
+
+@case
+def g81_a_row_left_open_names_no_command_the_freeze_refuses():
+    """⭐ L-16b / G81 REPRODUCTION. A row left blank keeps today's line and
+    never blocks (G79) — and the line no longer sends the owner to a
+    `fix-plan` the freeze it just made refuses. ⛔ FAILS on 333196e."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _out = g81_check(tmp)
+        code, fout, ferr = ix.run("freeze", wd)
+    said = fout + ferr
+    tail = said[said.find("NAME CHECK FAILED"):]
+    return (code == 0 and "NAME CHECK FAILED" in said and "row NAME-CHECK F001" in tail
+            and "fix-plan" not in tail.split("next:")[0]), f"{code} {said[-600:]!r}"
+
+
+@case
+def g81_a_word_that_is_no_folder_name_is_refused_before_the_freeze():
+    """⭐ L-16b / G81 REPRODUCTION, guarding G79: the `word:` is judged by
+    photo_name.validate() when it is answered before the freeze too —
+    refused, nothing written, the line kept. ⛔ FAILS on 333196e: no row
+    before the freeze."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        got = g81_answered(tmp, "word: Old trip")
+    return (got.get("apply", (0,))[0] == 1 and "nothing written for it" in got["apply"][1]
+            and got["freeze"][0] == 0 and "NAME CHECK FAILED" in got["freeze"][1]), \
+        f"{got}"
+
+
+@case
+def g81_a_frozen_index_still_refuses_an_answer():
+    """GUARD D-I16 — nothing new opens a freeze: an answer sent after it is
+    refused, as before."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _out = g81_check(tmp)
+        must(ix.run("freeze", wd), "freeze")
+        ix.run("fix-plan", wd)
+        answer(wd, "ok")
+        code, out, err = apply(wd)
+    return code != 0 and "the freeze still holds" in out + err, f"{code} {(out + err)[-300:]!r}"
+
+
+@case
+def g81_check_with_no_name_check_row_writes_nothing_more():
+    """GUARD — a dump with no NAME-CHECK row: `check` prints no row and leaves
+    plan/ as it was; an open R4 row still stops only at the freeze (exit 3)."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        owner_folder(tmp)
+        wd, _pack = ready(tmp)
+        before = state(wd / "plan")
+        out = must(ix.run("check", wd), "check")
+        after = state(wd / "plan")
+        code, _o, _e = ix.run("freeze", wd)
+    return (before == after and "NAME-CHECK" not in out and "fix-plan" not in out
+            and code == 3), f"{out[-300:]!r} same={before == after} freeze={code}"
+
+
 @case
 def a_name_check_word_is_checked_by_the_name_grammar():
     """GUARD G79 — the `word:` is a whole folder name and photo_name.validate()

@@ -3126,10 +3126,33 @@ def cmd_check(args):
     with_who = sum(1 for fo in shown if (fo.get("validation") or {}).get("who"))
     print(f"check passed: {len(shown)} folder(s), {copies} file(s) to copy, "
           f"{with_who} folder(s) carry a [who], {len(warnings)} warning(s)")
+    name_check_before_freeze(workdir, pack, index)
     log_entry(index, "index check", "passed", f"{len(warnings)} warning(s)",
               by="agent")
     save(target, pack, index)
     return 0
+
+
+def name_check_before_freeze(workdir, pack, index):
+    """L-16b (G81) — a NAME-CHECK row never stops the freeze (G79), so the
+    freeze was the first place it showed, and by then the freeze held and
+    refused the answer. It is shown here, while the index is still open: the
+    page `fix-plan <dump>` writes, and the command that answers it."""
+    if index.get("frozen"):
+        return
+    ops, refused = draft_fix_plan(workdir, pack, index)
+    rows = fix_open(index, ops)
+    named = [op for op in rows if op["op"] == "NAME-CHECK"]
+    if not named:
+        return
+    page = write_fix_plan(workdir, index, rows, refused)
+    for op in named:
+        print(f"  Review folders, row NAME-CHECK {op['folder']}: `{op['from']}` — "
+              f"{op['reason']}")
+    print(f"  answer it in {page} before the freeze — not blocking, a blank "
+          "answer keeps the line — then:\n"
+          f"    {run_line('photo_index.py')} fix-plan \"{workdir}\" --answers "
+          f"\"{page}\" --go")
 
 
 # ---------------------------------------------------------------------------
@@ -3615,8 +3638,11 @@ def cmd_freeze(args):
         else:
             print(f"  photo_plan's own name check: {line}")
             if fid:
-                print(f"    answer it on Review folders (`photo_index.py fix-plan "
-                      f"<dump>`, row NAME-CHECK {fid.group(1)}) — not blocking")
+                # L-16b — the freeze now holds, so it names no command the
+                # freeze refuses: `check` showed the row before it.
+                print(f"    left open on Review folders (row NAME-CHECK "
+                      f"{fid.group(1)}, shown at `check`) — not blocking; to "
+                      "answer it now, unfreeze first")
     dump = finish_target(workdir)
     print(f"next: photo_run.py finish {dump}        # dry run: previews the copy "
           "and where --go would stop; writes nothing\n"
