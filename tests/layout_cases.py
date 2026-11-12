@@ -262,15 +262,19 @@ def a_make_trip_row_answered_ok_on_the_page_becomes_the_proposed_trip():
 
 @case
 def no_trip_is_proposed_in_an_expat_period_or_without_a_country_test():
-    """GUARD (Q2). A home outside the owner's country, valid on those days,
+    """GUARD (Q2), on the v2.4.0 path (no declared country; TW from the
+    first home). A home outside the owner's country, valid on those days,
     is an expat period: the engine cannot tell the expat country from a
     third one, so nothing is proposed. Batches with no day type (a cut made
-    before P1) propose nothing either; a single day abroad is no trip."""
+    before P1) propose nothing either; a single day abroad is no trip.
+    ⚠️ With a DECLARED country the day test tells them apart (G83/G90), so
+    the block is that path's no longer (`oa24b_*`)."""
     import photo_index
     from index_group_cases import ix
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         _wd, pack, idx, batches = group_index(tmp)
-        pack.profile = dict(pack.profile, country="TW", home_locations=[
+        pack.profile = dict({k: v for k, v in pack.profile.items() if k != "country"},
+                            home_locations=[
             {"id": "home-01", "lat": 24.0, "lon": 121.0},
             {"id": "home-02", "lat": 50.0, "lon": 10.0, "valid_from": "2024-01",
              "valid_until": "2025-06"}])
@@ -284,19 +288,41 @@ def no_trip_is_proposed_in_an_expat_period_or_without_a_country_test():
 
 
 @case
+def a_confirmed_country_proposes_a_trip_while_a_home_abroad_is_valid():
+    """⭐ REPRODUCTION (OA-24 b, G83/G90, H5). ⛔ FAILS on 70fa7b0: with a home
+    abroad valid on the trip's days nothing was proposed (the Q2 expat
+    block). With the country confirmed the day test already leaves out every
+    day in a valid home's country, so days still typed abroad are abroad
+    from every home: the trip row is proposed. Without a confirmed country
+    the block stands (the guard above)."""
+    import photo_index
+    from index_group_cases import ix
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        _wd, pack, idx, batches = group_index(tmp)
+        pack.profile = dict(pack.profile, country="TW", home_locations=[
+            {"id": "home-01", "lat": 24.0, "lon": 121.0},
+            {"id": "home-02", "lat": 50.0, "lon": 10.0, "valid_from": "2024-01",
+             "valid_until": "2025-06"}])
+        got = photo_index.trip_candidates(idx, abroad(batches), pack)
+    return (len(got) == 1 and got[0]["to"] == "20241025-1031_Countryland_Dunmore+Ashford"), \
+        f"got={got}"
+
+
+@case
 def dating_a_home_abroad_through_settings_lets_the_trip_be_proposed():
     """⭐ REPRODUCTION (G49, OR-1). ⛔ FAILS on 3f35a21: a home outside the
     owner's country with no dates is valid on every day, so Review folders
     never offered the trip, and nothing but a hand edit of the pack could
     date it. `photo_settings.py home home-02 from … until … --go` dates it
-    outside the trip; `fix-plan` then offers the MAKE-TRIP row."""
+    outside the trip; `fix-plan` then offers the MAKE-TRIP row. On the
+    v2.4.0 path (no declared country): a declared one follows G83/G90."""
     import subprocess
     import index_group_cases as g
     with tempfile.TemporaryDirectory() as tmp, g.ix.no_env():
         wd, pack, _idx, batches = group_index(tmp)
         path = Path(pack.dir) / "photo-profile.json"
         prof = json.loads(path.read_text())
-        prof["country"] = "TW"
+        prof.pop("country", None)
         prof["home_locations"] = [{"id": "home-01", "label": "Ford", "lat": 24.0, "lon": 121.0},
                                   {"id": "home-02", "label": "Away flat", "lat": 50.0, "lon": 10.0}]
         path.write_text(json.dumps(prof, indent=2))

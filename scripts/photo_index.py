@@ -1084,10 +1084,12 @@ def trip_candidates(index, batches, pack, skip=()):
 
     A trip abroad (glossary; owner ruling Q2 20261018) is a run of 2+ days of
     batches typed OVERSEAS, consecutive but for TRIP_GAP_DAYS days without
-    photos, made of 2+ top-level day folders. ⛔ None is proposed while a
-    home outside the owner's country is valid on any of those days (an
-    expat period: the engine cannot tell the expat country from a third
-    one), nor for an owner with no country test (no OVERSEAS day exists).
+    photos, made of 2+ top-level day folders. ⛔ Without a confirmed country
+    none is proposed while a home outside the owner's country is valid on
+    any of those days (an expat period: the v2.4.0 test cannot tell the
+    expat country from a third one); with one, the day test already did
+    (G83/G90). None either for an owner with no country test (no OVERSEAS
+    day exists).
     The name (Q3, owner ruling 20261018): `YYYYMMDD-MMDD_<country>_<place>[+<place>]`, the
     country word from the batches' map reply (D-F12), the places the legs'
     own, most photos first, at most two; with no country word, places only.
@@ -1119,6 +1121,10 @@ def trip_candidates(index, batches, pack, skip=()):
             words.append(word)
     profile = pack.profile if hasattr(pack, "profile") else (pack or {})
     country = photo_cluster.owner_country(profile)
+    # G83/G90 — with a confirmed country the day test already left out every
+    # day in a valid home's country, so a run abroad is abroad from all of
+    # them: the expat block below is the v2.4.0 path's only.
+    confirmed = photo_profile.country(profile)
     homes = photo_profile.home_points(profile)
     owned = claims(index)
     labels = (id_labels(pack) if hasattr(pack, "profile") else
@@ -1136,7 +1142,8 @@ def trip_candidates(index, batches, pack, skip=()):
         first, last = run[0]["from"], max(b["to"] for b in run)
         if first == last:
             continue
-        if any(photo_cluster.in_country((h[0], h[1]), country) is False
+        if confirmed is None and any(
+               photo_cluster.in_country((h[0], h[1]), country) is False
                and (not h[2] or h[2] <= last[:len(h[2])])
                and (not h[3] or h[3] >= first[:len(h[3])]) for h in homes):
             continue

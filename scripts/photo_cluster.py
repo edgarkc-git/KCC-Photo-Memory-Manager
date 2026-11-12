@@ -9,11 +9,13 @@ source drive). Writes into the work dir only:
 
 Leg detection:
   1. Group files by EXIF capture day; day centroid = median GPS position.
-  2. Day type: OVERSEAS (outside the owner's own country — only for a
-     country with a day test in COUNTRY_BOXES; the pack's `country`, else the
-     row holding its first home), TW_AWAY (> --away-km from every home anchor
-     valid that day), TW_HOME. An owner whose country has no day test gets
-     TW_HOME/TW_AWAY only (K20; the type strings keep their old names).
+  2. Day type: OVERSEAS (abroad, `day_test()`), TW_AWAY (> --away-km from
+     every home anchor valid that day), TW_HOME. With the pack's `country`
+     CONFIRMED (G83) abroad means outside the country of every home valid
+     that day, from the bundled outlines, for any country. Otherwise the
+     v2.4.0 test: only a country with a row in COUNTRY_BOXES (the first
+     home's row) has an abroad, and any other owner gets TW_HOME/TW_AWAY only
+     (K20; the type strings keep their old names).
      Anchors are the owner pack's `home_locations` minus any marked
      `home_range: false`; with no pack the anchor falls back to this folder's
      modal day-centroid cell (inside the country when it has a day test),
@@ -61,12 +63,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 import photo_profile  # noqa: E402
 import photo_progress  # noqa: E402
 
-# K20 — the day test for an owner's OWN country: is a day at home-country or
-# abroad? One row per country the engine can test offline, (lat min, lat max,
-# lon min, lon max). ⛔ This is a TABLE, not the world: an owner whose country
-# has no row gets no day test at all — HOME/AWAY days only, no OVERSEAS split
-# and no Overpass (owner_country(), in_country()). Never test a day against a
-# row that is not the owner's.
+# K20 — the v2.4.0 day test for an owner's OWN country, kept for a pack whose
+# `country` is not confirmed (G83: a confirmed one reads the bundled outlines,
+# `day_test()`). One row per country, (lat min, lat max, lon min, lon max).
+# ⛔ This is a TABLE, not the world: an owner whose country has no row gets no
+# day test at all — HOME/AWAY days only, no OVERSEAS split (owner_country(),
+# in_country()). The landmark and peak lookups run worldwide since ADR 0006;
+# the day test only picks the town fallback's shape. Never test a day against
+# a row that is not the owner's.
 COUNTRY_BOXES = {
     "TW": (21.6, 25.5, 118.0, 122.3),
 }
@@ -198,6 +202,35 @@ def in_country(pt, country):
     return None if box is None else in_box(pt, box)
 
 
+def day_test(profile, homes, day_files=None):
+    """-> (country, abroad): the owner's country (`owner_country()`) and
+    `abroad(pt, day)` -> True / False, or None when there is no day test.
+    ⛔ The ONE day test: day typing, the packless anchor, the lookup mode
+    (`photo_where`) and the trip-abroad row all ask it.
+
+    G83 — only once the pack's `country` is CONFIRMED (declared) does it read
+    the bundled outlines (`outline_country()`): a day is abroad only outside
+    the country of every home in `homes` valid on that day (G90); a day with
+    no valid home uses the confirmed country, and so does a point in no
+    outline (unknown is never abroad). Otherwise the v2.4.0 test runs
+    unchanged: COUNTRY_BOXES, `in_country()`."""
+    country = owner_country(profile, day_files)
+    if photo_profile.country(profile) is None:
+        def abroad(pt, day=None):
+            inside = in_country(pt, country)
+            return None if inside is None else not inside
+        return country, abroad
+    home_isos = [(h, outline_country((h[0], h[1]))) for h in homes]
+
+    def abroad(pt, day):
+        here = outline_country(pt)
+        if here is None:
+            return False
+        valid = {iso for h, iso in home_isos if iso and home_valid(h, day)}
+        return here not in (valid or {country})
+    return country, abroad
+
+
 def owner_country(profile, day_files=None):
     """-> the owner's primary home country (ISO2), or None for "unknown".
 
@@ -208,7 +241,8 @@ def owner_country(profile, day_files=None):
     3. else, with no home at all (a packless run): TW when any day lies in the
        TW row — the old auto-anchor's own precondition, kept so a packless
        Taiwan run is unchanged;
-    4. else None: no day test, so no OVERSEAS and no Overpass.
+    4. else None: no day test on the v2.4.0 path, so no OVERSEAS (the
+       lookups still run worldwide, ADR 0006).
     Nothing here goes online (K20: the owner confirms, never a lookup)."""
     declared = photo_profile.country(profile)
     if declared:
@@ -509,15 +543,16 @@ def within_home_range(point, day, homes, away_km):
     that decides whether a day reads as ordinary life or as a trip. Wiring
     one to the other would call a short drive across town a trip, or a real
     trip ordinary."""
-    for lat, lon, since, until in homes:
-        if haversine_km(point, (lat, lon)) > away_km:
-            continue
-        if since and day[:len(since)] < since:
-            continue
-        if until and day[:len(until)] > until:
-            continue
-        return True
-    return False
+    return any(haversine_km(point, (h[0], h[1])) <= away_km and home_valid(h, day)
+               for h in homes)
+
+
+def home_valid(home, day):
+    """True when `home` (lat, lon, valid_from, valid_until, ...) was the
+    owner's on `day` (YYYY-MM-DD); a bound may be YYYY, YYYY-MM or a day,
+    compared on its own length."""
+    since, until = home[2], home[3]
+    return not (since and day[:len(since)] < since) and not (until and day[:len(until)] > until)
 
 
 def near_any_home(point, homes, km=None):
@@ -1625,7 +1660,7 @@ def away_km_answered(profile, flag=None):
     return value is not None and value != AWAY_KM_DEFAULT
 
 
-def no_pack_anchor(day_files, country=None):
+def no_pack_anchor(day_files, country=None, abroad=None):
     """-> the no-pack home anchor, or None: the median point of the modal
     0.2-degree cell among this work dir's day centroids.
 
@@ -1636,11 +1671,13 @@ def no_pack_anchor(day_files, country=None):
     win (R2-F3: a work dir holding one trip anchors on the trip itself).
     K20: with a day test for `country` only the days inside it count (a
     packless Taiwan run, exactly as before); with none, every day counts —
-    the Taiwan-only rule gave a packless run anywhere else no anchor."""
+    the Taiwan-only rule gave a packless run anywhere else no anchor.
+    G83 — `abroad`, `day_test()`'s, decides instead when it is given."""
     cells = {}
-    for e in day_files.values():
+    for d, e in day_files.items():
         pt = e["centroid"]
-        if pt and in_country(pt, country) is not False:
+        if pt and (in_country(pt, country) if abroad is None
+                   else not abroad(pt, str(d))) is not False:
             cells.setdefault((round(pt[0] / 0.2), round(pt[1] / 0.2)), []).append(pt)
     if not cells:
         return None
@@ -1801,8 +1838,8 @@ def main():
         # cannot acquire one — it suppresses like any home and names like an
         # unlabelled one.
         labelled_homes = labelled_homes + [(lat, lon, None, None, None)]
-    country = owner_country(profile, day_files)
-    auto_anchor = None if homes else no_pack_anchor(day_files, country)
+    country, abroad = day_test(profile, all_homes, day_files)
+    auto_anchor = None if homes else no_pack_anchor(day_files, country, abroad)
 
     days = sorted(day_files)
     for d in days:
@@ -1810,9 +1847,10 @@ def main():
         c = e["centroid"]
         if c is None:
             e["type"] = None
-        elif in_country(c, country) is False:
+        elif abroad(c, d.isoformat()):
             # K20 — only an owner whose country has a day test has an abroad;
             # for any other owner a far day is an away day, never OVERSEAS.
+            # G83 — a confirmed country's test follows the homes of that day.
             e["type"] = "OVERSEAS"
         elif homes:
             e["type"] = ("TW_HOME"

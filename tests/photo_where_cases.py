@@ -1015,6 +1015,28 @@ def k20_an_owner_with_no_day_test_asks_overpass_too():
         f"{got}"
 
 
+
+@case
+def oa24b_the_lookup_mode_follows_the_dated_home_day_test():
+    """⭐ REPRODUCTION (OA-24 b, G83). The lookup mode follows the same day
+    test as the day type. A confirmed TW owner whose home since 2021 is in
+    Tokyo: a stop a few km from it in 2022 is at home-country (`overpass`),
+    one in Seoul is abroad (`overseas_z13`). ⛔ FAILS on 70fa7b0: the Tokyo
+    stop was outside the TW box, so `overseas_z13`. Public sample points."""
+    shinjuku, seoul = (35.6896, 139.7006), (37.5663, 126.9779)
+    pack = {"language": "en", "country": "TW", "home_locations": [
+        {"lat": 25.0340, "lon": 121.5645, "valid_until": "2020-06"},
+        {"lat": 35.6812, "lon": 139.7671, "valid_from": "2021-01"}]}
+    layout = [("2022-03-01", [(shinjuku, 9), (shinjuku, 10), (shinjuku, 11)]),
+              ("2022-03-02", [(seoul, 9), (seoul, 10), (seoul, 11)])]
+    with tempfile.TemporaryDirectory() as tmp:
+        rc, out, _stdout, err, _ = run_layout(tmp, pack, layout)
+    days = (out or {}).get("days", {})
+    got = {d: (days.get(d) or {}).get("mode") for d in ("2022-03-01", "2022-03-02")}
+    return (rc == 0 and got == {"2022-03-01": "overpass", "2022-03-02": "overseas_z13"}), \
+        f"rc={rc} got={got} {err[-200:]}"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")

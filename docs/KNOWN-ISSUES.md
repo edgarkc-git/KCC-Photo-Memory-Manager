@@ -1,5 +1,15 @@
 # Known issues
 
+## Next release (in development)
+
+### All platforms
+
+- **Home country outside Taiwan: day types keep their Taiwan names.** Once your
+  pack's country is confirmed, "abroad" follows your homes and their dates
+  for any country, but the day types are still called `TW_HOME`/`TW_AWAY`
+  internally, and the islands table holds Taiwan's island groups only. A
+  photo taken at sea, far from any coast, counts as in your home country.
+
 ## v2.4.0
 
 Measured in the v2.4.0 release checks: the full test set, and a real dump

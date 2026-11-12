@@ -2181,17 +2181,17 @@ def k20_a_taiwan_owner_is_unchanged():
 @case
 def k20_a_home_outside_the_owners_country_is_still_abroad():
     """GUARD (K20, U2-04 — the owner's ruling). ONE country per owner: a Taiwan
-    owner's registered home abroad is still abroad, whether the country is
-    declared or comes from the first home."""
-    profile_extra = {"home_locations": [{"lat": HOME[0], "lon": HOME[1]},
-                                        {"lat": ABROAD[0], "lon": ABROAD[1]}]}
-    got = {}
-    for name, extra in (("first home", {}), ("declared TW", {"country": "TW"})):
-        profile = {"language": "en", **profile_extra, **extra}
-        rc, out, _so, err = run(list(zip(K20_DAYS, [HOME, ABROAD, HOME])), profile)
-        got[name] = types_of(out, profile) if rc == 0 and out else f"rc={rc} {err[-200:]}"
+    owner's registered home abroad is still abroad when the country comes
+    from the first home (the v2.4.0 path). ⚠️ Turned on G90 (20261112): once
+    the country is DECLARED, a day at a home valid that day is never abroad,
+    whatever country the home is in (`oa24b_*` cases)."""
+    profile = {"language": "en",
+               "home_locations": [{"lat": HOME[0], "lon": HOME[1]},
+                                  {"lat": ABROAD[0], "lon": ABROAD[1]}]}
+    rc, out, _so, err = run(list(zip(K20_DAYS, [HOME, ABROAD, HOME])), profile)
+    got = types_of(out, profile) if rc == 0 and out else f"rc={rc} {err[-200:]}"
     want = ["TW_HOME", "OVERSEAS", "TW_HOME"]
-    return None if all(v == want for v in got.values()) else f"want {want}, got {got}"
+    return None if got == want else f"want {want}, got {got}"
 
 
 @case
@@ -2292,6 +2292,58 @@ def oa24_an_island_in_the_table_takes_its_country_over_the_nearest_outline():
     across = pc.outline_country((24.4798, 118.0894))
     return None if set(got.values()) == {"TW"} and across == "CN" \
         else f"got={got} across={across}"
+
+
+
+# OA-24 (b) — public sample points only (landmarks, never an owner's home).
+TAIPEI = (25.0340, 121.5645)      # Taipei 101
+TOKYO = (35.6812, 139.7671)       # Tokyo Station
+SEOUL = (37.5663, 126.9779)       # Seoul City Hall
+XIAMEN = (24.4798, 118.0894)      # Xiamen, inside the v2.4.0 TW box
+OA24B_HOMES = [{"lat": TAIPEI[0], "lon": TAIPEI[1], "valid_until": "2020-06"},
+               {"lat": TOKYO[0], "lon": TOKYO[1], "valid_from": "2021-01"}]
+OA24B_DAYS = [("2019-05-01", TOKYO), ("2020-09-01", TOKYO), ("2022-03-01", TOKYO),
+              ("2022-03-02", SEOUL), ("2022-05-01", TAIPEI)]
+
+
+@case
+def oa24b_a_day_is_abroad_only_outside_every_home_valid_that_day():
+    """⭐ REPRODUCTION (OA-24 b, G83/G90, H5). ⛔ FAILS on 70fa7b0: with a
+    confirmed country every day outside the TW box was OVERSEAS, a day at a
+    home valid that day included. Two dated homes in two countries: Tokyo
+    in 2019 (only the Taipei home valid) and on a gap day (none valid: the
+    confirmed country) is abroad; Tokyo in 2022 (the Tokyo home valid) is
+    home; Seoul in 2022 is abroad; and, G90 read literally, Taipei in 2022
+    (only the Tokyo home valid) is abroad too. One run per pack route
+    (LL-PHO-132): $PHOTO_PROFILE, --profile, collection.json."""
+    profile = {"language": "en", "country": "TW", "home_locations": OA24B_HOMES}
+    want = ["OVERSEAS", "OVERSEAS", "TW_HOME", "OVERSEAS", "OVERSEAS"]
+    got = {}
+    for route in ("env", "flag", "collection"):
+        if route == "collection":
+            rc, out, _so, err = run_bound(OA24B_DAYS, profile, ("--away-km", str(AWAY_KM)))
+        else:
+            rc, out, _so, err = run(OA24B_DAYS, profile, route=route)
+        got[route] = types_of(out, profile) if rc == 0 and out else f"rc={rc} {err[-200:]}"
+    return None if all(v == want for v in got.values()) else f"want {want}, got {got}"
+
+
+@case
+def oa24b_a_day_the_box_and_the_outlines_disagree_on_follows_the_switch():
+    """⭐ REPRODUCTION + GUARD (OA-24 b, G83). Xiamen lies inside the v2.4.0
+    TW box. ⛔ FAILS on 70fa7b0 for the confirmed pack: the day was an away
+    day at home-country. With the country confirmed it is abroad (its
+    outline is CN); with no `country` key the v2.4.0 path runs unchanged
+    and it stays an away day."""
+    homes = [{"lat": TAIPEI[0], "lon": TAIPEI[1]}]
+    days = [("2024-01-10", TAIPEI), ("2024-01-11", XIAMEN)]
+    got = {}
+    for name, extra in (("confirmed", {"country": "TW"}), ("unconfirmed", {})):
+        profile = {"language": "en", "home_locations": homes, **extra}
+        rc, out, _so, err = run(days, profile)
+        got[name] = types_of(out, profile) if rc == 0 and out else f"rc={rc} {err[-200:]}"
+    want = {"confirmed": ["TW_HOME", "OVERSEAS"], "unconfirmed": ["TW_HOME", "TW_AWAY"]}
+    return None if got == want else f"want {want}, got {got}"
 
 
 def main():
