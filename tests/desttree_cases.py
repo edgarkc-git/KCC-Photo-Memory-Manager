@@ -368,6 +368,51 @@ def a_second_render_dry_run_reads_the_saved_hash_cache():
 
 
 @case
+def a_render_dry_run_goes_on_when_the_hash_cache_cannot_be_saved():
+    """⭐ REPRODUCTION (G93 follow-up). ⛔ FAILS on 7965ee1: a dry run whose
+    hash cache cannot be saved (a read-only folder beside the work dir)
+    stopped with the save's error. A cache is not a decision: the dry run
+    says it once and finishes as before."""
+    import os
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ix.g3_dump(tmp)
+        jpeg(sorted_root(tmp) / "x" / "A.jpg", "a")
+        ix.run("init", wd)
+        cache = photo_desttree.cache_dir(wd)
+        cache.mkdir(exist_ok=True)
+        os.chmod(cache, 0o555)
+        try:
+            try:
+                code, out, err = ix.run("render", wd, "--dry-run")
+            except OSError as exc:
+                code, out, err = "raised", "", repr(exc)
+        finally:
+            os.chmod(cache, 0o755)
+    said = (out + err).count("hash cache not saved:")
+    return code == 0 and said == 1, f"rc={code} said={said} out={(out + err)[-300:]!r}"
+
+
+@case
+def a_real_render_still_stops_when_the_hash_cache_cannot_be_saved():
+    """GUARD (G93 follow-up). Only a dry run goes on past a cache it cannot
+    save; a real render stops as before, with nothing rendered."""
+    import os
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ix.g3_dump(tmp)
+        jpeg(sorted_root(tmp) / "x" / "A.jpg", "a")
+        ix.run("init", wd)
+        cache = photo_desttree.cache_dir(wd)
+        cache.mkdir(exist_ok=True)
+        os.chmod(cache, 0o555)
+        try:
+            code, out, err = ix.run("render", wd)
+        finally:
+            os.chmod(cache, 0o755)
+    return code != 0 and "nothing rendered" in out + err, \
+        f"rc={code} out={(out + err)[-300:]!r}"
+
+
+@case
 def a_twin_gone_before_the_copy_is_copied_and_said():
     """GUARD (Lead, G16). The tree changed between the freeze and the copy:
     the twin's file is gone, so the source is copied where it would have

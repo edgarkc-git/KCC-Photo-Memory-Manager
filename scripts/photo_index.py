@@ -908,12 +908,13 @@ def run_dedupe(workdir, fo, pack):
                       + (r.stdout + r.stderr)[-600:])
 
 
-def twin_scan(workdir, sources, profile, write):
+def twin_scan(workdir, sources, profile, write, dry_run=False):
     """G16 — -> (twin records {source: {twin, kind, sha256, size}}, dest tree
     {root, found, files}, {source: SHA-256}). The sorted tree is re-scanned
     (G15) and read only; `write` keeps the hash caches beside the work dir.
     A dry run passes True too (G93): a cache, not a decision, and the work dir
-    stays byte for byte as it was. A dest root that is not there
+    stays byte for byte as it was, and a cache it cannot save is said once
+    and skipped; a real render still stops. A dest root that is not there
     is an empty tree — said, never silently "no twins"."""
     try:
         root = photo_plan.resolve_dest_root(workdir, None, profile)
@@ -921,12 +922,18 @@ def twin_scan(workdir, sources, profile, write):
         root = None
     found = bool(root) and Path(root).is_dir()
     try:
-        tree = photo_desttree.scan(root, workdir, write=write) if found else []
-        shas = photo_desttree.source_shas(sorted(sources), workdir, write=write)
+        not_saved = [] if dry_run else None
+        tree = (photo_desttree.scan(root, workdir, write=write, not_saved=not_saved)
+                if found else [])
+        shas = photo_desttree.source_shas(sorted(sources), workdir, write=write,
+                                          not_saved=not_saved)
     except OSError as exc:
         raise Refused(f"the twin check cannot read a file in the sorted tree: "
                       f"{exc} — nothing rendered")
     done = photo_execute.verified_anywhere(workdir / "plan")
+    if not_saved:
+        print(f"hash cache not saved: {not_saved[0]} — the next run hashes the "
+              f"tree again")
     pairs = photo_desttree.twins(shas, tree, own_copies=[v["dest"] for v in done.values()],
                                  done=done)
     keys = {path_key(s) for s in sources}
@@ -1426,7 +1433,8 @@ def cmd_render(args):
                       + "\n".join(f"  ⛔ {p}" for p in broken[:10]))
 
     files = {f["source"]: f for f in index["files"] if f["status"] == "present"}
-    twin_recs, dest_tree, shas = twin_scan(workdir, files, profile, write=True)
+    twin_recs, dest_tree, shas = twin_scan(workdir, files, profile, write=True,
+                                           dry_run=dry_run)
     twins = {s: rec["twin"] for s, rec in twin_recs.items()}
     if dest_tree["found"]:
         print(f"dest tree: {dest_tree['files']} file(s) scanned under "

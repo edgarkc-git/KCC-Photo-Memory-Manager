@@ -86,11 +86,18 @@ def read_cache(path):
         return {}
 
 
-def write_cache(path, data):
-    Path(path).parent.mkdir(exist_ok=True)
-    tmp = Path(path).with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, path)
+def write_cache(path, data, not_saved=None):
+    """With a `not_saved` list a save that fails is added to it instead of
+    raised: a dry run's cache is a cache, not a decision (G93)."""
+    try:
+        Path(path).parent.mkdir(exist_ok=True)
+        tmp = Path(path).with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        if not_saved is None:
+            raise
+        not_saved.append(f"{type(exc).__name__}: {exc.strerror or exc}")
 
 
 def hash_cached(paths, cache, missing_ok=False):
@@ -132,11 +139,12 @@ def read_dates(paths):
     return out
 
 
-def scan(dest_root, workdir, write=False):
+def scan(dest_root, workdir, write=False, not_saved=None):
     """-> [{folder, name, path, size, mtime_ns, sha256, day}] for every media
     file under `dest_root`, folder relative to it ("" at the root), day
     YYYY-MM-DD or None. A dest root that does not exist is an empty tree.
-    With `write`, the cache in `workdir` is updated."""
+    With `write`, the cache beside `workdir` is updated (`write_cache()`
+    for `not_saved`)."""
     root = Path(dest_root)
     if not root.is_dir():
         return []
@@ -170,11 +178,11 @@ def scan(dest_root, workdir, write=False):
     if write and entries != cache:
         whole = read_cache(cache_path)
         whole[path_key(root)] = entries
-        write_cache(cache_path, whole)
+        write_cache(cache_path, whole, not_saved)
     return out
 
 
-def source_shas(paths, workdir, write=False):
+def source_shas(paths, workdir, write=False, not_saved=None):
     """-> {source path: SHA-256} for the dump's own files that can be read,
     cached by path + size + mtime like the tree. A file that cannot be read
     is left out: it is no twin, and the freeze refuses it on its own."""
@@ -183,7 +191,7 @@ def source_shas(paths, workdir, write=False):
     cache = read_cache(cache_path)
     entries = hash_cached([Path(p) for p in paths], cache, missing_ok=True)
     if write and entries != cache:
-        write_cache(cache_path, entries)
+        write_cache(cache_path, entries, not_saved)
     return {p: entries[path_key(Path(p))]["sha256"] for p in paths
             if path_key(Path(p)) in entries}
 
