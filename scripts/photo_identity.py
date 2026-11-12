@@ -759,7 +759,10 @@ def run(workdir, force=False, device_arg=None, limit=None):
         photo_progress.finish(workdir, "identity", done=len(wanted), total=len(wanted))
         return summary
 
-    photo_progress.start(workdir, "identity", total=len(pending))
+    # W-8 — a resumed run counts the whole dump: the files an earlier run
+    # finished are done too.
+    before = len(wanted) - len(pending)
+    photo_progress.start(workdir, "identity", total=len(wanted), done=before)
     torch, detector, labels, embedder, transform, device = load_models(device_arg)
     with torch.no_grad():
         embed_dim = int(embedder(torch.zeros(1, 3, 224, 224).to(device)).shape[-1])
@@ -839,7 +842,7 @@ def run(workdir, force=False, device_arg=None, limit=None):
                   f"of them, {shared_frames} shared, "
                   f"{counts[STATUS_NO_SUBJECT]} without, "
                   f"{counts[STATUS_FAILED]} failed)", flush=True)
-            photo_progress.tick(workdir, "identity", files_new, len(pending))
+            photo_progress.tick(workdir, "identity", before + files_new, len(wanted))
             photo_progress.fault("identity_saved")
 
         for source in wanted:
@@ -912,7 +915,7 @@ def run(workdir, force=False, device_arg=None, limit=None):
 
     summary = summarize(files_new, device)
     print(json.dumps(summary, indent=1, ensure_ascii=False))
-    photo_progress.finish(workdir, "identity", done=files_new, total=len(pending),
+    photo_progress.finish(workdir, "identity", done=before + files_new, total=len(wanted),
                           items=files_new)
     actual = photo_progress.picture_actual(workdir)
     est = (photo_progress.load(workdir).get("estimates") or [None])[0]

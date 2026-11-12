@@ -408,6 +408,94 @@ def an_embed_killed_between_batches_resumes_where_it_stopped():
         return ok, f"rc={r1.returncode}/{r2.returncode} mid={mid} summary={summary}"
 
 
+class _Stopped(Exception):
+    pass
+
+
+def identity_resumed(n=10, every=4):
+    """W-8 helper: an identity run over `n` real stills, models stubbed (no
+    animal anywhere), stopped at its first save point, then run again.
+    -> (progress at the stop, progress after the resume)."""
+    import numpy as np
+    import photo_embed
+    import photo_identity
+
+    class Torch:
+        class _NoGrad:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        no_grad = staticmethod(lambda: Torch._NoGrad())
+
+        class _T:
+            shape = (1, 4)
+
+            def to(self, _device):
+                return self
+
+        zeros = staticmethod(lambda *a, **k: Torch._T())
+
+    models = (Torch, None, {}, lambda t: Torch._T(), None, "cpu")
+    saved = (photo_identity.load_models, photo_identity.animal_boxes,
+             photo_identity.SAVE_FILES, photo_progress.fault)
+    with tempfile.TemporaryDirectory() as tmp:
+        wd = Path(tmp) / "work" / "dumpi"
+        (wd / "embed").mkdir(parents=True)
+        src = Path(tmp) / "raw"
+        images(src, n)
+        import csv
+        with open(wd / "embed" / "embeddings.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, ["SourceFile", "sha256", "kind", "status"])
+            w.writeheader()
+            w.writerows({"SourceFile": str(p), "sha256": f"s{i}", "kind": "still",
+                         "status": "embedded"}
+                        for i, p in enumerate(sorted(src.iterdir())))
+        np.save(wd / "embed" / "embeddings.npy", np.zeros((n, 4), dtype=np.float32))
+        (wd / "embed" / "embeddings-meta.json").write_text("{}")
+
+        def stop_at_save(point):
+            if point == "identity_saved":
+                raise _Stopped()
+
+        try:
+            photo_identity.load_models = lambda device_arg=None: models
+            photo_identity.animal_boxes = lambda *a, **k: []
+            photo_identity.SAVE_FILES = every
+            photo_progress.fault = stop_at_save
+            with contextlib.redirect_stdout(io.StringIO()):
+                try:
+                    photo_identity.run(wd)
+                except _Stopped:
+                    pass
+                mid = dict(photo_progress.stage(wd, "identity"))
+                photo_progress.fault = lambda point: None
+                photo_identity.run(wd)
+            end = dict(photo_progress.stage(wd, "identity"))
+        finally:
+            (photo_identity.load_models, photo_identity.animal_boxes,
+             photo_identity.SAVE_FILES, photo_progress.fault) = saved
+    return mid, end
+
+
+@case
+def a_resumed_identity_run_counts_the_whole_dump():
+    """⭐ W-8 REPRODUCTION (Win11 run 20261026, item 12). Identity was stopped
+    at 39 of 119 photos and run again; the progress file then said `80/80`
+    (the resumed run only), as if 39 photos were skipped. Stopped at its
+    first save (4 of 10) and resumed, the stage reads done 10 of 10, while
+    the recorded rate still comes from the 6 photos the second run really
+    looked at. ⛔ FAILS on 9733c0c: 6 of 6."""
+    mid, end = identity_resumed()
+    return ((mid.get("state"), mid.get("done"), mid.get("total")) == ("running", 4, 10)
+            and (end.get("state"), end.get("done"), end.get("total"), end.get("runs"))
+            == ("done", 10, 10, 2)
+            and end.get("rate_items") == 6), f"mid={mid} end={end}"
+
+
+
 @case
 def a_see_pass_stopped_between_batches_says_the_next_batch():
     """⭐ M12 step 3, kill point 4 (mid-see, between batches): after batch 1's
