@@ -917,25 +917,69 @@ def run(workdir, force=False, device_arg=None, limit=None):
     print(json.dumps(summary, indent=1, ensure_ascii=False))
     photo_progress.finish(workdir, "identity", done=before + files_new, total=len(wanted),
                           items=files_new)
-    actual = photo_progress.picture_actual(workdir)
-    est = (photo_progress.load(workdir).get("estimates") or [None])[0]
-    if actual is not None and est:
-        print(f"Picture pass took {photo_progress.duration(actual)} "
-              f"(estimated {photo_progress.duration(est['seconds'])}, embed + identity)")
+    took = photo_progress.took_line(workdir)
+    if took:
+        print(took)
     print(photo_progress.compact_line(workdir, "identity done"))
     return summary
+
+
+SAMPLE_FILES = 8
+
+
+def time_sample(workdir, n=SAMPLE_FILES, device_arg=None):
+    """C-4 — -> {files, rate_s, load_s}: the seconds per photo of this
+    stage's own work (detect, crop, embed) on `n` stills taken at a stride
+    across the dump's manifest, the model load timed apart. Writes nothing:
+    no index, no progress record. photo_embed runs it in its own process
+    BEFORE the CLIP model loads, so the two never share memory."""
+    from PIL import Image, ImageOps
+
+    with open(Path(workdir) / "manifest.csv", newline="", encoding="utf-8") as f:
+        stills = [r for r in csv.DictReader(f)
+                  if photo_embed.kind_of(r.get("FileType")) == "image"]
+    step = max(len(stills) // n, 1)
+    picked = stills[::step][:n]
+    t0 = time.time()
+    torch, detector, labels, embedder, transform, device = load_models(device_arg)
+    load_s = time.time() - t0
+    t1, done = time.time(), 0
+    with tempfile.TemporaryDirectory() as tmp, torch.no_grad():
+        for i, r in enumerate(picked):
+            thumb, _cause = photo_embed.convert_to_thumbnail(
+                r["SourceFile"], tmp, f"s{i}", "image", r.get("FileType"))
+            if thumb is None:
+                continue
+            image = ImageOps.exif_transpose(Image.open(thumb)).convert("RGB")
+            found = animal_boxes(torch, detector, labels, device, image)
+            if found:
+                crops = [image.crop(pad_box(raw, image.width, image.height))
+                         for _k, _s, raw in found]
+                feats = embedder(torch.stack([transform(c) for c in crops]).to(device))
+                feats.cpu()
+            done += 1
+    if not done:
+        return None
+    return {"files": done, "rate_s": round((time.time() - t1) / done, 4),
+            "load_s": round(load_s, 1)}
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("workdir")
+    ap.add_argument("--time-sample", action="store_true",
+                    help="time a few photos for the estimate and write nothing "
+                         "(photo_embed runs it)")
     ap.add_argument("--force", action="store_true",
                     help="rebuild the whole identity index")
     ap.add_argument("--device", help="mps / cpu (default: mps when available)")
     ap.add_argument("--limit", type=int,
                     help="process only the first N indexed files (trials)")
     args = ap.parse_args()
+    if args.time_sample:
+        print(json.dumps(time_sample(args.workdir, device_arg=args.device)))
+        return
     sys.exit(photo_embed.exit_code(
         run(args.workdir, force=args.force, device_arg=args.device, limit=args.limit)))
 

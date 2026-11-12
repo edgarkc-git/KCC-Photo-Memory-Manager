@@ -1228,10 +1228,10 @@ def print_progress(workdir):
         if data.get("map"):
             print("  map: " + map_line(data["map"]))
         if data.get("estimates"):
-            est = data["estimates"][0]
-            actual = photo_progress.picture_actual(workdir)
-            print(f"  picture pass: estimated {photo_progress.duration(est['seconds'])}"
-                  + (f", took {photo_progress.duration(actual)}" if actual is not None else ""))
+            took = photo_progress.took_line(workdir)
+            print("  " + (took[0].lower() + took[1:] if took else
+                          f"picture pass: estimated "
+                          f"{photo_progress.duration(data['estimates'][-1]['seconds'])}"))
     print(f"\nresume with:\n    {next_command(workdir)}")
 
 

@@ -42,6 +42,8 @@ PENDING, RUNNING, DONE = "pending", "running", "done"
 PICTURE_STAGES = ("embed", "identity")
 
 FAULT_ENV = "PHOTO_TEST_FAULT"
+# C-4 test seam: a fixed identity sample rate (s/photo) instead of timing one.
+SAMPLE_ENV = "PHOTO_TEST_IDENTITY_SAMPLE"
 FAULT_RC = 137
 _fault_calls = {}
 
@@ -293,8 +295,8 @@ def picture_estimate(workdir, photos, sample=None, record=True):
     if not parts:
         return None
     rate = sum(parts)
-    basis = "; ".join(bases) + (f"; {', '.join(missing)} not timed yet on this "
-                                "machine, not included" if missing else "")
+    basis = "; ".join(bases) + (f"; {', '.join(missing)} not timed yet in this "
+                                "collection on this machine, not included" if missing else "")
     if record:
         data = load(workdir)
         data.setdefault("estimates", []).append(
@@ -302,6 +304,61 @@ def picture_estimate(workdir, photos, sample=None, record=True):
              "rate_s": round(rate, 4), "basis": basis, "at": now()})
         save(workdir, data)
     return estimate_line(photos, rate, basis)
+
+
+def identity_sample(workdir):
+    """C-4 — -> (s/photo, basis) for identity when this collection has no
+    identity rate on this machine: a few photos timed by `photo_identity.py
+    --time-sample` in its OWN process (so its models and CLIP never share
+    memory), or None — with a recorded rate, or when the sample fails, which
+    never stops the pass. Kept in the progress file so it is timed once."""
+    if recorded_rate(workdir, "identity"):
+        return None
+    data = load(workdir)
+    got = data.get("identity_sample")
+    if got is None:
+        if os.environ.get(SAMPLE_ENV):
+            got = {"files": 8, "rate_s": float(os.environ[SAMPLE_ENV]), "load_s": 0.0}
+        else:
+            import subprocess
+            r = subprocess.run([sys.executable, str(Path(__file__).parent / "photo_identity.py"),
+                                str(workdir), "--time-sample"],
+                               capture_output=True, text=True)
+            try:
+                got = json.loads(r.stdout.strip().splitlines()[-1]) if r.returncode == 0 else None
+            except (ValueError, IndexError):
+                got = None
+        if not got:
+            return None
+        data = load(workdir)
+        data["identity_sample"] = got
+        save(workdir, data)
+    return got["rate_s"], f"a timed sample of {got['files']} photos of this dump"
+
+
+def covered(est):
+    """-> the picture stages an estimate record holds a rate for."""
+    return [s for s in PICTURE_STAGES if f"{s}: " in est.get("basis", "")]
+
+
+def took_line(workdir):
+    """-> "Picture pass took X (estimated Y, <stages>)" once the pass is done,
+    else None. C-4: compared with the first estimate that holds EVERY picture
+    stage, and an estimate that left one out says so."""
+    data = load(workdir)
+    actual = picture_actual(workdir)
+    ests = data.get("estimates") or []
+    if actual is None or not ests:
+        return None
+    est = next((e for e in ests if covered(e) == list(PICTURE_STAGES)), ests[0])
+    stages = covered(est)
+    what = (" + ".join(stages) if stages == list(PICTURE_STAGES)
+            else f"{' + '.join(stages) or 'no stage'} only — "
+                 f"{', '.join(s for s in PICTURE_STAGES if s not in stages)} was not timed yet")
+    rerun = any((data["stages"].get(s) or {}).get("runs", 1) > 1 for s in PICTURE_STAGES)
+    return (f"Picture pass took {duration(actual)}"
+            + (" (the last run of each stage)" if rerun else "")
+            + f" (estimated {duration(est['seconds'])}, {what})")
 
 
 def picture_actual(workdir):

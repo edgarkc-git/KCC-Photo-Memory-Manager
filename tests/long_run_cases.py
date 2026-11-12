@@ -412,10 +412,12 @@ class _Stopped(Exception):
     pass
 
 
-def identity_resumed(n=10, every=4):
+def identity_resumed(n=10, every=4, prepare=None, stop=True):
     """W-8 helper: an identity run over `n` real stills, models stubbed (no
     animal anywhere), stopped at its first save point, then run again.
-    -> (progress at the stop, progress after the resume)."""
+    `prepare(wd)` runs before the first run; with `stop` False there is one
+    run. -> (progress at the stop, progress after the resume, what the
+    last run printed)."""
     import numpy as np
     import photo_embed
     import photo_identity
@@ -465,19 +467,24 @@ def identity_resumed(n=10, every=4):
             photo_identity.animal_boxes = lambda *a, **k: []
             photo_identity.SAVE_FILES = every
             photo_progress.fault = stop_at_save
+            if prepare:
+                prepare(wd)
+            said = io.StringIO()
             with contextlib.redirect_stdout(io.StringIO()):
-                try:
-                    photo_identity.run(wd)
-                except _Stopped:
-                    pass
+                if stop:
+                    try:
+                        photo_identity.run(wd)
+                    except _Stopped:
+                        pass
                 mid = dict(photo_progress.stage(wd, "identity"))
                 photo_progress.fault = lambda point: None
+            with contextlib.redirect_stdout(said):
                 photo_identity.run(wd)
             end = dict(photo_progress.stage(wd, "identity"))
         finally:
             (photo_identity.load_models, photo_identity.animal_boxes,
              photo_identity.SAVE_FILES, photo_progress.fault) = saved
-    return mid, end
+    return mid, end, said.getvalue()
 
 
 @case
@@ -488,11 +495,80 @@ def a_resumed_identity_run_counts_the_whole_dump():
     first save (4 of 10) and resumed, the stage reads done 10 of 10, while
     the recorded rate still comes from the 6 photos the second run really
     looked at. ⛔ FAILS on 9733c0c: 6 of 6."""
-    mid, end = identity_resumed()
+    mid, end, _said = identity_resumed()
     return ((mid.get("state"), mid.get("done"), mid.get("total")) == ("running", 4, 10)
             and (end.get("state"), end.get("done"), end.get("total"), end.get("runs"))
             == ("done", 10, 10, 2)
             and end.get("rate_items") == 6), f"mid={mid} end={end}"
+
+
+def embed_dump(tmp, n=40):
+    """`n` real stills and a manifest in a NEW collection (no sibling dump,
+    so no rate recorded anywhere). -> work dir."""
+    import csv
+    wd = Path(tmp) / "Working Files" / "dumpc"
+    wd.mkdir(parents=True)
+    src = Path(tmp) / "raw"
+    images(src, n)
+    with open(wd / "manifest.csv", "w", newline="") as f:
+        w = csv.DictWriter(f, ["SourceFile", "FileName", "FileType"])
+        w.writeheader()
+        w.writerows({"SourceFile": str(p), "FileName": p.name, "FileType": "JPEG"}
+                    for p in sorted(src.iterdir()))
+    return wd
+
+
+@case
+def a_new_collections_first_estimate_includes_identity():
+    """⭐ C-4 REPRODUCTION (Camera 6,031 photos: "about 18 min", embed only,
+    took 1 h 8 min; the M19 slice, a new collection on the same Mac: "under
+    1 min", took 2 min 15 s). The first picture pass of a collection had no
+    identity rate, so its estimate left identity out. Now a short identity
+    sample is timed before the pass (its timer injected here), and the
+    estimate printed after the first files holds it. ⛔ FAILS on 832cf65."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wd = embed_dump(tmp)
+        r = stage_run("photo_embed.py", wd, PHOTO_TEST_IDENTITY_SAMPLE="0.4")
+        lines = [ln for ln in r.stdout.splitlines() if ln.startswith("Picture pass:")]
+        est = photo_progress.load(wd).get("estimates") or []
+        idn = photo_progress.stage(wd, "identity")
+    sampled = [ln for ln in lines if "identity: a timed sample" in ln]
+    return (r.returncode == 0 and sampled and "not timed yet" not in sampled[-1]
+            and est and est[-1]["rate_s"] > 0.4 and not idn), \
+        f"rc={r.returncode} lines={lines} est={est} identity stage={idn} {r.stderr[-300:]!r}"
+
+
+@case
+def a_known_identity_rate_takes_no_sample():
+    """GUARD (C-4). With an identity rate recorded in this collection, no
+    sample is taken: the estimate names the last identity run."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wd = embed_dump(tmp)
+        old = wd.parent / "dump-old"
+        old.mkdir()
+        photo_progress.start(old, "identity")
+        photo_progress.finish(old, "identity", items=100)
+        data = photo_progress.load(old)
+        data["stages"]["identity"].update(rate_s=0.5, seconds=50.0)
+        photo_progress.save(old, data)
+        r = stage_run("photo_embed.py", wd, PHOTO_TEST_IDENTITY_SAMPLE="0.4")
+        lines = [ln for ln in r.stdout.splitlines() if ln.startswith("Picture pass:")]
+    return (r.returncode == 0 and lines and "identity: the last identity run" in lines[-1]
+            and all("identity: a timed sample" not in ln for ln in lines)), f"{lines}"
+
+
+@case
+def an_embed_only_estimate_is_never_said_to_cover_identity():
+    """⭐ C-4 REPRODUCTION. The closing line read "Picture pass took 1 h 8 min
+    (estimated 18 min, embed + identity)" while that estimate held embed
+    only. An estimate is named for the stages it covers. ⛔ FAILS on 832cf65."""
+    def embed_only(wd):
+        photo_progress.start(wd, "embed")
+        photo_progress.finish(wd, "embed", items=10)
+        photo_progress.picture_estimate(wd, 10, sample={"embed": (0.1, "a timed sample")})
+
+    _mid, _end, text = identity_resumed(prepare=embed_only, stop=False)
+    return ("embed + identity" not in text and "embed only" in text), repr(text)
 
 
 

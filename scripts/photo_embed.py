@@ -672,9 +672,15 @@ def run(manifest_rows, embed_dir, force, device_arg, errors_log, workdir=None):
             photo_progress.finish(workdir, "embed", done=len(rows), total=len(rows))
         return summary
 
+    isample = {}
     if workdir:
+        # C-4 — a collection's first pass has no identity rate: time a few
+        # photos of it now, before CLIP loads (its own process).
+        got = photo_progress.identity_sample(workdir)
+        if got:
+            isample = {"identity": got}
         # G11 — before the pass: the rate recorded on this machine, if any.
-        line = photo_progress.picture_estimate(workdir, len(pending))
+        line = photo_progress.picture_estimate(workdir, len(pending), sample=isample or None)
         if line:
             print(line)
         photo_progress.start(workdir, "embed", total=len(pending))
@@ -744,7 +750,8 @@ def run(manifest_rows, embed_dir, force, device_arg, errors_log, workdir=None):
                     print(photo_progress.picture_estimate(
                         workdir, len(pending),
                         sample={"embed": ((time.time() - t_loop) / max(n, 1),
-                                          f"a timed sample of the first {n} files of this run")}))
+                                          f"a timed sample of the first {n} files of this run"),
+                                **isample}))
                 if (i // BATCH_SIZE) % 5 == 0:
                     meta["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                     save_index(embed_dir, rows, vectors, meta)
