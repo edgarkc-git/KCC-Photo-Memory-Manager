@@ -49,6 +49,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -886,24 +887,59 @@ def map_count_line(counts=None):
         for svc, v in c.items())
 
 
+# W-1 — while the map service is slow, a line at least this often (≤ 60 s).
+HEARTBEAT_S = 30
+
+
+class _Heartbeat:
+    """Prints `map service: …` every HEARTBEAT_S while a request or a wait
+    between tries runs, so a slow map service never reads as a hang."""
+
+    def __init__(self):
+        self.what, self.t0 = "", time.monotonic()
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True)
+
+    def run(self):
+        while not self.stop.wait(HEARTBEAT_S):
+            print(f"  map service: still waiting — {self.what}, "
+                  f"{round(time.monotonic() - self.t0)} s so far; it has not hung",
+                  file=sys.stderr, flush=True)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *a):
+        self.stop.set()
+        self.thread.join()
+        return False
+
+
 def overpass_post(query, backoffs=(0, 15, 45)):
     """-> the elements of one Overpass answer, or None when it failed. The
     one Overpass caller: `photo_where`'s peak query posts through here too."""
     err = None
-    for i, backoff in enumerate(backoffs):
-        time.sleep(backoff)
-        _count("overpass", "network")
-        if i:
-            _count("overpass", "retries")
-        try:
-            req = urllib.request.Request(OVERPASS, data=query.encode(),
-                                         headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=90) as r:
-                return json.loads(r.read().decode()).get("elements", [])
-        except Exception as ex:                       # noqa: BLE001
-            err = ex
-            if _is_5xx(ex):
-                _count("overpass", "http_5xx")
+    with _Heartbeat() as beat:
+        for i, backoff in enumerate(backoffs):
+            if i:
+                print(f"  map service: try {i} failed ({err}); try {i + 1} of "
+                      f"{len(backoffs)} in {backoff} s", file=sys.stderr, flush=True)
+            beat.what = f"before try {i + 1} of {len(backoffs)}"
+            time.sleep(backoff)
+            _count("overpass", "network")
+            if i:
+                _count("overpass", "retries")
+            beat.what = f"try {i + 1} of {len(backoffs)}"
+            try:
+                req = urllib.request.Request(OVERPASS, data=query.encode(),
+                                             headers={"User-Agent": USER_AGENT})
+                with urllib.request.urlopen(req, timeout=90) as r:
+                    return json.loads(r.read().decode()).get("elements", [])
+            except Exception as ex:                       # noqa: BLE001
+                err = ex
+                if _is_5xx(ex):
+                    _count("overpass", "http_5xx")
     _count("overpass", "failed")
     print(f"overpass failed after retries: {err}", file=sys.stderr)
     return None

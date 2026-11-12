@@ -1020,6 +1020,53 @@ def an_away_lookup_is_full_precision_and_the_admin_one_stays_2_dp():
     return got == want, f"{got}"
 
 
+@case
+def a_map_service_that_hangs_still_shows_progress():
+    """⭐ W-1 REPRODUCTION (Win11 run 20261026: `cluster` printed nothing for
+    16 minutes while Overpass retried). Every try HANGS until its timeout (an
+    opener that blocks, never one that refuses fast); the owner still sees a
+    line at least every HEARTBEAT_S, which is at most 60 s. Time is scaled
+    down: the heartbeat to 0.1 s, each hang to 0.5 s, the backoffs to 0 and
+    0.3 s. ⛔ FAILS on 03a8315: silent until `overpass failed after retries`."""
+    import io
+    import socket
+    import threading
+    import time as _time
+    import urllib.request as ur
+    lines = []
+
+    class Clock(io.StringIO):
+        def write(self, s):
+            if s.strip():
+                lines.append((_time.monotonic(), s.strip()))
+            return len(s)
+
+    def hang(req, *a, **k):
+        threading.Event().wait(0.5)
+        raise socket.timeout("timed out")
+
+    default = getattr(pc, "HEARTBEAT_S", None)
+    real, real_err = ur.urlopen, sys.stderr
+    ur.urlopen, sys.stderr = hang, Clock()
+    try:
+        pc.HEARTBEAT_S = 0.1
+        t0 = _time.monotonic()
+        got = pc.overpass_post("[out:json];node(1,1,1,1);out;", backoffs=(0, 0.3))
+        t1 = _time.monotonic()
+    finally:
+        ur.urlopen, sys.stderr = real, real_err
+        if default is None:
+            del pc.HEARTBEAT_S
+        else:
+            pc.HEARTBEAT_S = default
+    stamps = [t0] + [t for t, _ in lines] + [t1]
+    gap = max(b - a for a, b in zip(stamps, stamps[1:]))
+    waiting = [s for _, s in lines if "map service" in s]
+    return (got is None and default is not None and default <= 60
+            and len(waiting) >= 5 and gap <= 0.35), \
+        f"default={default} gap={gap:.2f}s lines={[s for _, s in lines]}"
+
+
 # ---------------------------------------------------------------------------
 # M2 — the owner's language, never Simplified for a Traditional owner
 # ---------------------------------------------------------------------------
