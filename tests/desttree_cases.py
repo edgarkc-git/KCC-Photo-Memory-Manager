@@ -324,9 +324,11 @@ def a_copied_file_is_never_a_twin_of_its_own_copy():
 
 
 @case
-def a_render_dry_run_writes_no_cache():
-    """GUARD (LL-PHO-205/208). `render --dry-run` hashes in memory: the work
-    dir, the hash cache beside it and the dest are byte for byte as before."""
+def a_render_dry_run_writes_nothing_but_the_hash_cache():
+    """GUARD (LL-PHO-205/208), turned on G93: before it, a dry run wrote
+    nothing at all. A dry run keeps the hash caches beside the work dir (a
+    cache, not a decision); the work dir and the dest are byte for byte as
+    before, and nothing else beside them changes."""
     with tempfile.TemporaryDirectory() as tmp, ix.no_env():
         wd, _pack = ix.g3_dump(tmp)
         jpeg(sorted_root(tmp) / "x" / "A.jpg", "a")
@@ -334,8 +336,35 @@ def a_render_dry_run_writes_no_cache():
         before = state(tmp)
         code, out, _err = ix.run("render", wd, "--dry-run")
         after = state(tmp)
+        cache = photo_desttree.cache_dir(wd).relative_to(Path(tmp).resolve())
     changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
-    return code == 0 and changed == [], f"changed={changed} out={out[-200:]!r}"
+    others = [k for k in changed if Path(k).parent != cache]
+    return code == 0 and others == [], f"others={others} changed={changed} out={out[-200:]!r}"
+
+
+@case
+def a_second_render_dry_run_reads_the_saved_hash_cache():
+    """⭐ L-1 REPRODUCTION (G93). ⛔ FAILS on 49baafc: a dry run never saved
+    the hash cache, so every dry run hashed and dated the whole sorted tree
+    again. Now the first dry run saves it and the second hashes no file and
+    asks exiftool for no date."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        wd, _pack = ix.g3_dump(tmp)
+        for n in ("A", "B"):
+            jpeg(sorted_root(tmp) / "x" / f"{n}.jpg", n)
+        ix.run("init", wd)
+        code1, _out, _err = ix.run("render", wd, "--dry-run")
+        hashed, dated = [], []
+        real_sha, real_dates = photo_desttree.sha256_file, photo_desttree.read_dates
+        photo_desttree.sha256_file = lambda p: hashed.append(Path(p).name) or real_sha(p)
+        photo_desttree.read_dates = lambda ps: dated.extend(Path(p).name for p in ps) \
+            or real_dates(ps)
+        try:
+            code2, out, _err = ix.run("render", wd, "--dry-run")
+        finally:
+            photo_desttree.sha256_file, photo_desttree.read_dates = real_sha, real_dates
+    return code1 == 0 and code2 == 0 and hashed == [] and dated == [], \
+        f"rc={code1},{code2} hashed={hashed} dated={dated} out={out[-200:]!r}"
 
 
 @case

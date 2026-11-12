@@ -911,8 +911,9 @@ def run_dedupe(workdir, fo, pack):
 def twin_scan(workdir, sources, profile, write):
     """G16 — -> (twin records {source: {twin, kind, sha256, size}}, dest tree
     {root, found, files}, {source: SHA-256}). The sorted tree is re-scanned
-    (G15) and read only; `write` keeps the hash caches in the work dir, and a
-    dry run passes False so it writes nothing. A dest root that is not there
+    (G15) and read only; `write` keeps the hash caches beside the work dir.
+    A dry run passes True too (G93): a cache, not a decision, and the work dir
+    stays byte for byte as it was. A dest root that is not there
     is an empty tree — said, never silently "no twins"."""
     try:
         root = photo_plan.resolve_dest_root(workdir, None, profile)
@@ -1425,7 +1426,7 @@ def cmd_render(args):
                       + "\n".join(f"  ⛔ {p}" for p in broken[:10]))
 
     files = {f["source"]: f for f in index["files"] if f["status"] == "present"}
-    twin_recs, dest_tree, shas = twin_scan(workdir, files, profile, write=not dry_run)
+    twin_recs, dest_tree, shas = twin_scan(workdir, files, profile, write=True)
     twins = {s: rec["twin"] for s, rec in twin_recs.items()}
     if dest_tree["found"]:
         print(f"dest tree: {dest_tree['files']} file(s) scanned under "
@@ -1585,7 +1586,8 @@ def cmd_render(args):
         moved = [(fo["id"], names_before.get(fo["id"]), fo.get("rendered"))
                  for fo in index["folders"]
                  if fo.get("rendered") != names_before.get(fo["id"])]
-        print(f"render --dry-run: nothing written"
+        print(f"render --dry-run: nothing written but the hash cache beside the "
+              f"work dir (a cache, not a decision)"
               + (" — the index stays frozen" if was_frozen else ""))
         if moved:
             print(f"{len(moved)} folder name(s) would change:")
@@ -6492,7 +6494,9 @@ def main(argv=None):
     r.add_argument("--profile")
     r.add_argument("--dry-run", action="store_true",
                    help="print which folder names would change and write "
-                        "nothing — allowed while the index is frozen")
+                        "nothing but the hash cache beside the work dir (a "
+                        "cache, not a decision) — allowed while the index is "
+                        "frozen")
     r.add_argument("--no-vision", action="store_true",
                    help="render batches the see stage has not run for, from "
                         "metadata alone — [who] and [what] are given up for "

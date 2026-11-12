@@ -12,7 +12,9 @@ collection.
 
 ⛔ READ-ONLY on the dest: it opens files to hash them and asks exiftool for
 their dates, nothing else. The only file it writes is its own cache, and only
-when the caller asks (`write=True`) — a dry run writes nothing.
+when the caller asks (`write=True`) and something in it changed. A render dry
+run asks too (G93): the cache is a cache, not a decision, so a second dry run
+or render reads it instead of hashing the tree again.
 
 The capture day follows the scan's own rules (`photo_scan.local_video_dates`,
 `photo_cluster.parse_date`), never a second copy of them.
@@ -165,7 +167,7 @@ def scan(dest_root, workdir, write=False):
                     "name": p.name, "path": str(p), "size": e["size"],
                     "mtime_ns": e["mtime_ns"], "sha256": e["sha256"],
                     "day": dt.date().isoformat() if dt else None})
-    if write:
+    if write and entries != cache:
         whole = read_cache(cache_path)
         whole[path_key(root)] = entries
         write_cache(cache_path, whole)
@@ -178,9 +180,9 @@ def source_shas(paths, workdir, write=False):
     is left out: it is no twin, and the freeze refuses it on its own."""
     cache_path = cache_dir(workdir) / SOURCE_CACHE_NAME.format(
         dump=Path(workdir).resolve().name)
-    entries = hash_cached([Path(p) for p in paths], read_cache(cache_path),
-                          missing_ok=True)
-    if write:
+    cache = read_cache(cache_path)
+    entries = hash_cached([Path(p) for p in paths], cache, missing_ok=True)
+    if write and entries != cache:
         write_cache(cache_path, entries)
     return {p: entries[path_key(Path(p))]["sha256"] for p in paths
             if path_key(Path(p)) in entries}
