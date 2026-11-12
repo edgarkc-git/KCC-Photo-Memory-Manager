@@ -2204,6 +2204,96 @@ def k20_a_malformed_country_stops_the_run():
     return None if rc != 0 and "two-letter country code" in err else f"rc={rc} {err[-200:]}"
 
 
+# OA-24 (a) — public sample points only (capital cities, a lake, open sea).
+OUTLINE_POINTS = {
+    "Paris": ((48.8566, 2.3522), "FR"),
+    "Oslo": ((59.9139, 10.7522), "NO"),
+    "Tokyo": ((35.6762, 139.6503), "JP"),
+    "Maseru": ((-29.3151, 27.4869), "LS"),
+    "Johannesburg": ((-26.2041, 28.0473), "ZA"),
+    "Hong Kong": ((22.3193, 114.1694), "HK"),
+    "Kaohsiung": ((22.6273, 120.3014), "TW"),
+    "Lima": ((-12.0464, -77.0428), "PE"),
+}
+
+
+@case
+def oa24_a_point_names_the_country_outline_it_lies_in():
+    """NEW (OA-24 card a; fails on its parent only because the function is
+    missing). The bundled outlines answer offline: a capital is in its own
+    country, Maseru in Lesotho and not in South Africa around it (a hole),
+    France and Norway by their real codes, and the open sea is None."""
+    import photo_cluster as pc
+    if not hasattr(pc, "outline_country"):
+        return "photo_cluster has no outline_country"
+    got = {n: pc.outline_country(pt) for n, (pt, _w) in OUTLINE_POINTS.items()}
+    want = {n: w for n, (_pt, w) in OUTLINE_POINTS.items()}
+    sea = pc.outline_country((0.0, -140.0))
+    return None if got == want and sea is None else f"got={got} sea={sea}"
+
+
+@case
+def oa24_every_outline_code_is_two_capital_letters():
+    """NEW (OA-24 card a). Every code in the bundled file is `[A-Z]{2}` —
+    `photo_profile.country()` stops a run on anything else — and the file
+    holds no name column (only the code), within the 2 MB budget."""
+    import json
+    import re
+    import photo_cluster as pc
+    path = getattr(pc, "OUTLINES_PATH", None)
+    if path is None or not Path(path).is_file():
+        return f"no outlines file: {path}"
+    doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    codes = [f["properties"].get("iso") for f in doc["features"]]
+    keys = {k for f in doc["features"] for k in f["properties"]}
+    bad = [c for c in codes if not re.fullmatch(r"[A-Z]{2}", c or "")]
+    size = Path(path).stat().st_size
+    return None if not bad and keys == {"iso"} and size <= 2_000_000 \
+        else f"bad={bad} keys={keys} size={size}"
+
+
+@case
+def oa24_a_point_just_off_a_coast_takes_the_nearest_outline():
+    """NEW (OA-24 card a). A point inside no outline (a harbour, a ferry) takes
+    the nearest outline within NEAR_OUTLINE_KM, else None; nothing is looked
+    up online. The sea off a capital's coast, then the mid-ocean."""
+    import photo_cluster as pc
+    if not hasattr(pc, "outline_country"):
+        return "photo_cluster has no outline_country"
+    near = pc.outline_country((-12.10, -77.20))
+    far = pc.outline_country((-12.10, -80.50))
+    exact = pc.outline_country((-12.10, -77.20), near_km=0)
+    return None if near == "PE" and far is None and exact is None \
+        else f"near={near} far={far} exact={exact} N={getattr(pc, 'NEAR_OUTLINE_KM', None)}"
+
+
+
+# OA-24 (a) — one public town or harbour per island group in the table.
+ISLAND_POINTS = {
+    "Kinmen": (24.4335, 118.3178),
+    "Matsu": (26.1597, 119.9497),
+    "Penghu": (23.5655, 119.5793),
+    "Green Island": (22.6610, 121.4900),
+    "Orchid Island": (22.0444, 121.5480),
+    "Liuqiu": (22.3390, 120.3700),
+}
+
+
+@case
+def oa24_an_island_in_the_table_takes_its_country_over_the_nearest_outline():
+    """NEW (OA-24 card a). Each island group the 1:50m outlines leave out
+    takes its country from the islands table, before the nearest-outline rule
+    — Matsu is nearer another country's coast than its own outline — and the
+    table does not reach the city across the strait."""
+    import photo_cluster as pc
+    if not hasattr(pc, "outline_country"):
+        return "photo_cluster has no outline_country"
+    got = {n: pc.outline_country(pt) for n, pt in ISLAND_POINTS.items()}
+    across = pc.outline_country((24.4798, 118.0894))
+    return None if set(got.values()) == {"TW"} and across == "CN" \
+        else f"got={got} across={across}"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("-v", "--verbose", action="store_true")

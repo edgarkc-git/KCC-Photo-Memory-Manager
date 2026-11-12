@@ -96,6 +96,100 @@ def in_box(pt, box):
     return box[0] <= pt[0] <= box[1] and box[2] <= pt[1] <= box[3]
 
 
+# OA-24 (G83) — country outlines: Natural Earth admin-0 1:50m v5.1.2 (public
+# domain), the ISO code (`ISO_A2_EH`) and the geometry only, at 4 decimal
+# places; the three entries with no code (-99) are left out. Read on first
+# use, never at import. Nothing is looked up online.
+OUTLINES_PATH = Path(__file__).parent / "data" / "country-outlines.geojson"
+# A point in no outline (a harbour, a ferry, an islet the 1:50m scale leaves
+# out) takes the nearest outline within this many km, else no country.
+NEAR_OUTLINE_KM = 15
+# Island groups the 1:50m outlines leave out or draw too coarsely, as
+# (ISO2, (lat min, lat max, lon min, lon max)). Checked BEFORE the outlines:
+# a box wins over the outline it touches and over the nearest-outline rule.
+# Each box holds no other country's land at Natural Earth 1:10m.
+ISLAND_BOXES = (
+    ("TW", (24.38, 24.54, 118.20, 118.48)),   # Kinmen
+    ("TW", (26.13, 26.28, 119.90, 120.04)),   # Matsu: Nangan, Beigan
+    ("TW", (25.93, 26.00, 119.91, 120.01)),   # Matsu: Juguang
+    ("TW", (26.34, 26.40, 120.46, 120.53)),   # Matsu: Dongyin
+    ("TW", (23.15, 23.80, 119.28, 119.75)),   # Penghu
+    ("TW", (22.62, 22.69, 121.45, 121.52)),   # Green Island
+    ("TW", (21.93, 22.10, 121.48, 121.62)),   # Orchid Island
+    ("TW", (22.31, 22.37, 120.34, 120.40)),   # Liuqiu
+)
+_outlines = []
+
+
+def _load_outlines():
+    """-> [(iso, (lat min, lat max, lon min, lon max), [ring, ...])], one entry
+    per polygon, each ring [(lon, lat), ...]: the box is per POLYGON, since a
+    country with far-off parts spans half the globe."""
+    if not _outlines:
+        doc = json.loads(OUTLINES_PATH.read_text(encoding="utf-8"))
+        for f in doc["features"]:
+            g = f["geometry"]
+            for poly in ([g["coordinates"]] if g["type"] == "Polygon" else g["coordinates"]):
+                outer = poly[0]
+                box = (min(p[1] for p in outer), max(p[1] for p in outer),
+                       min(p[0] for p in outer), max(p[0] for p in outer))
+                _outlines.append((f["properties"]["iso"], box, poly))
+    return _outlines
+
+
+def _in_rings(pt, rings):
+    """Even-odd over every ring of a polygon, so a hole (a country inside
+    another, a lake) is outside it."""
+    lat, lon = pt
+    inside = False
+    for ring in rings:
+        for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1]):
+            if (y1 > lat) != (y2 > lat) and lon < (x2 - x1) * (lat - y1) / (y2 - y1) + x1:
+                inside = not inside
+    return inside
+
+
+def _ring_km(pt, rings):
+    """-> km from `pt` to the nearest edge of `rings` (flat, local scale)."""
+    kx, ky = 111.32 * math.cos(math.radians(pt[0])), 110.57
+    px, py = pt[1] * kx, pt[0] * ky
+    best = float("inf")
+    for ring in rings:
+        for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1]):
+            ax, ay, bx, by = x1 * kx, y1 * ky, x2 * kx, y2 * ky
+            dx, dy = bx - ax, by - ay
+            t = 0.0 if dx == dy == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy)
+                                                        / (dx * dx + dy * dy)))
+            best = min(best, math.hypot(px - ax - t * dx, py - ay - t * dy))
+    return best
+
+
+def outline_country(pt, near_km=None):
+    """-> the ISO2 code of the island box `pt` (lat, lon) lies in; else of
+    the country outline it lies in; else the nearest outline within `near_km`
+    (default NEAR_OUTLINE_KM); else None. The ONE point-to-country test
+    against the bundled outlines."""
+    near_km = NEAR_OUTLINE_KM if near_km is None else near_km
+    for iso, box in ISLAND_BOXES:
+        if in_box(pt, box):
+            return iso
+    outlines = _load_outlines()
+    for iso, (la0, la1, lo0, lo1), rings in outlines:
+        if la0 <= pt[0] <= la1 and lo0 <= pt[1] <= lo1 and _in_rings(pt, rings):
+            return iso
+    if near_km <= 0:
+        return None
+    dlat = near_km / 110.57
+    dlon = near_km / max(111.32 * math.cos(math.radians(pt[0])), 1.0)
+    best = (near_km, None)
+    for iso, (la0, la1, lo0, lo1), rings in outlines:
+        if la0 - dlat <= pt[0] <= la1 + dlat and lo0 - dlon <= pt[1] <= lo1 + dlon:
+            km = _ring_km(pt, rings)
+            if km <= best[0]:
+                best = (km, iso)
+    return best[1]
+
+
 def in_country(pt, country):
     """-> True / False when `country` has a row in COUNTRY_BOXES, None when
     there is no day test for it (an unknown country, or a country with no
