@@ -210,9 +210,9 @@ def day_test(profile, homes, day_files=None):
 
     G83 — only once the pack's `country` is CONFIRMED (declared) does it read
     the bundled outlines (`outline_country()`): a day is abroad only outside
-    the country of every home in `homes` valid on that day (G90); a day with
-    no valid home uses the confirmed country, and so does a point in no
-    outline (unknown is never abroad). Otherwise the v2.4.0 test runs
+    the confirmed country AND the country of every home in `homes` valid on
+    that day (G90, G96: the confirmed country always counts as home). A
+    point in no outline is never abroad. Otherwise the v2.4.0 test runs
     unchanged: COUNTRY_BOXES, `in_country()`."""
     country = owner_country(profile, day_files)
     if photo_profile.country(profile) is None:
@@ -226,8 +226,8 @@ def day_test(profile, homes, day_files=None):
         here = outline_country(pt)
         if here is None:
             return False
-        valid = {iso for h, iso in home_isos if iso and home_valid(h, day)}
-        return here not in (valid or {country})
+        return here != country and not any(
+            iso == here and home_valid(h, day) for h, iso in home_isos)
     return country, abroad
 
 

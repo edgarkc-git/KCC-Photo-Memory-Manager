@@ -2313,11 +2313,11 @@ def oa24b_a_day_is_abroad_only_outside_every_home_valid_that_day():
     home valid that day included. Two dated homes in two countries: Tokyo
     in 2019 (only the Taipei home valid) and on a gap day (none valid: the
     confirmed country) is abroad; Tokyo in 2022 (the Tokyo home valid) is
-    home; Seoul in 2022 is abroad; and, G90 read literally, Taipei in 2022
-    (only the Tokyo home valid) is abroad too. One run per pack route
-    (LL-PHO-132): $PHOTO_PROFILE, --profile, collection.json."""
+    home; Seoul in 2022 is abroad; and Taipei in 2022 (only the Tokyo home
+    valid) is in the confirmed country, never abroad (G96). One run per
+    pack route (LL-PHO-132): $PHOTO_PROFILE, --profile, collection.json."""
     profile = {"language": "en", "country": "TW", "home_locations": OA24B_HOMES}
-    want = ["OVERSEAS", "OVERSEAS", "TW_HOME", "OVERSEAS", "OVERSEAS"]
+    want = ["OVERSEAS", "OVERSEAS", "TW_HOME", "OVERSEAS", "TW_AWAY"]
     got = {}
     for route in ("env", "flag", "collection"):
         if route == "collection":
@@ -2344,6 +2344,20 @@ def oa24b_a_day_the_box_and_the_outlines_disagree_on_follows_the_switch():
         got[name] = types_of(out, profile) if rc == 0 and out else f"rc={rc} {err[-200:]}"
     want = {"confirmed": ["TW_HOME", "OVERSEAS"], "unconfirmed": ["TW_HOME", "TW_AWAY"]}
     return None if got == want else f"want {want}, got {got}"
+
+
+
+@case
+def oa24b_the_confirmed_country_is_home_while_only_a_home_abroad_is_valid():
+    """⭐ REPRODUCTION (G96, owner ruling 20261112). ⛔ FAILS on ba8fb55, which read
+    G90 literally: a day in the owner's confirmed country, while only a home
+    abroad was valid, was OVERSEAS. The confirmed country always counts as
+    home: Taipei in 2022 is an away day, Seoul the same year is abroad."""
+    profile = {"language": "en", "country": "TW", "home_locations": OA24B_HOMES}
+    days = [("2022-05-01", TAIPEI), ("2022-07-01", SEOUL)]
+    rc, out, _so, err = run(days, profile)
+    got = types_of(out, profile) if rc == 0 and out else f"rc={rc} {err[-200:]}"
+    return None if got == ["TW_AWAY", "OVERSEAS"] else f"got {got}"
 
 
 def main():
