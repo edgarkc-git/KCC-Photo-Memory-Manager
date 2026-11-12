@@ -1677,6 +1677,71 @@ def a_skipped_r1_row_leaves_the_trip_name_as_offered():
         f"trip={trip} {said[-300:]!r}"
 
 
+def w6_drop(answers, trip=True, failed=True):
+    """W-6: F002's batch is at `Harbour+Birk County`, the county flagged an
+    administrative area, in a pack that names no frequent place (so R1 sees
+    the place); `failed` flags its landmark lookup failed. The first freeze
+    puts the rows, `answers(row text)` answers them, then render, check and
+    freeze again. -> (second freeze rc, its output, F002's name, rows then)."""
+    extra = dict(day_type="OVERSEAS", country_word="Ruritania") if trip else {}
+    batches = [dict(ix.G3_BATCHES[0], **extra),
+               dict(ix.G3_BATCHES[1], place="Harbour+Birk County",
+                    place_kinds={"Birk County": "admin"},
+                    **({"flags": ["landmark_lookup_failed"]} if failed else {}),
+                    **extra)]
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env():
+        ix.make_pack(tmp, places=[])
+        wd, _pack = ix.g3_dump(tmp, batches=batches)
+        for cmd in ("init", "render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        must(ix.run("freeze", wd), "freeze 1", ok=(3,))
+        answer(wd, *[answers(x) for x in rows(wd)])
+        must(apply(wd), "apply")
+        for cmd in ("render", "check"):
+            must(ix.run(cmd, wd), cmd)
+        code, out, err = ix.run("freeze", wd)
+        after = rows(wd) if code == 3 else []
+        return code, out + err, names(tmp)["F002"], after
+
+
+@case
+def an_applied_r1_drop_is_never_said_refused_at_the_freeze():
+    """⭐ W-6 REPRODUCTION (Win11 run 20261026, item 10). The R1 row dropping
+    an administrative area from a leg was `ok` and applied; the next freeze
+    said `Review folders row refused, never applied: R1 … +Teton County…
+    — the landmark lookup failed`. R1's landmark check read the batch's
+    place again, dropped word included. The freeze says nothing refused and
+    the leg keeps the drop. ⛔ FAILS on 9733c0c."""
+    code, out, name, _after = w6_drop(lambda x: "ok")
+    return (code == 0 and "refused, never applied" not in out
+            and name == "1102_Harbour_harbour walk"), f"code={code} name={name} {out[-400:]!r}"
+
+
+@case
+def an_applied_r1_drop_is_never_offered_back_at_the_freeze():
+    """⭐ W-6, SAME CAUSE, REPRODUCTION. With the landmark lookup fine, the
+    next freeze stopped (exit 3) on a NEW R1 row putting the dropped word
+    back (`the landmark is Harbour+Birk County`), against the owner's `ok`.
+    The freeze goes on and the folder keeps the drop. ⛔ FAILS on 9733c0c."""
+    got = {}
+    for trip in (False, True):
+        code, out, name, after = w6_drop(lambda x: "ok", trip=trip, failed=False)
+        got[trip] = (code, name, after)
+    return (got[False][:2] == (0, "20241102_Harbour_harbour walk")
+            and got[True][:2] == (0, "1102_Harbour_harbour walk")), f"{got}"
+
+
+@case
+def a_skipped_r1_drop_keeps_the_place_and_asks_nothing_more():
+    """GUARD W-6 — only an APPROVED drop is remembered: with the R1 row
+    skipped the folder keeps the county, and the freeze neither asks again
+    nor says a row was refused."""
+    code, out, name, after = w6_drop(lambda x: "skip", trip=False)
+    return (code == 0 and "refused, never applied" not in out
+            and name == "20241102_Harbour+Birk County_harbour walk"), \
+        f"code={code} name={name} after={after} {out[-300:]!r}"
+
+
 @case
 def an_agent_name_beside_a_make_trip_row_is_checked_as_the_leg_it_becomes():
     """⭐ C-19 REPRODUCTION (Camera: 6 owner-approved agent names failed

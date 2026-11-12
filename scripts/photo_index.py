@@ -4016,6 +4016,13 @@ def rule_r1(ctx):
     `fsl-*` or a home label, OR-2); a batch whose landmark lookup failed is
     listed, never offered — the owner types a word instead."""
     index, labels = ctx["index"], id_labels(ctx["pack"])
+    # W-6 — a word the owner dropped with an R1 `ok` stays dropped: the
+    # batch's place still holds it, and comparing against that offered the
+    # word back (or, lookup failed, said the applied row was refused).
+    dropped = {}
+    for key, a in ((index.get("fix_plan") or {}).get("answers") or {}).items():
+        if a.get("rule") == "R1" and a.get("answer") == "ok" and a.get("drops"):
+            dropped.setdefault(key.split("|")[1], set()).update(a["drops"])
     out = []
     for fo in live(index):
         if (fo["kind"] not in HOLDERS or fo.get("where_set") or fo.get("days")
@@ -4026,6 +4033,10 @@ def rule_r1(ctx):
         batch = ctx["by_number"].get(fo["batches"][0]) or {}
         places = {}
         refs, _coord = place_refs(batch.get("place"), labels, places, set())
+        gone = dropped.get(fo["id"], set())
+        if gone:
+            refs = [r for r in refs
+                    if not set(where_words({"where": [r]}, labels)[0]) & gone]
         words = where_words({"where": refs}, labels)[0]
         have = where_words(fo, labels)[0]
         if not words or words == have:
@@ -5196,6 +5207,8 @@ def cmd_fix_plan(args):
             answers[op["key"]] = {"answer": answer, "word": r["word"], "at": now,
                                   "op": op["op"], "rule": op["rule"],
                                   "from": op["from"], "to": op["to"]}
+            if op["rule"] == "R1" and answer == "ok" and op["apply"].get("drops"):
+                answers[op["key"]]["drops"] = op["apply"]["drops"]
             done.append(key)
     if not args.go:
         print("DRY RUN — nothing written. Add --go to write.")
