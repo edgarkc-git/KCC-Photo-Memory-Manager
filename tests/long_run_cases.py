@@ -75,9 +75,19 @@ def finish(wd, **extra):
 
 
 def dest_files(tmp):
+    """The tree as it stands. Read while a copy may still be running, so a
+    `.part` the copy renames or removes between the listing and the read is
+    simply not there."""
     root = Path(tmp) / "sorted"
-    return {p: (p.stat().st_ino, p.stat().st_mtime_ns, p.read_bytes())
-            for p in sorted(root.rglob("*")) if p.is_file()} if root.exists() else {}
+    out = {}
+    for p in sorted(root.rglob("*")) if root.exists() else ():
+        try:
+            if p.is_file():
+                st = p.stat()
+                out[p] = (st.st_ino, st.st_mtime_ns, p.read_bytes())
+        except FileNotFoundError:
+            continue
+    return out
 
 
 def state_shas(wd):
