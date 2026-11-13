@@ -9,6 +9,12 @@
   for any country, but the day types are still called `TW_HOME`/`TW_AWAY`
   internally, and the islands table holds Taiwan's island groups only. A
   photo taken at sea, far from any coast, counts as in your home country.
+- **Setting your home country in the middle of a dump can offer one extra
+  trip.** If you answer the home-country question on Review folders while you
+  have a home abroad that is valid on that dump's days, that one dump may
+  offer a trip that also covers the days you spent at that home: its days were
+  sorted before the country was set. Skip that row; from the next dump, days
+  at a home abroad count as home.
 
 ## v2.4.0
 
