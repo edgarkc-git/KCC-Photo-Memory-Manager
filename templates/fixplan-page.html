@@ -262,6 +262,7 @@ details pre{white-space:pre-wrap;word-break:break-all;background:var(--sunk);pad
                    r.word === "place" ? "Your place word — not the whole folder name (e.g. Old Pier)"
                    : r.word === "trip" ? "Your place words for the trip, joined with + (e.g. Old Pier+North Bay+Sea Park)"
                    : r.word === "name" ? "Your whole folder name, date first (e.g. 20241101_Old Pier_picnic)"
+                   : r.word === "country" ? "Your home country, two letters (e.g. JP)"
                                        : "Your words for this folder — not the whole folder name");
       var inp = el("input");
       inp.type = "text"; inp.value = state.word[r.n] || "";

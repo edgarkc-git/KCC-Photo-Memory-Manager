@@ -114,6 +114,10 @@ def make_pack(root, homes=None, places=None):
     prof = json.loads((pack / photo_profile.PROFILE_NAME).read_text())
     prof["home_locations"] = homes if homes is not None else [
         {"id": "home-01", "label": "Ford", "lat": HOME[0], "lon": HOME[1]}]
+    # G98 — this owner was asked the home country and left it blank: the day
+    # test is v2.4.0's (G98 E), and the Review folders HOME-COUNTRY row stays
+    # off the pages these cases compare. A case about the row pops the key.
+    prof.setdefault("country", None)
     (pack / photo_profile.PROFILE_NAME).write_text(json.dumps(prof, indent=2))
     ents = json.loads((pack / photo_profile.ENTITIES_NAME).read_text())
     ents["frequent_places"] = places if places is not None else [

@@ -64,7 +64,8 @@ MAX_SAMPLES = 3
 # is (the fix plan's apply: R1/R6 the place word, through set-where; R3 the
 # [what]; R5 the trip's place word(s); an agent or R2 row the whole name).
 WORD_KIND = {"R1": "place", "R6": "place", "R3": "what", "R5": "trip",
-             "agent": "name", "R2": "name", "G75": "name"}
+             "agent": "name", "R2": "name", "G75": "name",
+             photo_index.HOME_COUNTRY_RULE: "country"}
 # Rule -> the filter chip a row sits under on the page.
 CHIP = {"R1": "Place", "R6": "Place", "R2": "Pets", "R3": "Pets",
         "R4": "Move", "R5": "Trip"}
@@ -209,7 +210,7 @@ def read_rows(lines):
 def word_kind(op):
     """-> what the owner's word on row `op` is, or None (ok / skip only):
     a row moving photos into an existing folder sets no name."""
-    if op["op"] not in ("RENAME", "MAKE-TRIP", "NAME-CHECK"):
+    if op["op"] not in ("RENAME", "MAKE-TRIP", "NAME-CHECK", photo_index.HOME_COUNTRY):
         return None
     return WORD_KIND.get(op["rule"])
 
@@ -232,6 +233,13 @@ def check_word(rule, word, kind=None):
             parts = word.split(photo_name.NAME_SEP)
             for part in parts:
                 photo_index.agent_text(part, "the word %r" % word, "where", warnings)
+        elif kind == "country":
+            # G98 — the same check the pack's one writer makes.
+            from photo_onboard_page import ISO2
+            if word.strip().upper() not in ISO2:
+                raise photo_index.Refused(
+                    "%r is not a two-letter country code (ISO 3166-1, for "
+                    "example TW or US)" % word.strip())
         elif kind == "name":
             m = RE_WHOLE_NAME.match(word.strip())
             kind_ = (photo_name.NAME_LEG if m and len(m.group(1)) == 4

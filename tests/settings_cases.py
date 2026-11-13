@@ -631,6 +631,54 @@ def a_bad_home_period_is_refused_and_writes_nothing():
             and "home-03, home-04" in got["shared"][2]), f"{got}"
 
 
+@case
+def the_home_country_is_set_or_left_blank_with_a_dry_run_and_a_backup():
+    """⭐ REPRODUCTION (G98 D). ⛔ FAILS on b399f02 (no `country` route).
+    `country <XX|blank>`: a dry run writes nothing; --go writes the code
+    upper-case and keeps a .bak of the pack; `blank` stores null, which is
+    an answer (asked, left unset) the pack's reader reads as no country;
+    the same answer again changes nothing."""
+    with tempfile.TemporaryDirectory() as tmp:
+        pack_dir = make_pack(tmp)
+        before = (pack_dir / photo_profile.PROFILE_NAME).read_bytes()
+        pack = open_pack(pack_dir)
+        dcode, dout = run(ps.apply_country, "jp", pack, smsg_of(pack))
+        dry_same = before == (pack_dir / photo_profile.PROFILE_NAME).read_bytes()
+        gcode, gout = run(ps.apply_country, "jp", pack, smsg_of(pack), go=True)
+        set_to = profile_of(pack_dir).get("country")
+        pack = open_pack(pack_dir)
+        bcode, bout = run(ps.apply_country, "blank", pack, smsg_of(pack), go=True)
+        blank = profile_of(pack_dir)
+        baks = sorted(p.name for p in pack_dir.glob("*.bak-*-country"))
+        pack = open_pack(pack_dir)
+        scode, sout = run(ps.apply_country, "blank", pack, smsg_of(pack), go=True)
+    return (dcode == 0 and dry_same and "Nothing was written" in dout
+            and "country: not set (never asked) → JP" in dout
+            and gcode == 0 and set_to == "JP"
+            and bcode == 0 and "country: JP → blank (asked, left unset)" in bout
+            and "country" in blank and blank["country"] is None
+            and photo_profile.country(blank) is None and len(baks) >= 1
+            and scode == 0 and "already" in sout), \
+        f"dry={dcode} {dout!r} go={gcode} {set_to!r} blank={bcode} {bout!r} baks={baks} again={sout!r}"
+
+
+@case
+def a_home_country_that_is_not_a_code_is_refused_and_writes_nothing():
+    """GUARD (G98 D). A code outside ISO 3166-1, three letters, or no pack
+    at all is refused (exit 2) and the pack keeps its bytes."""
+    got = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        pack_dir = make_pack(tmp)
+        before = (pack_dir / photo_profile.PROFILE_NAME).read_bytes()
+        for word in ("ZZ", "USA", ""):
+            pack = open_pack(pack_dir)
+            code, out = run(ps.apply_country, word, pack, smsg_of(pack), go=True)
+            got[word] = (code, before == (pack_dir / photo_profile.PROFILE_NAME).read_bytes())
+        nopack = photo_profile.Pack()
+        got["no pack"] = (run(ps.apply_country, "JP", nopack, smsg_of(nopack), go=True)[0], True)
+    return all(v == (2, True) for v in got.values()), f"{got}"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")

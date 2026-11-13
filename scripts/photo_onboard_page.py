@@ -720,6 +720,20 @@ COUNTRY_COMMON = ("US", "GB", "CA", "AU", "DE", "FR", "JP", "KR", "SG", "TW",
                   "HK", "MY")
 
 
+def country_suggestion(profile):
+    """G84 / G98 (OA-24 c) — {"asked": True} for a pack that already answered
+    (a null `country` is an answer: never asked again), else the suggestion
+    the sheet SHOWS beside the blank `>>> country:` line — home-01's country
+    outline, else this computer's region setting — or nothing. Only a code
+    and where it came from; the coordinate never travels."""
+    if photo_profile.country_asked(profile):
+        return {"asked": True}
+    homes = photo_profile.home_points(profile)
+    code, source = photo_platform.suggested_country(homes[0][:2] if homes else None)
+    return ({"suggested": [code, photo_platform.SUGGESTION_SOURCE[source]]}
+            if code else {})
+
+
 def row_country(coord):
     """-> the COUNTRY_BOXES row a home's coordinate lies in, else None. A
     country-level flag, so it may travel on the page; the coordinate never
@@ -1128,8 +1142,9 @@ def build_data(targets, profile, with_coords, prefill=None, device_specs=None,
         "prefill": dict(pack_answers(pack.profile), **(prefill or {})),
         # K20 / C5 — known: the country the engine already has for this pack
         # (declared, or home-01's box), so the page does not ask it again.
-        "country": {"known": photo_cluster.owner_country(pack.profile),
-                    "common": list(COUNTRY_COMMON), "codes": sorted(ISO2)},
+        "country": dict({"known": photo_cluster.owner_country(pack.profile),
+                         "common": list(COUNTRY_COMMON), "codes": sorted(ISO2)},
+                        **country_suggestion(pack.profile)),
         "prefill_from_pack": sorted(k for k in pack_answers(pack.profile)
                                     if k not in (prefill or {})),
         # ⛔ Read off the PACK this page is describing, never hardcoded. The
@@ -1711,7 +1726,8 @@ def sheet_text(data, blocks, photographs, digest, workdirs=()):
                "at all.")
     out.append(">>> pets:")
     out.append("")
-    if not (data.get("country") or {}).get("known"):
+    country = data.get("country") or {}
+    if not country.get("known") and not country.get("asked"):
         # K20 / C5 — the page's own question, asked here only as text: the
         # sheet cannot see which home you will answer "live".
         boxes = ", ".join(sorted(photo_cluster.COUNTRY_BOXES))
@@ -1724,6 +1740,9 @@ def sheet_text(data, blocks, photographs, digest, workdirs=()):
         # U2-2 — blank keeps a boxed country (owner_country reads home-01).
         out.append("#     Left blank: a home in %s keeps %s; elsewhere no day "
                    "is called abroad." % (boxes, boxes))
+        if country.get("suggested"):
+            # G84 / G98 — shown only; the answer below stays blank.
+            out.append("#     suggested: %s (from %s)" % tuple(country["suggested"]))
         out.append(">>> country:")
         out.append("")
     # W1C-5 — the page's closing blocks, verbatim (disclaimer(), NEXT_STEPS).

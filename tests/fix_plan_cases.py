@@ -15,8 +15,10 @@ Exit 0 = pass. Every dump, pack, place and pet is synthetic, in a temp dir.
 """
 
 import argparse
+import contextlib
 import csv
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -28,10 +30,14 @@ sys.path.insert(0, str(ROOT / "tests"))
 import photo_execute  # noqa: E402
 import photo_exiftool  # noqa: E402
 import photo_index  # noqa: E402
+import photo_platform  # noqa: E402
 import photo_profile  # noqa: E402
 import photo_subjects  # noqa: E402
 import index_finish_cases as fin  # noqa: E402
 import photo_index_cases as ix  # noqa: E402
+
+# G98 — no page here depends on this computer's region setting.
+os.environ[photo_platform.REGION_ENV] = ""
 
 LOTUS_DAY = "20241101_Ford_Lotus_sofa nap"
 CASES = []
@@ -2417,6 +2423,261 @@ def an_r6_dry_run_writes_nothing():
 @case
 def the_fix_plan_stop_is_exit_3():
     return photo_index.EXIT_FIX_PLAN == 3, f"{photo_index.EXIT_FIX_PLAN}"
+
+
+# ---------------------------------------------------------------------------
+# HOME-COUNTRY (G84 / G98, OA-24 c)
+# ---------------------------------------------------------------------------
+
+@contextlib.contextmanager
+def region(code):
+    """This computer's region setting, as the test seam gives it."""
+    saved = os.environ.get(photo_platform.REGION_ENV)
+    os.environ[photo_platform.REGION_ENV] = code
+    try:
+        yield
+    finally:
+        os.environ[photo_platform.REGION_ENV] = saved if saved is not None else ""
+
+
+def unasked(tmp, how="collection", freeze=False, country="absent"):
+    """-> (work dir, pack, {cmd: stdout}): the g3 dump over a pack that was
+    never asked its home country (no `country` key), initialised, rendered,
+    checked and (freeze) frozen, the pack reached by `how`. `country=None`
+    keeps the key as null: asked, left blank."""
+    wd, pack = ix.g3_dump(tmp, bind=how == "collection")
+    prof_path = pack / photo_profile.PROFILE_NAME
+    prof = json.loads(prof_path.read_text())
+    prof.pop("country", None)
+    if country != "absent":
+        prof["country"] = country
+    prof_path.write_text(json.dumps(prof, indent=2))
+    extra = ["--profile", prof_path] if how == "profile" else []
+    if how == "env":
+        os.environ[photo_profile.ENV_VAR] = str(prof_path)
+    outs = {}
+    try:
+        for cmd in ("init", "render", "check") + (("freeze",) if freeze else ()):
+            outs[cmd] = must(ix.run(cmd, wd, *extra), cmd)
+    finally:
+        os.environ.pop(photo_profile.ENV_VAR, None)
+    return wd, pack, outs
+
+
+def profile_bytes(pack):
+    return (pack / photo_profile.PROFILE_NAME).read_bytes()
+
+
+def backups(pack):
+    return sorted(pack.glob(photo_profile.PROFILE_NAME + ".bak-*-country"))
+
+
+def country_rows(wd):
+    return [r for r in rows(wd) if " HOME-COUNTRY " in r]
+
+
+@case
+def g98_a_pack_never_asked_its_country_gets_one_row_that_never_blocks():
+    """⭐ REPRODUCTION (G84 / G98 C). ⛔ FAILS on b399f02: no row asked it. A
+    pack with no `country` key gets ONE pack-level row on Review folders,
+    suggesting home-01's country (G84: shown, never decided); it never stops
+    the freeze, like NAME-CHECK (G79)."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env(), region("JP"):
+        wd, _pack, _ = unasked(tmp)
+        code, _out, _ = ix.run("fix-plan", wd)
+        got = rows(wd)
+        fcode, fout, ferr = ix.run("freeze", wd)
+    want = "1. HOME-COUNTRY (G84) · pack · `(not set)` → `TD` · "
+    return (code == 0 and len(got) == 1 and got[0].startswith(want)
+            and "your first home's location" in got[0]
+            and got[0].endswith("0 photo(s) · answer: ______")
+            and fcode == 0 and "frozen" in fout), f"code={code} rows={got} freeze={fcode} {ferr[-200:]}"
+
+
+@case
+def g98_check_shows_the_home_country_row_before_the_freeze():
+    """⭐ REPRODUCTION (G98 C, the L-16b pattern). ⛔ FAILS on b399f02. A
+    row that never blocks is shown at `check`, while an answer can still
+    land; a pack that answered is never shown it."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env(), region("JP"):
+        _wd, _pack, outs = unasked(tmp)
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env(), region("JP"):
+        _wd, _pack, asked = unasked(tmp, country=None)
+    said = outs["check"]
+    return ("Review folders, row HOME-COUNTRY: your home country, suggested from "
+            "your first home's location" in said and "not blocking" in said
+            and "HOME-COUNTRY" not in asked["check"]), said[-400:]
+
+
+@case
+def g98_ok_stores_the_suggestion_with_a_backup_and_is_not_asked_again():
+    """⭐ REPRODUCTION (G98 C/D). ⛔ FAILS on b399f02. `ok` writes the
+    suggested code through the pack's one country writer
+    (`photo_settings.apply_country`), which keeps a `.bak` first; the row is
+    gone from the next draft."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env(), region("JP"):
+        wd, pack, _ = unasked(tmp)
+        ix.run("fix-plan", wd)
+        answer(wd, "ok")
+        code, out, err = apply(wd)
+        prof = json.loads(profile_bytes(pack))
+        baks = backups(pack)
+        old = json.loads(baks[0].read_bytes()) if baks else {}
+        ix.run("fix-plan", wd)
+        again = country_rows(wd)
+    return (code == 0 and prof.get("country") == "TD" and len(baks) == 1
+            and "country" not in old and not again), \
+        f"code={code} country={prof.get('country')!r} baks={len(baks)} again={again} {(out + err)[-300:]}"
+
+
+@case
+def g98_a_word_stores_a_checked_code_and_a_wrong_one_writes_nothing():
+    """⭐ REPRODUCTION (G98 C). ⛔ FAILS on b399f02. `word: jp` stores JP; a
+    code that is not ISO 3166-1 is refused for that row and the pack is not
+    touched (no `.bak` either)."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env(), region("JP"):
+        wd, pack, _ = unasked(tmp)
+        ix.run("fix-plan", wd)
+        before = profile_bytes(pack)
+        answer(wd, "word: zz")
+        bad_code, bad_out, _ = apply(wd)
+        untouched = profile_bytes(pack) == before and not backups(pack)
+        ix.run("fix-plan", wd)
+        answer(wd, "word: jp")
+        code, out, err = apply(wd)
+        prof = json.loads(profile_bytes(pack))
+    return (bad_code == 1 and "not a two-letter country code" in bad_out
+            and untouched and code == 0 and prof.get("country") == "JP"), \
+        f"bad={bad_code} untouched={untouched} code={code} {prof.get('country')!r} {(bad_out + out + err)[-300:]}"
+
+
+@case
+def g98_a_row_left_open_stores_null_and_is_never_asked_again():
+    """⭐ REPRODUCTION (G98 C/D). ⛔ FAILS on b399f02. An answer file applied
+    with the row open is a skip: the pack stores `"country": null` (asked,
+    left blank, the v2.4.0 day test), and neither the draft nor `check`
+    shows the row again."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env(), region("JP"):
+        wd, pack, _ = unasked(tmp)
+        ix.run("fix-plan", wd)
+        had = country_rows(wd)
+        code, out, err = apply(wd)
+        prof = json.loads(profile_bytes(pack))
+        ix.run("fix-plan", wd)
+        again = country_rows(wd)
+        must(ix.run("render", wd), "render")
+        _c, check_out, _ = ix.run("check", wd)
+    return (had and code == 0 and "country" in prof and prof["country"] is None
+            and photo_profile.country(prof) is None and not again
+            and "HOME-COUNTRY" not in check_out), \
+        f"had={had} code={code} prof={prof.get('country', 'absent')!r} again={again} {(out + err)[-300:]}"
+
+
+@case
+def g98_a_dry_run_of_the_answer_leaves_the_pack_byte_identical():
+    """⭐ REPRODUCTION (G98 D, LL-PHO-205). ⛔ FAILS on b399f02 (no row). The
+    answer without --go says what it would write and writes nothing: the
+    pack's bytes are the same and no `.bak` is made."""
+    with tempfile.TemporaryDirectory() as tmp, ix.no_env(), region("JP"):
+        wd, pack, _ = unasked(tmp)
+        ix.run("fix-plan", wd)
+        had = country_rows(wd)
+        before = profile_bytes(pack)
+        answer(wd, "ok")
+        code, out, err = apply(wd, go=False)
+        same = profile_bytes(pack) == before and not backups(pack)
+    return (had and code == 0 and same and "the home country is TD — would be "
+            "written" in out), f"had={had} code={code} same={same} {(out + err)[-300:]}"
+
+
+@case
+def g98_with_no_suggestion_ok_is_refused_and_a_word_still_works():
+    """⭐ REPRODUCTION (G98 C). ⛔ FAILS on b399f02 (no rule). A first home in
+    no country outline and no region setting: the row offers no code, so
+    `ok` has nothing to keep and is refused; `word: XX` still sets one."""
+    import photo_settings
+    with tempfile.TemporaryDirectory() as tmp, region(""):
+        pack = photo_profile.Pack("o", tmp, {"language": "en", "home_locations": [
+            {"id": "home-01", "lat": 0.5, "lon": -30.0}]})
+        (Path(tmp) / photo_profile.PROFILE_NAME).write_text(json.dumps(pack.profile))
+        ops = photo_index.rule_home_country({"pack": pack})
+        try:
+            photo_index.home_country_answer(pack, ops[0], "ok", None, True)
+            refused = False
+        except photo_index.Refused:
+            refused = True
+        said = photo_index.home_country_answer(pack, ops[0], "word", "nz", True)
+        stored = json.loads((Path(tmp) / photo_profile.PROFILE_NAME).read_text())
+    return (len(ops) == 1 and ops[0]["to"] == "" and "with no suggestion" in ops[0]["reason"]
+            and refused and stored.get("country") == "NZ"
+            and said == "the home country is NZ" and photo_settings.COUNTRY_BLANK == "blank"), \
+        f"ops={[(o['to'], o['reason']) for o in ops]} refused={refused} {stored.get('country')!r} {said!r}"
+
+
+@case
+def g98_the_answer_writes_the_pack_the_run_resolved_on_every_route():
+    """⭐ REPRODUCTION (G98 D, LL-PHO-132). ⛔ FAILS on b399f02 (no row).
+    The row's `ok` writes the pack the run resolved, with its `.bak`, when
+    that pack came by --profile and by $PHOTO_PROFILE too (collection.json:
+    the cases above)."""
+    got = {}
+    for how in ("profile", "env"):
+        with tempfile.TemporaryDirectory() as tmp, ix.no_env(), region("JP"):
+            wd, pack, _ = unasked(tmp, how=how)
+            prof_path = pack / photo_profile.PROFILE_NAME
+            extra = ["--profile", prof_path] if how == "profile" else []
+            if how == "env":
+                os.environ[photo_profile.ENV_VAR] = str(prof_path)
+            try:
+                ix.run("fix-plan", wd, *extra)
+                answer(wd, "ok")
+                code, _out, err = ix.run("fix-plan", wd, "--answers", page(wd), "--go", *extra)
+            finally:
+                os.environ.pop(photo_profile.ENV_VAR, None)
+            got[how] = (code, json.loads(profile_bytes(pack)).get("country"), len(backups(pack)))
+    return all(v == (0, "TD", 1) for v in got.values()), f"{got}"
+
+
+def exported(wd, tmp):
+    """-> {plan file: its bytes with the temp dir masked} of a frozen dump."""
+    index = ix.index_of(tmp)[0]
+    return {rel: (wd / rel).read_bytes().replace(str(Path(tmp).resolve()).encode(), b"<T>")
+            .replace(str(Path(tmp)).encode(), b"<T>")
+            for rel in index["frozen"]["files"]}
+
+
+@case
+def g98_the_region_setting_changes_no_plan_on_any_pack_route():
+    """GUARD (G84 / G98 E, LL-PHO-132). The suggestion is only shown: a pack
+    never asked its country, frozen with a non-TW region setting (JP) and
+    with none, exports byte-identical plans, on each route the pack takes
+    (collection.json, --profile, $PHOTO_PROFILE)."""
+    got = {}
+    for how in ("collection", "profile", "env"):
+        plans = {}
+        for code in ("JP", ""):
+            with tempfile.TemporaryDirectory() as tmp, ix.no_env(), region(code):
+                wd, _pack, _ = unasked(tmp, how=how, freeze=True)
+                plans[code] = exported(wd, tmp)
+        got[how] = (len(plans["JP"]) > 0 and plans["JP"] == plans[""])
+    return all(got.values()), f"{got}"
+
+
+@case
+def g98_a_pack_asked_and_left_blank_plans_as_before_and_is_never_asked():
+    """⭐ REPRODUCTION + GUARD (G98 E). A pack whose `country` is null (asked,
+    left blank) exports the same plans as a pack with no key, the v2.4.0
+    path, and is never asked again: its draft has no HOME-COUNTRY row. ⛔
+    The row half FAILS on b399f02 for the unasked pack (no row at all)."""
+    plans, asked = {}, {}
+    for name, country in (("null", None), ("absent", "absent")):
+        with tempfile.TemporaryDirectory() as tmp, ix.no_env(), region("JP"):
+            wd, _pack, _ = unasked(tmp, freeze=True, country=country)
+            plans[name] = exported(wd, tmp)
+            ix.run("fix-plan", wd)
+            asked[name] = len(country_rows(wd))
+    return (plans["null"] == plans["absent"] and asked == {"null": 0, "absent": 1}), \
+        f"same={plans['null'] == plans['absent']} asked={asked}"
 
 
 def main():

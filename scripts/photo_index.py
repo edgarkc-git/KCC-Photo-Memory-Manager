@@ -113,6 +113,7 @@ import photo_cluster  # noqa: E402
 import photo_desttree  # noqa: E402
 import photo_evidence  # noqa: E402
 import photo_execute  # noqa: E402
+import photo_platform  # noqa: E402
 from photo_platform import path_key  # noqa: E402
 import photo_name  # noqa: E402
 import photo_plan  # noqa: E402
@@ -3159,15 +3160,21 @@ def name_check_before_freeze(workdir, pack, index):
         return
     ops, refused = draft_fix_plan(workdir, pack, index)
     rows = fix_open(index, ops)
-    named = [op for op in rows if op["op"] == "NAME-CHECK"]
+    named = [op for op in rows if op["op"] in NOT_BLOCKING]
     if not named:
         return
     page = write_fix_plan(workdir, index, rows, refused)
     for op in named:
+        if op["op"] == HOME_COUNTRY:
+            # G98 — shown at every check until an answer file is applied.
+            print(f"  Review folders, row HOME-COUNTRY: {op['reason']}")
+            continue
         print(f"  Review folders, row NAME-CHECK {op['folder']}: `{op['from']}` — "
               f"{op['reason']}")
-    print(f"  answer it in {page} before the freeze — not blocking, a blank "
-          "answer keeps the line — then:\n"
+    blank = ("a blank answer keeps the line" if any(
+        op["op"] == "NAME-CHECK" for op in named) else
+        "a blank answer leaves the country unset")
+    print(f"  answer it in {page} before the freeze — not blocking, {blank} — then:\n"
           f"    {run_line('photo_index.py')} fix-plan \"{workdir}\" --answers "
           f"\"{page}\" --go")
 
@@ -3841,8 +3848,16 @@ FIX_PLAN_CMD = "index fix-plan"
 # The stop the fix plan puts to the owner: rows wait, nothing frozen.
 EXIT_FIX_PLAN = 3
 FIX_ANSWERS = ("ok", "skip")
-FIX_OPS = ("RENAME", "INTO-EXISTING", "DAYS-INTO-EXISTING", "MAKE-TRIP", "NAME-CHECK")
-FIX_ROW = re.compile(r"^(\d+)\. (RENAME|INTO-EXISTING|DAYS-INTO-EXISTING|MAKE-TRIP|NAME-CHECK) \(([^)]+)\) · (F\d+) · "
+FIX_OPS = ("RENAME", "INTO-EXISTING", "DAYS-INTO-EXISTING", "MAKE-TRIP", "NAME-CHECK",
+           "HOME-COUNTRY")
+# G84 / G98 (OA-24 c) — the one row about the PACK, not a folder: its folder
+# field is PACK_ROW.
+HOME_COUNTRY = "HOME-COUNTRY"
+HOME_COUNTRY_RULE = "G84"
+PACK_ROW = "pack"
+# G79 / G98 — the rows that never stop the freeze.
+NOT_BLOCKING = ("NAME-CHECK", HOME_COUNTRY)
+FIX_ROW = re.compile(r"^(\d+)\. (RENAME|INTO-EXISTING|DAYS-INTO-EXISTING|MAKE-TRIP|NAME-CHECK|HOME-COUNTRY) \(([^)]+)\) · (F\d+|pack) · "
                      r"`([^`]*)` → `([^`]*)` · .*· answer:\s*(.*?)\s*$")
 NOTHING_TO_CHANGE = "Nothing to change."
 BY_HAND = "the engine did not create this folder: rename it by hand"
@@ -4735,13 +4750,42 @@ def rule_name_check(ctx):
     return out
 
 
-FIX_RULES = (rule_r1, rule_r2, rule_r3, rule_r4, rule_r5, rule_r6, rule_name_check)
+COUNTRY_NOT_SET = "(not set)"
+
+
+def rule_home_country(ctx):
+    """G84 / G98 (OA-24 c) — a pack that was never asked its home country gets
+    ONE pack-level row: `ok` stores the suggestion, `word: XX` another code,
+    `skip` or an open row stores `"country": null` (asked, left blank, the
+    v2.4.0 day test). ⛔ It never blocks (`fix_waiting`), and it is drafted
+    only while the key is ABSENT: a null is an answer, never asked again. The
+    suggestion is only shown; nothing is decided from it (G84)."""
+    pack = ctx["pack"]
+    if not pack.dir or photo_profile.country_asked(pack.profile):
+        return []
+    homes = photo_profile.home_points(pack.profile)
+    code, source = photo_platform.suggested_country(homes[0][:2] if homes else None)
+    if code:
+        reason = (f"your home country, suggested from {photo_platform.SUGGESTION_SOURCE[source]} — "
+                  f"`ok` sets {code}, ")
+    else:
+        reason = "your home country, with no suggestion — "
+    reason += ("`word: <two-letter code>` sets another, `skip` leaves it unset "
+               "and it is not asked again; not blocking")
+    return [fix_op(HOME_COUNTRY, HOME_COUNTRY_RULE, {"id": PACK_ROW},
+                   COUNTRY_NOT_SET, code or "", 0, reason, source=source)]
+
+
+FIX_RULES = (rule_r1, rule_r2, rule_r3, rule_r4, rule_r5, rule_r6, rule_name_check,
+             rule_home_country)
 
 
 def fix_problem(op, ctx):
     """-> why an op may not be offered (G17), or None: its new name must
     pass the name grammar, hold no coordinate, and add no address-shaped
     word — the shape a home's place takes as a POI."""
+    if op["op"] == HOME_COUNTRY:
+        return None
     if op["op"] in ("INTO-EXISTING", "DAYS-INTO-EXISTING"):
         return ("the existing folder's path reads as a coordinate"
                 if COORDINATE_IN_NAME.search(op["to"]) else None)
@@ -4893,8 +4937,9 @@ def owner_word(workdir, pack, index, fo, op, word, go):
 
 
 def fix_waiting(index, ops):
-    """-> the rows that stop the freeze. G79: a NAME-CHECK row never does."""
-    return [op for op in fix_open(index, ops) if op["op"] != "NAME-CHECK"]
+    """-> the rows that stop the freeze. G79 / G98: a NAME-CHECK or
+    HOME-COUNTRY row never does."""
+    return [op for op in fix_open(index, ops) if op["op"] not in NOT_BLOCKING]
 
 
 def fix_open(index, ops):
@@ -4984,6 +5029,35 @@ def parse_fix(text):
                         "answer": "word" if word is not None else raw.casefold(),
                         "word": word})
     return out
+
+
+def home_country_answer(pack, op, answer, word, go):
+    """G98 — the HOME-COUNTRY row's answer, written by the ONE writer of the
+    pack's `country` (`photo_settings.apply_country`, with a `.bak`): `ok` the
+    suggestion, `word: XX` a checked code, `skip` (or open) null = asked,
+    left blank. -> what was done; raises Refused, nothing written."""
+    import photo_settings
+    if answer == "ok":
+        if not op["to"]:
+            raise Refused("this row has no suggestion to keep: answer `word: "
+                          "<two-letter code>` or `skip`")
+        value = op["to"]
+    elif answer == "word":
+        value = (word or "").strip()
+    else:
+        value = photo_settings.COUNTRY_BLANK
+    smsg = photo_profile.settings_messages(pack.profile)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            photo_settings.apply_country(value, pack, smsg, go=go)
+    except photo_settings.Refused as exc:
+        raise Refused(exc.message)
+    if value == photo_settings.COUNTRY_BLANK:
+        done = ("the home country is left unset (asked; the pack keeps "
+                "`country: null`, never asked again)")
+    else:
+        done = f"the home country is {value.upper()}"
+    return done + ("" if go else " — would be written")
 
 
 def engine_rename(workdir, op, go):
@@ -5088,9 +5162,17 @@ def cmd_fix_plan(args):
             refused_n += 1
             continue
         answer = r["answer"] or "skip"
-        fo = next(x for x in index["folders"] if x["id"] == op["folder"])
+        fo = None if op["op"] == HOME_COUNTRY else next(
+            x for x in index["folders"] if x["id"] == op["folder"])
         said = None
-        if op["op"] == "NAME-CHECK" and answer == "word":
+        if op["op"] == HOME_COUNTRY:
+            try:
+                said = home_country_answer(pack, op, answer, r["word"], args.go)
+            except Refused as exc:
+                print(f"  ⛔ row {r['n']}: {exc} — nothing written for it")
+                refused_n += 1
+                continue
+        elif op["op"] == "NAME-CHECK" and answer == "word":
             # G79 — a whole new name for the EXISTING folder, checked now and
             # renamed only by the final check after the copy.
             word = (r["word"] or "").strip()
@@ -5216,7 +5298,7 @@ def cmd_fix_plan(args):
                 if args.go:
                     fo["agent_name"] = a["agent_name"]
                 said = f"the folder is named `{a['agent_name']}`"
-        if said and args.go and op["op"] != "NAME-CHECK":
+        if said and args.go and op["op"] not in NOT_BLOCKING:
             fo.update(rendered=None, validation=None)
         print(f"  row {r['n']} {op['op']} ({op['rule']}) {op['folder']}: {answer}"
               + (f" — {said}" if said else ""))

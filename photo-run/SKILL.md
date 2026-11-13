@@ -596,6 +596,13 @@ it on a private web page:
    as new legs, never a new trip (G70); Skip leaves them their own folders.
    A trip abroad is one country: a run of days in two countries is two
    R5 trips (G69).
+   A pack never asked its home country gets ONE `HOME-COUNTRY` row (G84,
+   G98) about the pack, not a folder: it shows a SUGGESTED code (the first
+   home's country, else this computer's region setting) and never stops the
+   freeze. `ok` keeps the suggestion, My word takes a two-letter code, and
+   Skip or an open row stores "asked, left blank" — the old day test, never
+   asked again. Unanswered, it shows again on the next dump. The answer is
+   written to the pack with a backup (`photo_settings.py country`).
 2. Publish that file as a **private** artifact and send the owner its link
    through your own channel. ⛔ Never share it: it shows the owner's photos.
    ⛔ The page saves the owner's answers by republishing itself on Send, so

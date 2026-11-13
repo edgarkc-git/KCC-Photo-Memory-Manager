@@ -30,6 +30,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "scripts"))
 
 import photo_onboard_page as op  # noqa: E402
 import photo_profile  # noqa: E402
+import photo_platform  # noqa: E402
+
+# G98 — no page here depends on this computer's region setting.
+os.environ[photo_platform.REGION_ENV] = ""
 
 # The pack a new owner is really given. Read, never restated: the whole of
 # U3-32 layer 1 is that this file said something the code did not.
@@ -830,6 +834,48 @@ def country_cases(tmp, wd):
     blank = op.parse_lines(">>> country:\n")
     check("C5 a blank sheet country line is no answer, not an error (GUARD)",
           blank["country"] == "" and "country" in blank["blank"])
+
+
+def country_suggestion_cases(tmp, wd):
+    """G84 / G98 B (OA-24 c) — the sheet and the page SHOW a suggested home
+    country (home-01's outline, else this computer's region setting) beside
+    a question whose answer stays blank; a pack that already answered, a
+    null included, is never asked again. ⛔ FAILS on b399f02 (no
+    suggestion, and a null pack was asked again)."""
+    saved = os.environ.get(photo_platform.REGION_ENV)
+    try:
+        os.environ[photo_platform.REGION_ENV] = "JP"
+        by_region = op.country_suggestion({"language": "en"})
+        by_home = op.country_suggestion({"language": "en", "home_locations": [
+            {"id": "home-01", "lat": 35.6812, "lon": 139.7671}]})
+        asked = op.country_suggestion({"language": "en", "country": None})
+        os.environ[photo_platform.REGION_ENV] = ""
+        nothing = op.country_suggestion({"language": "en"})
+    finally:
+        os.environ[photo_platform.REGION_ENV] = saved if saved is not None else ""
+    check("G98 the suggestion is home-01's country, else the region setting, "
+          "else none (REPRODUCTION)",
+          by_home == {"suggested": ["JP", "your first home's location"]}
+          and by_region == {"suggested": ["JP", "this computer's region setting"]}
+          and nothing == {}, "%r %r %r" % (by_home, by_region, nothing))
+    check("G98 a pack whose country is null was asked: never asked again "
+          "(REPRODUCTION)", asked == {"asked": True}, "%r" % (asked,))
+    base = {"known": None, "common": list(op.COUNTRY_COMMON), "codes": sorted(op.ISO2)}
+    d = data_of(render_to(wd, os.path.join(tmp, "suggest.html"), False))
+    shown = dict(d, country=dict(base, suggested=["JP", "this computer's region setting"]))
+    sheet = op.sheet_text(shown, op.sheet_blocks(shown), {}, "digest")
+    lines = sheet.splitlines()
+    ask = [l for l in lines if l.startswith(">>> country:")]
+    check("G98 the sheet shows the suggestion and leaves the answer blank "
+          "(REPRODUCTION)", "#     suggested: JP (from this computer's region "
+          "setting)" in lines and ask == [">>> country:"], "%r" % (ask,))
+    told = dict(d, country=dict(base, asked=True))
+    check("G98 the sheet does not ask a pack that already answered (REPRODUCTION)",
+          ">>> country:" not in op.sheet_text(told, op.sheet_blocks(told), {}, "digest"))
+    tpl = io.open(op.TEMPLATE, encoding="utf-8").read()
+    check("G98 the page shows the suggestion and skips an answered pack "
+          "(REPRODUCTION)", "!(D.country || {}).asked && countryAsk(" in tpl
+          and '"Suggested: " + D.country.suggested[0]' in tpl)
 
 
 def printed_line_cases(tmp):
@@ -2170,6 +2216,7 @@ def main():
         no_size_video_cases(tmp)
         printed_line_cases(tmp)
         country_cases(tmp, wd)
+        country_suggestion_cases(tmp, wd)
         nothing_new_cases(tmp, wd)
 
         # ---- 15. U3-06: what the evidence strips withhold, and say ---------

@@ -1037,6 +1037,33 @@ def oa24b_the_lookup_mode_follows_the_dated_home_day_test():
         f"rc={rc} got={got} {err[-200:]}"
 
 
+@case
+def g98_the_region_setting_and_a_blank_country_change_no_lookup():
+    """GUARD (G84 / G98 E). where.json for a pack never asked its country is
+    the same with a non-TW region setting (JP) and with none, and the same
+    for a pack that answered blank (`"country": null`): the suggestion is
+    only shown, never used."""
+    shinjuku, seoul = (35.6896, 139.7006), (37.5663, 126.9779)
+    homes = [{"lat": 25.0340, "lon": 121.5645}]
+    layout = [("2022-03-01", [(shinjuku, 9), (shinjuku, 10)]),
+              ("2022-03-02", [(seoul, 9), (seoul, 10)])]
+    outs, saved = [], os.environ.get("PHOTO_TEST_REGION")
+    try:
+        for code, extra in (("JP", {}), ("", {}), ("JP", {"country": None})):
+            os.environ["PHOTO_TEST_REGION"] = code
+            with tempfile.TemporaryDirectory() as tmp:
+                rc, out, _stdout, err, _ = run_layout(
+                    tmp, {"language": "en", "home_locations": homes, **extra}, layout)
+                outs.append(json.dumps(out, sort_keys=True).replace(tmp, "<T>")
+                            if rc == 0 and out else f"rc={rc} {err[-200:]}")
+    finally:
+        if saved is None:
+            os.environ.pop("PHOTO_TEST_REGION", None)
+        else:
+            os.environ["PHOTO_TEST_REGION"] = saved
+    return (len(set(outs)) == 1 and outs[0].startswith("{")), f"{[o[:120] for o in outs]}"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")

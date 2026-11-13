@@ -2360,6 +2360,37 @@ def oa24b_the_confirmed_country_is_home_while_only_a_home_abroad_is_valid():
     return None if got == ["TW_AWAY", "OVERSEAS"] else f"got {got}"
 
 
+@case
+def g98_the_region_setting_and_a_blank_country_change_no_day():
+    """GUARD (G84 / G98 E, LL-PHO-132). The suggested country is only shown:
+    for a pack never asked its country, batches.json is the same with a
+    non-TW region setting (JP) and with none, and the same again for a pack
+    that answered blank (`"country": null`), on each route the pack takes
+    ($PHOTO_PROFILE, --profile, collection.json)."""
+    homes = OA24B_HOMES
+    got, saved = {}, os.environ.get("PHOTO_TEST_REGION")
+    try:
+        for route in ("env", "flag", "collection"):
+            outs = []
+            for code, extra in (("JP", {}), ("", {}), ("JP", {"country": None})):
+                os.environ["PHOTO_TEST_REGION"] = code
+                profile = {"language": "en", "home_locations": homes, **extra}
+                if route == "collection":
+                    rc, out, _so, err = run_bound(OA24B_DAYS, profile,
+                                                  ("--away-km", str(AWAY_KM)))
+                else:
+                    rc, out, _so, err = run(OA24B_DAYS, profile, route=route)
+                outs.append(json.dumps(out, sort_keys=True) if rc == 0 and out
+                            else f"rc={rc} {err[-200:]}")
+            got[route] = len(set(outs)) == 1 and outs[0].startswith("{")
+    finally:
+        if saved is None:
+            os.environ.pop("PHOTO_TEST_REGION", None)
+        else:
+            os.environ["PHOTO_TEST_REGION"] = saved
+    return None if all(got.values()) else f"same per route: {got}"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("-v", "--verbose", action="store_true")

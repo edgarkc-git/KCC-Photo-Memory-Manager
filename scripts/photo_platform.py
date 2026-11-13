@@ -215,3 +215,63 @@ def source_missing_hint(volumes=VOLUMES):
     except OSError:
         return "  the drive may not be connected — check the path, then run this again."
     return f"  volume not mounted? currently mounted: {', '.join(names)}"
+
+
+# G84 — the test seam for the computer's region setting: when set, it
+# replaces the OS read ("" = no region), so no page depends on the machine.
+REGION_ENV = "PHOTO_TEST_REGION"
+
+
+def os_region(os_name=None, run=None):
+    """-> this computer's region setting as a two-letter code, or None.
+    macOS: Language & Region (`AppleLocale`, `en_XX` -> XX); Windows: the
+    Region setting (.NET `RegionInfo.CurrentRegion`); elsewhere `$LANG`
+    (`en_XX.UTF-8` -> XX). Nothing goes online; any failure is None."""
+    if REGION_ENV in os.environ:
+        value = os.environ[REGION_ENV].strip().upper()
+        return value if len(value) == 2 and value.isalpha() else None
+    import subprocess
+    run = run or subprocess.run
+    os_name = os_name or (("nt" if HOST_OS == "nt" else
+                           "darwin" if sys.platform == "darwin" else "posix"))
+    try:
+        if os_name == "darwin":
+            out = run(["defaults", "read", "-g", "AppleLocale"], capture_output=True,
+                      text=True, timeout=10).stdout
+        elif os_name == "nt":
+            out = run(["powershell", "-NoProfile", "-Command",
+                       "[System.Globalization.RegionInfo]::CurrentRegion."
+                       "TwoLetterISORegionName"], capture_output=True, text=True,
+                      timeout=20).stdout
+            out = "_" + out
+        else:
+            out = os.environ.get("LANG", "")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    _lang, sep, region = out.strip().split(".")[0].split("@")[0].rpartition("_")
+    region = region.upper()
+    return region if sep and len(region) == 2 and region.isalpha() else None
+
+
+# How each suggestion source is said on a page (the sheet and Review folders).
+SUGGESTION_SOURCE = {"home": "your first home's location",
+                     "region": "this computer's region setting"}
+
+
+def suggested_country(first_home=None, locate=None):
+    """G84 — -> (code, source): the home country to SUGGEST, never to use.
+    `first_home` (lat, lon) is the pack's home-01; its country outline wins
+    (`source` "home"), else this computer's region setting ("region"),
+    else (None, None). ⛔ Only the onboarding sheet and the Review folders
+    renderer call it; no typing or naming stage does. `locate` is the
+    point-to-country test, `photo_cluster.outline_country` unless a test
+    passes one (imported here, at call time, so this module still imports
+    no stage)."""
+    if first_home:
+        if locate is None:
+            from photo_cluster import outline_country as locate
+        code = locate(tuple(first_home[:2]))
+        if code:
+            return code, "home"
+    code = os_region()
+    return (code, "region") if code else (None, None)

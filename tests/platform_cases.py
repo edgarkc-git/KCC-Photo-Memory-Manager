@@ -340,6 +340,75 @@ def pack_init_bind_line_keeps_a_cjk_path_readable():
             and made is True), (text, parsed)
 
 
+
+class _Out:
+    def __init__(self, stdout):
+        self.stdout = stdout
+
+
+@case
+def g84_the_region_setting_is_read_per_os_and_the_seam_wins():
+    """⭐ NEW (OA-24 c, G84; fails on its parent only because the reader is
+    missing). The computer's region setting, per OS, from faked OS answers:
+    macOS `AppleLocale`, Windows' RegionInfo, `$LANG` elsewhere; a reply
+    that is no two-letter code is None. PHOTO_TEST_REGION replaces the OS
+    read ("" = none), so no page depends on the machine it runs on."""
+    import os
+    import photo_platform as pp
+    if not hasattr(pp, "os_region"):
+        return False, "photo_platform has no os_region"
+    saved = {k: os.environ.get(k) for k in (pp.REGION_ENV, "LANG")}
+    try:
+        os.environ.pop(pp.REGION_ENV, None)
+        os.environ["LANG"] = "en_NZ.UTF-8"
+        got = {"darwin": pp.os_region("darwin", run=lambda *a, **k: _Out("en_JP\n")),
+               "darwin-odd": pp.os_region("darwin", run=lambda *a, **k: _Out("en\n")),
+               "nt": pp.os_region("nt", run=lambda *a, **k: _Out("DE\r\n")),
+               "posix": pp.os_region("posix")}
+        os.environ[pp.REGION_ENV] = "kr"
+        got["seam"] = pp.os_region("darwin", run=lambda *a, **k: _Out("en_JP\n"))
+        os.environ[pp.REGION_ENV] = ""
+        got["seam-blank"] = pp.os_region("darwin", run=lambda *a, **k: _Out("en_JP\n"))
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    want = {"darwin": "JP", "darwin-odd": None, "nt": "DE", "posix": "NZ",
+            "seam": "KR", "seam-blank": None}
+    return got == want, f"got={got}"
+
+
+@case
+def g84_the_suggestion_is_home_01s_country_then_the_region():
+    """⭐ NEW (OA-24 c, G84). The suggested country: home-01's outline first
+    (Tokyo Station -> JP, a public point), else the region setting, else
+    nothing. Only ever a suggestion: no typing or naming stage calls it."""
+    import os
+    import photo_platform as pp
+    if not hasattr(pp, "suggested_country"):
+        return False, "photo_platform has no suggested_country"
+    saved = os.environ.get(pp.REGION_ENV)
+    try:
+        os.environ[pp.REGION_ENV] = "NZ"
+        got = [pp.suggested_country((35.6812, 139.7671)), pp.suggested_country(None),
+               pp.suggested_country((0.0, -140.0))]
+        os.environ[pp.REGION_ENV] = ""
+        got.append(pp.suggested_country(None))
+    finally:
+        if saved is None:
+            os.environ.pop(pp.REGION_ENV, None)
+        else:
+            os.environ[pp.REGION_ENV] = saved
+    want = [("JP", "home"), ("NZ", "region"), ("NZ", "region"), (None, None)]
+    stages = sorted(p.name for p in (ROOT / "scripts").glob("*.py")
+                    if p.name not in ("photo_platform.py", "photo_onboard_page.py",
+                                      "photo_index.py", "photo_fixplan_page.py")
+                    and "suggested_country(" in p.read_text(encoding="utf-8"))
+    return got == want and stages == [], f"got={got} other callers={stages}"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")

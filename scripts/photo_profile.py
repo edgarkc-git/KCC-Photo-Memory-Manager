@@ -1990,6 +1990,18 @@ SETTINGS_VOCAB = {
         "settings_refuse_home_args": "home takes a home's id or label, then "
                                      "`from YYYY-MM` and/or `until YYYY-MM` "
                                      "(`open` clears one).",
+        # the home country (G84 / G98): `photo_settings.py country`
+        "settings_country_unset": "not set (never asked)",
+        "settings_country_blank": "blank (asked, left unset)",
+        "settings_country_tagline": "This decides which days count as abroad "
+                                    "from the next run that types the days: "
+                                    "with a country, a day is abroad only "
+                                    "outside it and outside every home valid "
+                                    "that day; blank keeps the test from "
+                                    "before. It moves no file already copied.",
+        "settings_refuse_country": "{value} is not a two-letter country code "
+                                   "(ISO 3166-1, for example TW or US). Write "
+                                   "`blank` to leave it unset.",
         "settings_pack_line": "pack: {owner} · {path}",
         "settings_no_pack_line": "no pack bound — every value below is the "
                                  "engine's own default.",
@@ -2286,6 +2298,13 @@ def name_budget(profile):
 
     return (number("hard", photo_name.DEFAULT_NAME_BUDGET_HARD),
             number("soft", photo_name.DEFAULT_NAME_BUDGET_SOFT))
+
+
+def country_asked(profile):
+    """G98 (OA-24 c) — True once the owner was asked the home country: the
+    `country` key is present, a null included (asked, left blank). The ONE
+    test for "ask it?" beside `country()`, the one reader of its value."""
+    return isinstance(profile, dict) and "country" in profile
 
 
 def country(profile):

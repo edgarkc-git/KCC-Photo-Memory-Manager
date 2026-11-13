@@ -6,6 +6,7 @@ pack. The script reads, resolves, validates and writes; the SKILL talks.
   python3 photo_settings.py explain <key> [--workdir W] [--profile P]
   python3 photo_settings.py set <key> <value> [--workdir W] [--profile P] --go
   python3 photo_settings.py home <id|label> [from YYYY-MM] [until YYYY-MM] --go
+  python3 photo_settings.py country <XX|blank> [--profile P] --go
 
 Exit 0 = the command answered. A refused `set` exits 2, so a caller can tell
 "I would not do that" from "something broke".
@@ -521,6 +522,55 @@ def apply_home(argv, pack, smsg, go=False):
     return 0
 
 
+# ------------------------------------------------------------- country -----
+
+# G98 (OA-24 c) — the word that stores `"country": null`: asked, left blank.
+COUNTRY_BLANK = "blank"
+
+
+def apply_country(raw, pack, smsg, go=False):
+    """`country <XX|blank>` — the ONE writer of the pack's home country (the
+    Review folders HOME-COUNTRY row calls it too). `XX` is checked against
+    ISO 3166-1; `blank` stores null: asked, left unset, so the day test stays
+    the v2.4.0 one and nothing asks again. Dry run unless `go`; with it the
+    pack is copied to a `.bak-…` first."""
+    word = (raw or "").strip()
+    if word.casefold() == COUNTRY_BLANK:
+        value = None
+    else:
+        from photo_onboard_page import ISO2
+        value = word.upper()
+        if value not in ISO2:
+            raise Refused("country", smsg["settings_refuse_country"].format(value=word))
+    if not pack.dir:
+        raise Refused("country", smsg["settings_refuse_no_pack"])
+
+    def shown(v):
+        return v if v else smsg["settings_country_blank"]
+    asked = photo_profile.country_asked(pack.profile)
+    old = photo_profile.country(pack.profile)
+    if asked and old == value:
+        print(smsg["settings_no_change"].format(key="country", value=shown(value)))
+        return 0
+    after = json.loads(json.dumps(pack.profile))
+    after["country"] = value
+    print(smsg["settings_plan_change"].format(
+        key="country", old=shown(old) if asked else smsg["settings_country_unset"],
+        value=shown(value), layer=smsg[LAYER_MESSAGE_KEY[PACK]]))
+    print(smsg["settings_country_tagline"])
+    if not go:
+        print(smsg["settings_dry_run"])
+        return 0
+    path = Path(pack.dir) / photo_profile.PROFILE_NAME
+    backup = f"{path}.bak-{datetime.now().strftime('%Y%m%d-%H%M%S')}-country"
+    shutil.copy2(path, backup)
+    print(smsg["settings_written"].format(path=write_profile(pack, after)))
+    print(smsg["settings_home_backup"].format(path=backup))
+    pack.profile.clear()
+    pack.profile.update(after)
+    return 0
+
+
 # ---------------------------------------------------------------- main -----
 
 def parse_flags(pairs, smsg):
@@ -541,10 +591,11 @@ def parse_flags(pairs, smsg):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("command", choices=("show", "explain", "set", "home"))
+    ap.add_argument("command", choices=("show", "explain", "set", "home", "country"))
     ap.add_argument("args", nargs="*", help="explain <key> · set <key> <value> · "
                                             "home <id|label> [from YYYY-MM] "
-                                            "[until YYYY-MM]")
+                                            "[until YYYY-MM] · country "
+                                            "<XX|blank>")
     ap.add_argument("--workdir", help="a dump work dir, to find collection.json")
     ap.add_argument("--profile", help="a pack folder or photo-profile.json")
     ap.add_argument("--flag", action="append",
@@ -570,6 +621,10 @@ def main():
                            as_json=args.as_json)
         if args.command == "home":
             return apply_home(args.args, pack, smsg, go=args.go)
+        if args.command == "country":
+            if len(args.args) != 1:
+                sys.exit("country takes a two-letter code or `blank`")
+            return apply_country(args.args[0], pack, smsg, go=args.go)
         if len(args.args) != 2:
             sys.exit("set takes a key and a value")
         return apply_set(args.args[0], args.args[1], pack, collection, smsg,

@@ -57,13 +57,24 @@ overrides it.
 | "what does *this one* do?" · before any change | `explain <key>` |
 | "change it" | `set <key> <value>` — then `--go` |
 | "I lived there from … until …" · no trip abroad is proposed | `home <id or label> from YYYY-MM until YYYY-MM` — then `--go` |
+| "my home country is …" · "leave it unset" | `country <XX or blank>` — then `--go` |
 
 ```
 python3 scripts/photo_settings.py show    [--workdir W] [--profile P] [--flag k=v] [-v]
 python3 scripts/photo_settings.py explain <key> [--workdir W] [--profile P]
 python3 scripts/photo_settings.py set <key> <value> [--workdir W] [--profile P] --go
 python3 scripts/photo_settings.py home <id|label> [from YYYY-MM] [until YYYY-MM] [--workdir W] [--profile P] --go
+python3 scripts/photo_settings.py country <XX|blank> [--workdir W] [--profile P] --go
 ```
+
+**The home country (G84, G98).** `country` writes the pack's `country`: a
+two-letter ISO 3166-1 code, or `blank` for "asked, left unset" (stored as
+null; the day test stays the one from before, and nothing asks again). With
+a country, a day is abroad only outside it and outside every home valid that
+day. It is the same writer the Review folders HOME-COUNTRY row uses. Dry run
+first, read the line back to the owner, and only on their yes add `--go`;
+the pack is copied to a `.bak-…-country` first. It refuses a code that is not
+ISO 3166-1.
 
 **A home's dates (G49).** A home with no dates counts on every day. A home
 outside the owner's country with no dates therefore makes every day abroad

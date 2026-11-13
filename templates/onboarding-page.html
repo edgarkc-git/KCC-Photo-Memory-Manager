@@ -648,7 +648,9 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
       }
     }
     var allRows = D.homes.rows.concat(near);
-    if(countryAsk((D.country || {}).known, state.homes, allRows)){
+    /* G98 — a pack that already answered (a null country included) is never
+       asked again. */
+    if(!(D.country || {}).asked && countryAsk((D.country || {}).known, state.homes, allRows)){
       var cbox = el("div","opt");
       cbox.appendChild(el("div","opt-title",
         "Mark this country as your primary home country?"));
@@ -656,6 +658,11 @@ footer code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
         "You said you live at a place above. Pick its country, so days away from it count "
         + "as abroad. Nothing goes online for this: it is your answer. Leave it blank and "
         + "no day is called abroad."));
+      /* G84 / G98 — the suggestion is only shown; nothing is picked for you. */
+      if((D.country || {}).suggested){
+        cbox.appendChild(el("div","consequence", "Suggested: " + D.country.suggested[0]
+          + " (from " + D.country.suggested[1] + ")."));
+      }
       var csel = document.createElement("select");
       [""].concat((D.country || {}).common || [], ["other"]).forEach(function(c){
         var op = document.createElement("option");

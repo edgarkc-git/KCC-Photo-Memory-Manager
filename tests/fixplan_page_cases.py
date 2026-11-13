@@ -24,6 +24,10 @@ sys.path.insert(0, str(ROOT / "tests"))
 import photo_fixplan_page as fp  # noqa: E402
 
 import photo_index  # noqa: E402
+import photo_platform  # noqa: E402
+
+# G98 — no page here depends on this computer's region setting.
+os.environ[photo_platform.REGION_ENV] = ""
 
 # The plan as the fix plan stage writes it: its own writer, never a copy of
 # its format (one row format, `photo_index.FIX_ROW`).
@@ -517,6 +521,32 @@ def a_whole_folder_name_in_the_word_box_holds_only_its_row():
             and "row 1: a whole folder name" in r.stdout
             and "--agent F001 --to \"20250104_Old Pier_beach\"" in r.stdout
             and "not the whole folder name" in tpl), f"{raw} {r.stdout[-400:]!r} {r.stderr[-200:]!r}"
+
+
+@case
+def the_home_country_row_is_shown_and_takes_a_country_code():
+    """⭐ REPRODUCTION (G84 / G98 C). ⛔ FAILS on b399f02: the stage's row
+    pattern read only folder rows, so the pack-level HOME-COUNTRY row was no
+    row at all. It is read and shown with My word as a country code: `jp`
+    lands, `ZZ` (not ISO 3166-1) is held for that row only, and `ok` / an
+    open row are what the stage applies."""
+    row = {"op": "HOME-COUNTRY", "rule": "G84", "folder": "pack", "from": "(not set)",
+           "to": "TD", "reason": "your home country, suggested from your first "
+           "home's location — `ok` sets TD", "photos": 0}
+    text = plan_text(ops=[row], refused=[])
+    plan = fp.parse_plan(text)
+    data = fp.build_data(plan, "/nowhere", 64, 50)["rows"]
+    got = {}
+    for why, answers in {"code": {1: "word:jp"}, "not a code": {1: "word:ZZ"},
+                         "ok": {1: "ok"}}.items():
+        _new, done, _w, held = fp.apply_reply(text, None, answers)
+        got[why] = (bool(done), bool(held))
+    landed = fp.decided(fp.apply_reply(text, None, {1: "word:jp"})[0])
+    return (len(data) == 1 and data[0]["op"] == "HOME-COUNTRY" and data[0]["folder"] == "pack"
+            and data[0]["word"] == "country" and data[0]["photos"] == 0
+            and got == {"code": (True, False), "not a code": (False, True), "ok": (True, False)}
+            and landed == {1: "word:jp"} and fp.decided(text) == {1: "skip"}), \
+        f"data={data} got={got} landed={landed}"
 
 
 def main():
