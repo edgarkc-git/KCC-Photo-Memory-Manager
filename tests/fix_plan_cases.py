@@ -2490,6 +2490,7 @@ def g98_a_pack_never_asked_its_country_gets_one_row_that_never_blocks():
     want = "1. HOME-COUNTRY (G84) · pack · `(not set)` → `TD` · "
     return (code == 0 and len(got) == 1 and got[0].startswith(want)
             and "your first home's location" in got[0]
+            and "a country applies from the next run that types the days" in got[0]
             and got[0].endswith("0 photo(s) · answer: ______")
             and fcode == 0 and "frozen" in fout), f"code={code} rows={got} freeze={fcode} {ferr[-200:]}"
 

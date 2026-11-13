@@ -381,6 +381,47 @@ def g84_the_region_setting_is_read_per_os_and_the_seam_wins():
 
 
 @case
+def g98_the_region_setting_is_read_from_the_os_once_per_process():
+    """⭐ REPRODUCTION (G98 c, Lead ruling). ⛔ FAILS on f47558f: every draft
+    of the fix plan started the OS read again (PowerShell on Windows). The
+    OS read is made once per process; PHOTO_TEST_REGION is still read first
+    on every call, so a test that changes it still sees the change."""
+    import os
+    import subprocess
+    import photo_platform as pp
+    calls = []
+    real = subprocess.run
+    saved = os.environ.get(pp.REGION_ENV)
+    cache = getattr(pp, "_OS_REGION", None)
+    before = dict(cache) if isinstance(cache, dict) else None
+
+    def fake(*a, **k):
+        calls.append(a)
+        return _Out("en_JP\n")
+    try:
+        subprocess.run = fake
+        if isinstance(cache, dict):
+            cache.clear()
+        os.environ.pop(pp.REGION_ENV, None)
+        first = [pp.os_region("darwin") for _ in range(3)]
+        os.environ[pp.REGION_ENV] = "kr"
+        seam = pp.os_region("darwin")
+        os.environ.pop(pp.REGION_ENV, None)
+        after = pp.os_region("darwin")
+    finally:
+        subprocess.run = real
+        if saved is None:
+            os.environ.pop(pp.REGION_ENV, None)
+        else:
+            os.environ[pp.REGION_ENV] = saved
+        if isinstance(cache, dict):
+            cache.clear()
+            cache.update(before)
+    return (first == ["JP"] * 3 and len(calls) == 1 and seam == "KR"
+            and after == "JP"), f"first={first} calls={len(calls)} seam={seam} after={after}"
+
+
+@case
 def g84_the_suggestion_is_home_01s_country_then_the_region():
     """⭐ NEW (OA-24 c, G84). The suggested country: home-01's outline first
     (Tokyo Station -> JP, a public point), else the region setting, else

@@ -4771,7 +4771,8 @@ def rule_home_country(ctx):
     else:
         reason = "your home country, with no suggestion — "
     reason += ("`word: <two-letter code>` sets another, `skip` leaves it unset "
-               "and it is not asked again; not blocking")
+               "and it is not asked again; a country applies from the next run "
+               "that types the days; not blocking")
     return [fix_op(HOME_COUNTRY, HOME_COUNTRY_RULE, {"id": PACK_ROW},
                    COUNTRY_NOT_SET, code or "", 0, reason, source=source)]
 

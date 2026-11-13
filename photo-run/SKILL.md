@@ -602,7 +602,16 @@ it on a private web page:
    freeze. `ok` keeps the suggestion, My word takes a two-letter code, and
    Skip or an open row stores "asked, left blank" — the old day test, never
    asked again. Unanswered, it shows again on the next dump. The answer is
-   written to the pack with a backup (`photo_settings.py country`).
+   written to the pack with a backup (`photo_settings.py country`), and a
+   country applies from the next run that types the days.
+   ⛔ Because it never blocks, `fix-plan` can exit 0 with it open, and then
+   only the `check` line names it. When `check` lists an open HOME-COUNTRY
+   row and `fix-plan` exits 0, put that ONE question to the owner before the
+   freeze, **with AskUserQuestion**, quoting the suggestion: options
+   `Yes, <XX>`, `Another country` (the two letters through its own-answer
+   field) and `Leave it blank`. Write `ok`, `word: <XX>` or `skip` into that
+   row of `plan/fix-plan.md` and apply it with the line the plan prints.
+   (This is for HOME-COUNTRY only; a NAME-CHECK row stays as it is.)
 2. Publish that file as a **private** artifact and send the owner its link
    through your own channel. ⛔ Never share it: it shows the owner's photos.
    ⛔ The page saves the owner's answers by republishing itself on Send, so

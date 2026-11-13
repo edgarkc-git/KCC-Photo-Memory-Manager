@@ -220,16 +220,29 @@ def source_missing_hint(volumes=VOLUMES):
 # G84 — the test seam for the computer's region setting: when set, it
 # replaces the OS read ("" = no region), so no page depends on the machine.
 REGION_ENV = "PHOTO_TEST_REGION"
+# The OS read, made once per process (Windows starts PowerShell for it).
+_OS_REGION = {}
 
 
 def os_region(os_name=None, run=None):
     """-> this computer's region setting as a two-letter code, or None.
     macOS: Language & Region (`AppleLocale`, `en_XX` -> XX); Windows: the
     Region setting (.NET `RegionInfo.CurrentRegion`); elsewhere `$LANG`
-    (`en_XX.UTF-8` -> XX). Nothing goes online; any failure is None."""
+    (`en_XX.UTF-8` -> XX). Nothing goes online; any failure is None. The
+    seam is read first on every call; the OS read is cached per process
+    (a `run` a test passes is never cached)."""
     if REGION_ENV in os.environ:
         value = os.environ[REGION_ENV].strip().upper()
         return value if len(value) == 2 and value.isalpha() else None
+    if run is None:
+        key = os_name or "host"
+        if key not in _OS_REGION:
+            _OS_REGION[key] = _read_os_region(os_name, None)
+        return _OS_REGION[key]
+    return _read_os_region(os_name, run)
+
+
+def _read_os_region(os_name, run):
     import subprocess
     run = run or subprocess.run
     os_name = os_name or (("nt" if HOST_OS == "nt" else
