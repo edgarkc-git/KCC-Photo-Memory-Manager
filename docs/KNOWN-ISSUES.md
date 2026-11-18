@@ -1,9 +1,23 @@
 # Known issues
 
-## Next release (in development)
+## v2.5.0
+
+Measured in the v2.5.0 release checks: the full test set, a real trip slice
+and a picture pass on macOS, and a picture pass on Windows 11. Nothing here
+touches your original photos: the product stays copy-only.
 
 ### All platforms
 
+- **Confirming your home country can change folder names, most of all outside
+  Taiwan.** Until your pack has a confirmed country, the engine knows only
+  Taiwan's borders: an owner living elsewhere gets no day abroad and no trip
+  offers. Once you confirm your country (the onboarding question, the Review
+  folders HOME-COUNTRY row, or `photo_settings.py country`), days outside it
+  and outside every home valid that day become days abroad, from the next run
+  that sorts the days. Their batches are labelled as abroad, Review folders
+  can offer a trip folder for them, and a stop with no landmark is named by
+  its town abroad but by its district at home (before, for an owner outside
+  Taiwan, by its town everywhere). Folders already copied keep their names.
 - **Home country outside Taiwan: day types keep their Taiwan names.** Once your
   pack's country is confirmed, "abroad" follows your homes and their dates
   for any country, but the day types are still called `TW_HOME`/`TW_AWAY`
@@ -15,6 +29,16 @@
   offer a trip that also covers the days you spent at that home: its days were
   sorted before the country was set. Skip that row; from the next dump, days
   at a home abroad count as home.
+- **The onboarding country question still says "outside TW" in its help
+  text,** even when it suggests another country. The suggestion is right; the
+  sentence is only about which homes the question is for.
+- **A NAME-CHECK row is answered at `check`, before the freeze** (as in
+  v2.4.0). If you leave it open and freeze, answering it later needs
+  `photo_index.py unfreeze`, then render, check and freeze again. It never
+  blocks the copy.
+- **Dropping a place word from a trip's leg on Review folders also changes the
+  trip parent's name.** This passed the test set but is not yet run on a real
+  trip.
 
 ## v2.4.0
 
